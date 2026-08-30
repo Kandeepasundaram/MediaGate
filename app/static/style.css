@@ -555,6 +555,16 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   cursor: default;
 }
 
+.gallery-card.gallery-focused {
+  outline: 2px solid var(--accent, #4a9eff);
+  outline-offset: -2px;
+}
+
+.gallery-load-more-btn {
+  grid-column: 1 / -1;
+  margin: 12px auto;
+}
+
 .gallery-poster {
   width: 100%;
   aspect-ratio: 2 / 3;

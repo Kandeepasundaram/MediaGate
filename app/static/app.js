@@ -8,7 +8,29 @@ const state = {
   tvStatusCache: {}, // tmdb_id -> TvStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
   movieStatusCache: {}, // tmdb_id -> MovieStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
   pendingGenreRestore: { movies: null, tv: null }, // saved genre filter value applied on the first gallery load only
+  moviesRenderLimit: 60,
+  moviesFilterSignature: "",
+  tvRenderLimit: 60,
+  tvFilterSignature: "",
 };
+
+const GALLERY_PAGE_SIZE = 60;
+
+// Caps how many cards get rendered/badge-fetched at once -- a library with
+// thousands of items would otherwise build thousands of DOM nodes and fire
+// a TMDB status lookup per card on every filter/sort change. Resets to the
+// first page only when the filter/sort/query signature actually changes,
+// not on every re-render (e.g. toggling one item's watched state), so
+// "Load More" progress survives incidental re-renders.
+function paginateGallery(stateKeyPrefix, items, signature) {
+  const sigKey = `${stateKeyPrefix}FilterSignature`;
+  const limitKey = `${stateKeyPrefix}RenderLimit`;
+  if (state[sigKey] !== signature) {
+    state[sigKey] = signature;
+    state[limitKey] = GALLERY_PAGE_SIZE;
+  }
+  return { visible: items.slice(0, state[limitKey]), total: items.length, limitKey };
+}
 
 function $(sel) { return document.querySelector(sel); }
 function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
@@ -262,19 +284,21 @@ function renderMoviesGallery() {
   const genreFilter = $("#movies-genre").value;
   const resolutionFilter = $("#movies-resolution").value;
   const items = filterAndSort(state.movieItems, query, sortMode, "title", filterMode, genreFilter, resolutionFilter);
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, resolutionFilter]);
+  const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
-    (items.length !== state.movieItems.length ? ` (${items.length} shown)` : "");
+    (total !== state.movieItems.length ? ` (${total} shown)` : "");
 
   if (state.movieItems.length === 0) {
     gallery.innerHTML = `<p class="gallery-empty">No movies found — approve some from "Ready to Archive", or drop files into your movies archive folder and reload this tab.</p>`;
     return;
   }
-  if (items.length === 0) {
+  if (total === 0) {
     gallery.innerHTML = `<p class="gallery-empty">No movies match${query ? ` "${query}"` : ""}${filterMode === "unmatched" ? " (unmatched filter)" : ""}.</p>`;
     return;
   }
-  gallery.innerHTML = items.map((item, i) => `
+  gallery.innerHTML = visible.map((item, i) => `
     <div class="gallery-card" data-item-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
       <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
@@ -293,15 +317,61 @@ function renderMoviesGallery() {
         </div>
       </div>
     </div>
-  `).join("");
-  wireWatchedToggles(gallery, items);
+  `).join("") + galleryLoadMoreMarkup(visible.length, total);
+  wireWatchedToggles(gallery, visible);
   gallery.querySelectorAll(".gallery-select").forEach((cb) => {
     cb.addEventListener("click", (e) => e.stopPropagation());
   });
   gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
-    card.addEventListener("click", () => openDetailPane("movie", items[i]));
+    card.addEventListener("click", () => openDetailPane("movie", visible[i]));
   });
-  loadMovieGalleryBadges(items);
+  wireGalleryLoadMore(gallery, limitKey, renderMoviesGallery);
+  loadMovieGalleryBadges(visible);
+}
+
+function activeGalleryContext() {
+  if ($("#tab-movies").classList.contains("active")) return { container: $("#movies-gallery") };
+  if ($("#tab-tv").classList.contains("active")) return { container: $("#tv-gallery") };
+  return null;
+}
+
+// Linear (not row/column-aware) card-to-card nav -- simple, and the number
+// of columns per row changes with window width anyway, so a strictly
+// grid-aware up/down wouldn't stay correct without recomputing layout.
+function moveGalleryFocus(delta) {
+  const ctx = activeGalleryContext();
+  if (!ctx) return;
+  const cards = Array.from(ctx.container.querySelectorAll(".gallery-card"));
+  if (cards.length === 0) return;
+  const current = cards.findIndex((c) => c.classList.contains("gallery-focused"));
+  const next = Math.max(0, Math.min(cards.length - 1, current === -1 ? 0 : current + delta));
+  cards.forEach((c) => c.classList.remove("gallery-focused"));
+  cards[next].classList.add("gallery-focused");
+  cards[next].scrollIntoView({ block: "nearest" });
+}
+
+function activateGalleryFocus() {
+  const ctx = activeGalleryContext();
+  if (!ctx) return false;
+  const focused = ctx.container.querySelector(".gallery-focused");
+  if (!focused) return false;
+  focused.click();
+  return true;
+}
+
+function galleryLoadMoreMarkup(shownCount, total) {
+  return shownCount < total
+    ? `<button class="gallery-load-more-btn">Load ${Math.min(GALLERY_PAGE_SIZE, total - shownCount)} More (${shownCount} of ${total} shown)</button>`
+    : "";
+}
+
+function wireGalleryLoadMore(gallery, limitKey, rerender) {
+  const btn = gallery.querySelector(".gallery-load-more-btn");
+  if (!btn) return;
+  btn.addEventListener("click", () => {
+    state[limitKey] += GALLERY_PAGE_SIZE;
+    rerender();
+  });
 }
 
 // Best-effort "related title available" badge per movie card (sequel/prequel
@@ -365,19 +435,21 @@ function renderTvGallery() {
   const resolutionFilter = $("#tv-resolution").value;
   const allShows = groupEpisodesByShow(state.tvItems);
   const shows = filterAndSort(allShows, query, sortMode, "title", filterMode, genreFilter, resolutionFilter);
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, resolutionFilter]);
+  const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
-    (shows.length !== allShows.length ? ` (${shows.length} shown)` : "");
+    (total !== allShows.length ? ` (${total} shown)` : "");
 
   if (state.tvItems.length === 0) {
     gallery.innerHTML = `<p class="gallery-empty">No TV episodes found — approve some from "Ready to Archive", or drop files into your TV archive folder and reload this tab.</p>`;
     return;
   }
-  if (shows.length === 0) {
+  if (total === 0) {
     gallery.innerHTML = `<p class="gallery-empty">No shows match${query ? ` "${query}"` : ""}${filterMode === "unmatched" ? " (unmatched filter)" : ""}.</p>`;
     return;
   }
-  gallery.innerHTML = shows.map((show, i) => `
+  gallery.innerHTML = visible.map((show, i) => `
     <div class="gallery-card" data-show-index="${i}">
       <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">
         ${(show.tmdb_id == null && !show.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
@@ -391,11 +463,12 @@ function renderTvGallery() {
         </div>
       </div>
     </div>
-  `).join("");
+  `).join("") + galleryLoadMoreMarkup(visible.length, total);
   gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
-    card.addEventListener("click", () => openDetailPane("tv", shows[i]));
+    card.addEventListener("click", () => openDetailPane("tv", visible[i]));
   });
-  loadTvGalleryBadges(shows);
+  wireGalleryLoadMore(gallery, limitKey, renderTvGallery);
+  loadTvGalleryBadges(visible);
 }
 
 // Best-effort "new season/episodes available" badge per show card, filled in
@@ -1664,6 +1737,19 @@ function setupKeyboardShortcuts() {
 
     const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
     if (typing) return;
+
+    if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(e.key)) {
+      const ctx = activeGalleryContext();
+      if (ctx) {
+        e.preventDefault();
+        moveGalleryFocus(e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
+    }
+    if (e.key === "Enter") {
+      const ctx = activeGalleryContext();
+      if (ctx && activateGalleryFocus()) return;
+    }
 
     if (e.key >= "1" && e.key <= "7") {
       switchToTab(TAB_KEYS[Number(e.key) - 1]);
