@@ -32,12 +32,14 @@ from app.models import (
     BrowseResponse,
     DeleteFileRequest,
     FileInfoOut,
+    LibraryHealthOut,
     LibraryItemOut,
     LibraryResponse,
     MediaType,
     MetadataStatusResponse,
     MovieRelatedTitleOut,
     MovieStatusOut,
+    OrphanCleanupResponse,
     RatingsOut,
     RematchImdbRequest,
     RematchResponse,
@@ -120,6 +122,54 @@ def metadata_status(media_type: MediaType | None = None, db: Database = Depends(
         pending=db.count_unmatched_media_items(media_type),
         failed=db.count_failed_match_items(media_type),
     )
+
+
+@router.get("/health", response_model=LibraryHealthOut)
+def library_health(db: Database = Depends(get_database)) -> LibraryHealthOut:
+    """Two library-wide sanity checks the gallery views don't otherwise
+    surface: orphans (a media_items row whose final_path no longer exists on
+    disk -- moved or deleted outside this app) and duplicates (more than one
+    row pointing at the same tmdb_id/season/episode, e.g. from organizing the
+    same episode from two different source files). Duplicates are reported
+    only, never auto-resolved -- picking which copy to keep is a judgment
+    call for the user via the existing delete-file action.
+    """
+    items = db.list_media_items()
+
+    orphans = [
+        _to_out(row) for row in items if row["final_path"] and not Path(row["final_path"]).exists()
+    ]
+
+    groups: dict[tuple, list[dict]] = {}
+    for row in items:
+        if row["tmdb_id"] is None:
+            continue
+        key = (row["tmdb_id"], row["media_type"], row["season_number"], row["episode_number"])
+        groups.setdefault(key, []).append(row)
+    duplicates = [[_to_out(r) for r in rows] for rows in groups.values() if len(rows) > 1]
+
+    return LibraryHealthOut(orphans=orphans, duplicates=duplicates)
+
+
+@router.post("/orphans/cleanup", response_model=OrphanCleanupResponse)
+def cleanup_orphans(db: Database = Depends(get_database)) -> OrphanCleanupResponse:
+    """Removes media_items rows whose final_path no longer exists on disk.
+    There's no file to delete (it's already gone) -- just the stale DB row --
+    so this logs a 'delete' operation for the audit trail without touching
+    the filesystem, same operation_type the single-file delete-file uses.
+    """
+    removed = 0
+    for row in db.list_media_items():
+        if row["final_path"] and not Path(row["final_path"]).exists():
+            db.log_operation(
+                operation_type="delete",
+                status="success",
+                media_id=row["id"],
+                details={"reason": "orphan_cleanup", "final_path": row["final_path"]},
+            )
+            db.delete_media_item(row["id"])
+            removed += 1
+    return OrphanCleanupResponse(removed=removed)
 
 
 @router.get("/tv-status", response_model=TvStatusOut)

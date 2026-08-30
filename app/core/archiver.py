@@ -6,7 +6,7 @@ import logging
 import shutil
 from datetime import datetime, timezone
 
-from app.core.renamer import RenamePlan, write_nfo
+from app.core.renamer import RenamePlan, download_artwork, write_nfo
 from app.core.tmdb_client import MediaResult
 from app.database import Database
 
@@ -39,6 +39,30 @@ def archive_file(db: Database, plan: RenamePlan) -> int:
     plan.dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
+        source_size = plan.source_path.stat().st_size
+    except OSError as exc:
+        db.log_operation(
+            operation_type="archive",
+            status="failed",
+            error_message=str(exc),
+            details={"source": str(plan.source_path), "dest": str(plan.dest_path)},
+        )
+        raise ArchiveError(f"Failed to copy {plan.source_path} -> {plan.dest_path}: {exc}") from exc
+
+    if source_size == 0:
+        # A 0-byte file is almost always a still-downloading or corrupt
+        # placeholder, not a real media file -- archiving it would just move
+        # the problem into the library instead of catching it here.
+        message = f"Source file is 0 bytes (likely still downloading or corrupt): {plan.source_path}"
+        db.log_operation(
+            operation_type="archive",
+            status="failed",
+            error_message=message,
+            details={"source": str(plan.source_path), "dest": str(plan.dest_path)},
+        )
+        raise ArchiveError(message)
+
+    try:
         shutil.copy2(plan.source_path, plan.dest_path)
         source_hash = _sha256(plan.source_path)
         dest_hash = _sha256(plan.dest_path)
@@ -55,6 +79,7 @@ def archive_file(db: Database, plan: RenamePlan) -> int:
         raise ArchiveError(f"Failed to copy {plan.source_path} -> {plan.dest_path}: {exc}") from exc
 
     _write_nfo_best_effort(plan)
+    _download_artwork_best_effort(plan)
 
     now = datetime.now(timezone.utc).isoformat()
     media_id = db.create_media_item(
@@ -101,3 +126,12 @@ def _write_nfo_best_effort(plan: RenamePlan) -> None:
         )
     except OSError as exc:
         logger.warning("NFO write failed for %s: %s", plan.dest_path, exc)
+
+
+def _download_artwork_best_effort(plan: RenamePlan) -> None:
+    """Saves poster.jpg alongside the archived file, same Plex/Jellyfin
+    convention as the .nfo -- Radarr/Sonarr already do this for files they
+    import, so a file archived through this app should look the same on
+    disk. download_artwork() is itself best-effort (network failures are
+    logged, not raised) and a no-op when there's no poster_path."""
+    download_artwork(plan.dest_path.parent, plan.poster_path)

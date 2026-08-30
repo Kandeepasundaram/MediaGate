@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -441,3 +442,69 @@ def test_file_info_404_for_unknown_item(client):
     c, _ = client
     resp = c.get("/api/library/999999/file-info")
     assert resp.status_code == 404
+
+
+def test_health_reports_orphan_when_final_path_missing(client):
+    c, db = client
+    _seed_movie(db, final_path=str(_archive_movies_dir(c) / "Gone.mkv"))
+
+    resp = c.get("/api/library/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["orphans"]) == 1
+    assert body["duplicates"] == []
+
+
+def test_health_ignores_item_whose_file_exists(client):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"data")
+    _seed_movie(db, final_path=str(video))
+
+    resp = c.get("/api/library/health")
+    assert resp.json()["orphans"] == []
+
+
+def test_health_reports_duplicate_group_for_same_tmdb_episode(client):
+    c, db = client
+    db.create_media_item(
+        original_path="a", final_path="/archive/a.mkv", title="Show", media_type="tv",
+        tmdb_id=42, season_number=1, episode_number=1,
+    )
+    db.create_media_item(
+        original_path="b", final_path="/archive/b.mkv", title="Show", media_type="tv",
+        tmdb_id=42, season_number=1, episode_number=1,
+    )
+
+    resp = c.get("/api/library/health")
+    duplicates = resp.json()["duplicates"]
+    assert len(duplicates) == 1
+    assert len(duplicates[0]) == 2
+
+
+def test_health_does_not_group_items_without_tmdb_id(client):
+    c, db = client
+    db.create_media_item(original_path="a", final_path="/archive/a.mkv", title="A", media_type="movie")
+    db.create_media_item(original_path="b", final_path="/archive/b.mkv", title="B", media_type="movie")
+
+    resp = c.get("/api/library/health")
+    assert resp.json()["duplicates"] == []
+
+
+def test_cleanup_orphans_removes_only_missing_files(client):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"data")
+    kept_id = _seed_movie(db, final_path=str(video))
+    orphan_id = _seed_movie(db, final_path=str(_archive_movies_dir(c) / "Gone.mkv"))
+
+    resp = c.post("/api/library/orphans/cleanup")
+    assert resp.status_code == 200
+    assert resp.json()["removed"] == 1
+
+    assert db.get_media_item(kept_id) is not None
+    assert db.get_media_item(orphan_id) is None
+    ops = db.list_operations(operation_type="delete")
+    assert json.loads(ops[0]["details"])["reason"] == "orphan_cleanup"

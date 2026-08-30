@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import json
 import shutil
+from unittest.mock import MagicMock
 
 import pytest
 
 from app.core.archiver import ArchiveError, archive_file
 from app.core.renamer import RenamePlan
+
+
+@pytest.fixture(autouse=True)
+def no_network_artwork(monkeypatch):
+    """archive_file best-effort-downloads poster art; stub it out so tests
+    don't make a real network call to image.tmdb.org."""
+    monkeypatch.setattr("app.core.archiver.download_artwork", MagicMock(return_value={}))
 
 
 def _plan(tmp_path, **overrides) -> RenamePlan:
@@ -63,6 +71,29 @@ def test_archive_file_writes_nfo_alongside_dest(db, tmp_path):
     nfo = plan.dest_path.parent / "movie.nfo"
     assert nfo.exists()
     assert "Movie" in nfo.read_text(encoding="utf-8")
+
+
+def test_archive_file_downloads_artwork_alongside_dest(db, tmp_path, monkeypatch):
+    spy = MagicMock(return_value={"poster.jpg": tmp_path / "dest" / "poster.jpg"})
+    monkeypatch.setattr("app.core.archiver.download_artwork", spy)
+    plan = _plan(tmp_path)
+
+    archive_file(db, plan)
+
+    spy.assert_called_once_with(plan.dest_path.parent, plan.poster_path)
+
+
+def test_archive_file_raises_on_zero_byte_source(db, tmp_path):
+    source = tmp_path / "empty.mkv"
+    source.write_bytes(b"")
+    plan = _plan(tmp_path, source_path=source)
+
+    with pytest.raises(ArchiveError, match="0 bytes"):
+        archive_file(db, plan)
+
+    assert not plan.dest_path.exists()
+    ops = db.list_operations(operation_type="archive")
+    assert ops[0]["status"] == "failed"
 
 
 def test_archive_file_raises_on_checksum_mismatch(db, tmp_path, monkeypatch):

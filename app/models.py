@@ -289,6 +289,15 @@ class MetadataStatusResponse(BaseModel):
     failed: int = 0
 
 
+class LibraryHealthOut(BaseModel):
+    orphans: list[LibraryItemOut] = Field(default_factory=list)
+    duplicates: list[list[LibraryItemOut]] = Field(default_factory=list)
+
+
+class OrphanCleanupResponse(BaseModel):
+    removed: int
+
+
 class SettingsOut(BaseModel):
     incoming_movies: str
     incoming_tv: str

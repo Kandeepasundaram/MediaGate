@@ -1095,6 +1095,42 @@ async function loadBrowse() {
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan=6>Error: ${e.message}</td></tr>`;
   }
+  loadLibraryHealth();
+}
+
+async function loadLibraryHealth() {
+  const card = $("#library-health-card");
+  const summary = $("#library-health-summary");
+  const cleanupBtn = $("#cleanup-orphans-btn");
+  try {
+    const data = await api("/api/library/health");
+    const orphanCount = data.orphans.length;
+    const duplicateCount = data.duplicates.length;
+    if (orphanCount === 0 && duplicateCount === 0) {
+      card.classList.add("hidden");
+      return;
+    }
+    card.classList.remove("hidden");
+    const parts = [];
+    if (orphanCount > 0) parts.push(`${orphanCount} orphaned record(s) (file missing on disk)`);
+    if (duplicateCount > 0) parts.push(`${duplicateCount} duplicate group(s)`);
+    summary.textContent = parts.join(" — ");
+    cleanupBtn.classList.toggle("hidden", orphanCount === 0);
+  } catch (e) {
+    card.classList.add("hidden");
+  }
+}
+
+async function cleanupOrphans() {
+  const ok = await showConfirm("Remove database records for archived files that no longer exist on disk? This does not touch any files.");
+  if (!ok) return;
+  try {
+    const data = await api("/api/library/orphans/cleanup", { method: "POST" });
+    $("#browse-status").textContent = `Removed ${data.removed} orphaned record(s).`;
+    loadLibraryHealth();
+  } catch (e) {
+    $("#browse-status").textContent = `Error: ${e.message}`;
+  }
 }
 
 async function deleteBrowseItem(index) {
@@ -1479,6 +1515,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
   $("#browse-refresh-btn").addEventListener("click", loadBrowse);
+  $("#cleanup-orphans-btn").addEventListener("click", cleanupOrphans);
   $("#browse-type").addEventListener("change", loadBrowse);
   $("#browse-filter").addEventListener("change", renderBrowseTable);
   $("#browse-organize-btn").addEventListener("click", organizeSelected);
