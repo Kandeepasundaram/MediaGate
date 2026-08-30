@@ -6,6 +6,22 @@ def test_init_db_creates_tables(db):
     assert {"media_items", "archive_tracker", "operation_log", "schema_meta"} <= tables
 
 
+def test_init_db_creates_indexes(db):
+    indexes = {r["name"] for r in db.fetch_all("SELECT name FROM sqlite_master WHERE type='index'")}
+    assert {
+        "idx_media_items_tmdb_id",
+        "idx_media_items_final_path",
+        "idx_media_items_media_type",
+        "idx_operation_log_created_at",
+    } <= indexes
+
+
+def test_maintenance_checkpoint_and_vacuum_runs_without_error(db):
+    db.create_media_item(original_path="x", title="T", media_type="movie")
+    db.maintenance_checkpoint_and_vacuum()
+    assert db.get_media_item(1)["title"] == "T"
+
+
 def test_create_and_get_media_item(db):
     item_id = db.create_media_item(
         original_path="/incoming/movie.mkv",
@@ -228,7 +244,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 5
+    assert version == 6
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -251,3 +267,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     # v5's media_items.imdb_id column exists and is usable.
     db.update_media_item(item_id, imdb_id="tt0111161")
     assert db.get_media_item(item_id)["imdb_id"] == "tt0111161"
+
+    # v6's indexes exist after upgrading from v1.
+    indexes = {r["name"] for r in db.fetch_all("SELECT name FROM sqlite_master WHERE type='index'")}
+    assert "idx_media_items_tmdb_id" in indexes

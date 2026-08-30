@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -63,6 +63,11 @@ CREATE TABLE IF NOT EXISTS operation_log (
     error_message TEXT,
     created_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id ON media_items(tmdb_id);
+CREATE INDEX IF NOT EXISTS idx_media_items_final_path ON media_items(final_path);
+CREATE INDEX IF NOT EXISTS idx_media_items_media_type ON media_items(media_type);
+CREATE INDEX IF NOT EXISTS idx_operation_log_created_at ON operation_log(created_at);
 """
 
 
@@ -301,6 +306,17 @@ class Database:
             )
         return self.fetch_all("SELECT * FROM operation_log ORDER BY created_at DESC LIMIT ?", (limit,))
 
+    # ---- maintenance ----
+
+    def maintenance_checkpoint_and_vacuum(self) -> None:
+        """WAL grows unbounded between checkpoints under sustained write
+        activity, and VACUUM reclaims space left by deleted rows (delete-file,
+        rematches). Both are safe to run online; neither needs a connection
+        held open afterward, so a plain short-lived connect() is fine."""
+        with self.connect() as conn:
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.execute("VACUUM")
+
 
 def _migration_v1(conn: sqlite3.Connection) -> None:
     """Baseline schema — no-op, _SCHEMA already creates v1 tables."""
@@ -357,10 +373,26 @@ def _migration_v5(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE media_items ADD COLUMN imdb_id TEXT")
 
 
+def _migration_v6(conn: sqlite3.Connection) -> None:
+    """Index the columns the gallery/browse/backfill/history queries filter
+    or join on. None of these existed before -- every lookup by tmdb_id,
+    final_path, or media_type was a full table scan, fine at a few hundred
+    rows but not as a personal library grows into the thousands."""
+    conn.executescript(
+        """
+        CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id ON media_items(tmdb_id);
+        CREATE INDEX IF NOT EXISTS idx_media_items_final_path ON media_items(final_path);
+        CREATE INDEX IF NOT EXISTS idx_media_items_media_type ON media_items(media_type);
+        CREATE INDEX IF NOT EXISTS idx_operation_log_created_at ON operation_log(created_at);
+        """
+    )
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
     3: _migration_v3,
     4: _migration_v4,
     5: _migration_v5,
+    6: _migration_v6,
 }

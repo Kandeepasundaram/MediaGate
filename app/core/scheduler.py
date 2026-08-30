@@ -58,3 +58,32 @@ async def stop(task: asyncio.Task) -> None:
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
+
+
+MAINTENANCE_INTERVAL_SECONDS = 7 * 24 * 3600
+
+
+async def run_weekly_maintenance() -> None:
+    """WAL checkpoint + VACUUM on a fixed weekly interval (not tied to a
+    time-of-day like the tracker check -- there's no reason this needs to
+    run at a specific hour, just regularly)."""
+    while True:
+        try:
+            await asyncio.sleep(MAINTENANCE_INTERVAL_SECONDS)
+            db = get_database()
+            await asyncio.to_thread(db.maintenance_checkpoint_and_vacuum)
+            logger.info("Weekly DB maintenance (WAL checkpoint + VACUUM) complete")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Weekly DB maintenance failed; retrying next cycle")
+
+
+def start_maintenance() -> asyncio.Task:
+    return asyncio.ensure_future(run_weekly_maintenance())
+
+
+async def stop_maintenance(task: asyncio.Task) -> None:
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
