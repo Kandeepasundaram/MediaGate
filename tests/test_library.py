@@ -280,6 +280,53 @@ def test_delete_file_removes_tracked_file_and_db_row(client):
     assert ops[0]["status"] == "success"
 
 
+def test_delete_batch_removes_multiple_files(client):
+    c, db = client
+    archive_dir = _archive_movies_dir(c)
+    video1 = archive_dir / "a.mkv"
+    video2 = archive_dir / "b.mkv"
+    video1.write_bytes(b"1")
+    video2.write_bytes(b"2")
+    media_id = db.create_media_item(original_path="x", final_path=str(video1), title="A", media_type="movie")
+
+    resp = c.post("/api/library/delete-batch", json={"paths": [str(video1), str(video2)]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted"] == 2
+    assert body["errors"] == []
+    assert not video1.exists()
+    assert not video2.exists()
+    assert db.get_media_item(media_id) is None
+
+
+def test_delete_batch_reports_errors_without_aborting(client):
+    c, db = client
+    archive_dir = _archive_movies_dir(c)
+    video = archive_dir / "real.mkv"
+    video.write_bytes(b"data")
+
+    resp = c.post("/api/library/delete-batch", json={"paths": [str(archive_dir / "missing.mkv"), str(video)]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted"] == 1
+    assert len(body["errors"]) == 1
+    assert "missing.mkv" in body["errors"][0]
+    assert not video.exists()
+
+
+def test_delete_batch_rejects_path_outside_media_dirs(client, tmp_path):
+    c, _ = client
+    outside = tmp_path.parent / "outside2.mkv"
+    outside.write_bytes(b"data")
+
+    resp = c.post("/api/library/delete-batch", json={"paths": [str(outside)]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted"] == 0
+    assert len(body["errors"]) == 1
+    assert outside.exists()
+
+
 def test_delete_file_404_when_missing(client):
     c, _ = client
     resp = c.post("/api/library/delete-file", json={"path": str(_archive_movies_dir(c) / "nope.mkv")})

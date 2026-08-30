@@ -320,6 +320,15 @@ class DeleteFileRequest(BaseModel):
     path: str
 
 
+class DeleteBatchRequest(BaseModel):
+    paths: list[str]
+
+
+class DeleteBatchResponse(BaseModel):
+    deleted: int
+    errors: list[str] = Field(default_factory=list)
+
+
 class MetadataStatusResponse(BaseModel):
     pending: int
     failed: int = 0

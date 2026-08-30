@@ -1365,6 +1365,27 @@ async function deleteBrowseItem(index) {
   }
 }
 
+async function deleteSelectedBrowseItems() {
+  const selected = $all(".browse-check:checked").map((cb) => state.browseFiltered[Number(cb.dataset.index)]);
+  if (selected.length === 0) return;
+  const ok = await showConfirm(`Permanently delete ${selected.length} file(s)? This cannot be undone.`);
+  if (!ok) return;
+
+  $("#browse-status").textContent = "Deleting...";
+  try {
+    const data = await api("/api/library/delete-batch", {
+      method: "POST",
+      body: JSON.stringify({ paths: selected.map((item) => item.path) }),
+    });
+    $("#browse-status").textContent = data.errors.length
+      ? `Deleted ${data.deleted}, ${data.errors.length} failed: ${data.errors.join("; ")}`
+      : `Deleted ${data.deleted} file(s).`;
+    loadBrowse();
+  } catch (e) {
+    $("#browse-status").textContent = `Error: ${e.message}`;
+  }
+}
+
 async function organizeSelected() {
   const selected = $all(".browse-check:checked").map((cb) => state.browseFiltered[Number(cb.dataset.index)]);
   if (selected.length === 0) return;
@@ -1894,6 +1915,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#browse-type").addEventListener("change", loadBrowse);
   $("#browse-filter").addEventListener("change", renderBrowseTable);
   $("#browse-organize-btn").addEventListener("click", organizeSelected);
+  $("#browse-delete-selected-btn").addEventListener("click", deleteSelectedBrowseItems);
   $("#browse-select-all-btn").addEventListener("click", () => {
     const boxes = $all(".browse-check");
     const allChecked = boxes.every((b) => b.checked);
@@ -1919,6 +1941,23 @@ document.addEventListener("DOMContentLoaded", () => {
     const ids = $all(".gallery-select:checked").map((b) => Number(b.dataset.selectId));
     await markWatchedBatch(ids, false);
     loadMoviesGallery();
+  });
+  $("#movies-delete-selected-btn").addEventListener("click", async () => {
+    const ids = $all(".gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    const items = state.movieItems.filter((i) => ids.includes(i.id) && i.final_path);
+    if (items.length === 0) return;
+    const ok = await showConfirm(`Permanently delete ${items.length} movie file(s) from disk? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      const data = await api("/api/library/delete-batch", {
+        method: "POST",
+        body: JSON.stringify({ paths: items.map((i) => i.final_path) }),
+      });
+      if (data.errors.length) $("#movies-count").textContent = `${data.errors.length} deletion(s) failed: ${data.errors.join("; ")}`;
+      loadMoviesGallery();
+    } catch (e) {
+      $("#movies-count").textContent = `Error: ${e.message}`;
+    }
   });
 
   $("#tv-search").addEventListener("input", renderTvGallery);

@@ -32,6 +32,8 @@ from app.models import (
     ArchiveConfirmResult,
     BrowseItemOut,
     BrowseResponse,
+    DeleteBatchRequest,
+    DeleteBatchResponse,
     DeleteFileRequest,
     FileInfoOut,
     LibraryExportResponse,
@@ -615,18 +617,11 @@ def browse_archive(
     return BrowseResponse(directory=str(root), items=items)
 
 
-@router.post("/delete-file")
-def delete_file(
-    payload: DeleteFileRequest,
-    config: AppConfig = Depends(get_config),
-    db: Database = Depends(get_database),
-) -> dict:
-    """Permanently deletes a single file from disk. Only allowed inside a
-    configured incoming/archive root -- a guard against a client bug or bad
-    request touching anything outside the library, since this is the one
-    genuinely destructive endpoint in the app.
-    """
-    target = Path(payload.path).resolve()
+def _resolve_and_validate_target(path: str, config: AppConfig) -> Path:
+    """Only allowed inside a configured incoming/archive root -- a guard
+    against a client bug or bad request touching anything outside the
+    library, since delete is the one genuinely destructive action here."""
+    target = Path(path).resolve()
     allowed_roots = [
         config.paths.incoming_movies,
         config.paths.incoming_tv,
@@ -634,10 +629,16 @@ def delete_file(
         config.paths.archive_tv,
     ]
     if not any(target == root.resolve() or root.resolve() in target.parents for root in allowed_roots):
-        raise HTTPException(status_code=400, detail="Path is outside the configured media directories")
+        raise ValueError("Path is outside the configured media directories")
     if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="File not found")
+        raise FileNotFoundError("File not found")
+    return target
 
+
+def _delete_target(target: Path, db: Database) -> None:
+    # Log while media_id still references a real row -- operation_log.media_id
+    # has a foreign key, and deleting the media_items row first would make a
+    # log entry pointing at it fail that constraint.
     tracked_row = db.get_media_item_by_final_path(str(target))
     try:
         target.unlink()
@@ -649,11 +650,8 @@ def delete_file(
             error_message=str(exc),
             details={"path": str(target)},
         )
-        raise HTTPException(status_code=500, detail=f"Failed to delete: {exc}") from exc
+        raise
 
-    # Log while media_id still references a real row -- operation_log.media_id
-    # has a foreign key, and deleting the media_items row first would make a
-    # log entry pointing at it fail that constraint.
     db.log_operation(
         operation_type="delete",
         status="success",
@@ -663,4 +661,47 @@ def delete_file(
     if tracked_row:
         db.delete_media_item(tracked_row["id"])
     logger.info("Deleted %s (was tracked: %s)", target, bool(tracked_row))
+
+
+@router.post("/delete-file")
+def delete_file(
+    payload: DeleteFileRequest,
+    config: AppConfig = Depends(get_config),
+    db: Database = Depends(get_database),
+) -> dict:
+    """Permanently deletes a single file from disk."""
+    try:
+        target = _resolve_and_validate_target(payload.path, config)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        _delete_target(target, db)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to delete: {exc}") from exc
     return {"deleted": True}
+
+
+@router.post("/delete-batch", response_model=DeleteBatchResponse)
+def delete_batch(
+    payload: DeleteBatchRequest,
+    config: AppConfig = Depends(get_config),
+    db: Database = Depends(get_database),
+) -> DeleteBatchResponse:
+    """Bulk version of delete-file for the gallery/Browse "Delete Selected"
+    action -- one bad path in the batch (outside the media dirs, already
+    gone, a permissions error) is reported per-path rather than aborting
+    the rest of the selection.
+    """
+    deleted = 0
+    errors: list[str] = []
+    for path in payload.paths:
+        try:
+            target = _resolve_and_validate_target(path, config)
+            _delete_target(target, db)
+            deleted += 1
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            errors.append(f"{path}: {exc}")
+    return DeleteBatchResponse(deleted=deleted, errors=errors)
