@@ -470,3 +470,43 @@ def test_settings_omdb_key_round_trips(client):
     assert resp.status_code == 200
     assert resp.json()["omdb_api_key_set"] is True
     assert "abc123" not in resp.text
+
+
+def test_tv_status_reports_latest_season_and_episode_count(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1399, title="Show", media_type="tv", source="api",
+        raw={"number_of_seasons": 3, "status": "Returning Series", "latest_season_episode_count": 6},
+    )
+
+    resp = c.get("/api/library/tv-status", params={"tmdb_id": 1399})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["latest_known_season"] == 3
+    assert body["status"] == "Returning Series"
+    assert body["latest_season_episode_count"] == 6
+    assert body["data_available"] is True
+
+
+def test_tv_status_scraper_mode_reports_data_unavailable(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1399, title="Show", media_type="tv", source="scraper", raw={}
+    )
+
+    resp = c.get("/api/library/tv-status", params={"tmdb_id": 1399})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data_available"] is False
+    assert body["latest_known_season"] is None
+
+
+def test_tv_status_404_when_tmdb_has_no_match(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = None
+
+    resp = c.get("/api/library/tv-status", params={"tmdb_id": 999999})
+    assert resp.status_code == 404

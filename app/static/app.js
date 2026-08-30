@@ -4,6 +4,7 @@ const state = {
   previewMode: "archive", // "archive" (copy, from Ready to Archive) or "organize" (move in place, from Browse)
   movieItems: [],
   tvItems: [],
+  matchPicker: null, // { mediaType, onApply } for the current match-modal search
 };
 
 function $(sel) { return document.querySelector(sel); }
@@ -316,53 +317,158 @@ function renderDetailPane() {
   } else {
     const show = pane.data;
     content.innerHTML = `
+      <div id="detail-tv-status"></div>
       ${show.tmdb_id == null ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
       ${posterMarkupLarge(show.title, show.poster_path)}
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
       <div id="detail-ratings" class="detail-ratings"></div>
       <p class="detail-overview">${show.overview || "No overview available."}</p>
-      <div class="detail-episodes">
-        ${show.episodes.map((ep) => `
-          <div class="detail-episode-row">
-            <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
-            <span class="detail-ep-file hint" title="${ep.file_name || ""}">${ep.file_name || ""}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
-            <label class="watched-toggle">
-              <input type="checkbox" class="detail-ep-watched" data-id="${ep.id}" ${ep.watched ? "checked" : ""}>
-              Watched
-            </label>
-            <button class="ep-details-btn" data-id="${ep.id}">Details</button>
-          </div>
-          <div class="detail-ep-extra hint" id="detail-ep-extra-${ep.id}" hidden></div>
-        `).join("")}
-      </div>
+      <div id="detail-tv-body"></div>
       ${detailFixMarkup()}
     `;
-    content.querySelectorAll(".detail-ep-watched").forEach((input) => {
-      input.addEventListener("change", async () => {
-        try {
-          await toggleWatched(Number(input.dataset.id), input.checked);
-          const ep = show.episodes.find((e) => e.id === Number(input.dataset.id));
-          if (ep) ep.watched = input.checked;
-        } catch (err) {
-          input.checked = !input.checked;
-        }
-      });
-    });
-    content.querySelectorAll(".ep-details-btn").forEach((btn) => {
-      btn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const el = document.getElementById(`detail-ep-extra-${btn.dataset.id}`);
-        if (!el) return;
-        if (!el.hidden) { el.hidden = true; return; }
-        el.hidden = false;
-        loadFileInfo(Number(btn.dataset.id), `#detail-ep-extra-${btn.dataset.id}`);
-      });
-    });
+    renderTvBody();
     loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
+    if (show.tmdb_id != null) loadTvStatus(show.tmdb_id, show.episodes);
   }
 
   wireDetailFix();
+}
+
+// Redraws just the season tabs + episode list (not the outer shell), so
+// switching seasons or toggling name/watched state doesn't re-trigger the
+// show-level ratings/status fetches (loadRatings especially -- OMDb isn't
+// cached server-side, unlike TMDBClient).
+function renderTvBody() {
+  const pane = state.detailPane;
+  if (!pane || pane.kind !== "tv") return;
+  const show = pane.data;
+  const container = $("#detail-tv-body");
+  if (!container) return;
+
+  const seasons = Array.from(new Set(show.episodes.map((e) => e.season_number))).sort((a, b) => a - b);
+  if (pane.selectedSeason == null || !seasons.includes(pane.selectedSeason)) {
+    pane.selectedSeason = seasons[seasons.length - 1];
+  }
+  if (pane.nameMode == null) pane.nameMode = "episode";
+
+  const seasonEpisodes = show.episodes.filter((e) => e.season_number === pane.selectedSeason);
+  const allWatched = seasonEpisodes.length > 0 && seasonEpisodes.every((e) => e.watched);
+  const hasEpisodeNames = show.episodes.some((e) => e.episode_title);
+
+  container.innerHTML = `
+    <div class="season-tabs">
+      ${seasons.map((s) => `<button class="season-tab-btn ${s === pane.selectedSeason ? "active" : ""}" data-season="${s}">Season ${s}</button>`).join("")}
+    </div>
+    <div class="episode-toolbar">
+      ${hasEpisodeNames ? `
+        <label class="name-mode-toggle">
+          <input type="checkbox" id="detail-name-mode-toggle" ${pane.nameMode === "episode" ? "checked" : ""}>
+          Show episode names
+        </label>
+      ` : "<span></span>"}
+      <button id="detail-season-watched-btn">${allWatched ? "Mark Season Unwatched" : "Mark Season Watched"}</button>
+    </div>
+    <div class="detail-episodes">
+      ${seasonEpisodes.map((ep) => `
+        <div class="detail-episode-row">
+          <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
+          <span class="detail-ep-file hint" title="${ep.file_name || ""}">${(pane.nameMode === "episode" && ep.episode_title) ? ep.episode_title : (ep.file_name || "")}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
+          <label class="watched-toggle">
+            <input type="checkbox" class="detail-ep-watched" data-id="${ep.id}" ${ep.watched ? "checked" : ""}>
+            Watched
+          </label>
+          <button class="ep-details-btn" data-id="${ep.id}">Details</button>
+        </div>
+        <div class="detail-ep-extra hint" id="detail-ep-extra-${ep.id}" hidden></div>
+      `).join("")}
+    </div>
+  `;
+
+  container.querySelectorAll(".season-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      pane.selectedSeason = Number(btn.dataset.season);
+      renderTvBody();
+    });
+  });
+
+  const nameModeToggle = $("#detail-name-mode-toggle");
+  if (nameModeToggle) {
+    nameModeToggle.addEventListener("change", (e) => {
+      pane.nameMode = e.target.checked ? "episode" : "file";
+      renderTvBody();
+    });
+  }
+
+  $("#detail-season-watched-btn").addEventListener("click", async (e) => {
+    const btn = e.target;
+    const newWatched = !allWatched;
+    btn.disabled = true;
+    try {
+      await api("/api/library/watched-batch", {
+        method: "POST",
+        body: JSON.stringify({ ids: seasonEpisodes.map((ep) => ep.id), watched: newWatched }),
+      });
+      seasonEpisodes.forEach((ep) => { ep.watched = newWatched; });
+      renderTvBody();
+    } catch (err) {
+      btn.disabled = false;
+    }
+  });
+
+  container.querySelectorAll(".detail-ep-watched").forEach((input) => {
+    input.addEventListener("change", async () => {
+      try {
+        await toggleWatched(Number(input.dataset.id), input.checked);
+        const ep = show.episodes.find((e) => e.id === Number(input.dataset.id));
+        if (ep) ep.watched = input.checked;
+        renderTvBody(); // keeps the "Mark Season Watched" button label in sync
+      } catch (err) {
+        input.checked = !input.checked;
+      }
+    });
+  });
+
+  container.querySelectorAll(".ep-details-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const el = document.getElementById(`detail-ep-extra-${btn.dataset.id}`);
+      if (!el) return;
+      if (!el.hidden) { el.hidden = true; return; }
+      el.hidden = false;
+      loadFileInfo(Number(btn.dataset.id), `#detail-ep-extra-${btn.dataset.id}`);
+    });
+  });
+}
+
+async function loadTvStatus(tmdbId, episodes) {
+  const el = $("#detail-tv-status");
+  if (!el) return;
+  try {
+    const status = await api(`/api/library/tv-status?tmdb_id=${tmdbId}`);
+    if (!status.data_available || status.latest_known_season == null) {
+      el.innerHTML = "";
+      return;
+    }
+    const localMaxSeason = Math.max(...episodes.map((e) => e.season_number));
+    const localEpisodeCountInMaxSeason = episodes.filter((e) => e.season_number === localMaxSeason).length;
+
+    let message = null;
+    if (status.latest_known_season > localMaxSeason) {
+      message = `Season ${status.latest_known_season} is out — you have up to season ${localMaxSeason}.`;
+    } else if (
+      status.latest_known_season === localMaxSeason &&
+      status.latest_season_episode_count != null &&
+      status.latest_season_episode_count > localEpisodeCountInMaxSeason
+    ) {
+      message = `Season ${localMaxSeason} has ${status.latest_season_episode_count} episode(s) — you have ${localEpisodeCountInMaxSeason}.`;
+    }
+    el.innerHTML = message
+      ? `<div class="tv-status-banner">📺 ${message}${status.status ? ` <span class="hint">(${status.status})</span>` : ""}</div>`
+      : "";
+  } catch (e) {
+    el.innerHTML = "";
+  }
 }
 
 async function loadRatings(itemId) {
@@ -447,29 +553,7 @@ async function openPaneMatchPicker() {
   const pane = state.detailPane;
   if (!pane) return;
   const mediaType = pane.kind === "movie" ? "movie" : "tv";
-  const modal = $("#match-modal");
-  const results = $("#match-results");
-  results.innerHTML = "Searching...";
-  modal.classList.remove("hidden");
-
-  try {
-    const data = await api(`/api/archive/search?title=${encodeURIComponent(pane.data.title)}&media_type=${mediaType}`);
-    if (data.results.length === 0) {
-      results.innerHTML = "<p>No candidates found.</p>";
-      return;
-    }
-    results.innerHTML = data.results.map((r, i) => `
-      <div class="match-result-row">
-        <span>${r.title}${r.year ? ` (${r.year})` : ""}</span>
-        <button class="primary use-match-btn" data-result-index="${i}">Use</button>
-      </div>
-    `).join("");
-    results.querySelectorAll(".use-match-btn").forEach((btn) => {
-      btn.addEventListener("click", () => applyPaneMatchOverride(data.results[Number(btn.dataset.resultIndex)]));
-    });
-  } catch (e) {
-    results.innerHTML = `<p>Error: ${e.message}</p>`;
-  }
+  openMatchModal(mediaType, pane.data.title, applyPaneMatchOverride);
 }
 
 async function applyPaneMatchOverride(candidate) {
@@ -686,34 +770,57 @@ function renderArchiveTable(items) {
 // ---- Manual TMDB match picker ----
 async function openMatchPicker(index) {
   const item = state.previewItems[index];
-  const modal = $("#match-modal");
-  const results = $("#match-results");
-  results.innerHTML = "Searching...";
-  modal.classList.remove("hidden");
+  openMatchModal(item.media_type, item.title, (candidate) => applyMatchOverride(index, candidate));
+}
 
+function openMatchModal(mediaType, initialQuery, onApply) {
+  state.matchPicker = { mediaType, onApply };
+  $("#match-modal").classList.remove("hidden");
+  $("#match-search-input").value = initialQuery;
+  $("#match-id-input").value = "";
+  runMatchSearch(initialQuery);
+}
+
+async function runMatchSearch(query) {
+  const picker = state.matchPicker;
+  const results = $("#match-results");
+  if (!picker || !query.trim()) return;
+  results.innerHTML = "Searching...";
   try {
-    const data = await api(`/api/archive/search?title=${encodeURIComponent(item.title)}&media_type=${item.media_type}`);
+    const data = await api(`/api/archive/search?title=${encodeURIComponent(query.trim())}&media_type=${picker.mediaType}`);
     if (data.results.length === 0) {
       results.innerHTML = "<p>No candidates found.</p>";
       return;
     }
     results.innerHTML = data.results.map((r, i) => `
       <div class="match-result-row">
-        <span>${r.title}${r.year ? ` (${r.year})` : ""}</span>
+        <span>${r.title}${r.year ? ` (${r.year})` : ""} <span class="hint">#${r.tmdb_id}</span></span>
         <button class="primary use-match-btn" data-result-index="${i}">Use</button>
       </div>
     `).join("");
     results.querySelectorAll(".use-match-btn").forEach((btn) => {
-      btn.addEventListener("click", () => applyMatchOverride(index, data.results[Number(btn.dataset.resultIndex)]));
+      btn.addEventListener("click", () => picker.onApply(data.results[Number(btn.dataset.resultIndex)]));
     });
   } catch (e) {
     results.innerHTML = `<p>Error: ${e.message}</p>`;
   }
 }
 
+function useMatchById() {
+  const picker = state.matchPicker;
+  if (!picker) return;
+  const raw = $("#match-id-input").value.trim();
+  const id = Number(raw);
+  if (!raw || !Number.isInteger(id) || id <= 0) {
+    $("#match-results").innerHTML = "<p>Enter a valid numeric TMDB ID.</p>";
+    return;
+  }
+  picker.onApply({ tmdb_id: id });
+}
+
 async function applyMatchOverride(index, candidate) {
   const item = state.previewItems[index];
-  $("#match-modal").classList.add("hidden");
+  closeMatchPicker();
   $("#scan-status").textContent = "Applying match...";
   try {
     const preview = await api("/api/archive/preview", {
@@ -732,6 +839,7 @@ async function applyMatchOverride(index, candidate) {
 
 function closeMatchPicker() {
   $("#match-modal").classList.add("hidden");
+  state.matchPicker = null;
 }
 
 function selectedItems() {
@@ -1212,6 +1320,14 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#approve-btn").addEventListener("click", approveSelected);
   $("#match-cancel-btn").addEventListener("click", closeMatchPicker);
+  $("#match-search-btn").addEventListener("click", () => runMatchSearch($("#match-search-input").value));
+  $("#match-search-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); runMatchSearch($("#match-search-input").value); }
+  });
+  $("#match-id-btn").addEventListener("click", useMatchById);
+  $("#match-id-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); useMatchById(); }
+  });
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
   $("#browse-refresh-btn").addEventListener("click", loadBrowse);

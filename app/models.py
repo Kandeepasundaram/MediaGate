@@ -176,6 +176,15 @@ class LibraryItemOut(BaseModel):
     archived_at: str | None = None
     file_name: str | None = None
     size_bytes: int | None = None
+    episode_title: str | None = None
+
+
+class TvStatusOut(BaseModel):
+    tmdb_id: int
+    status: str | None = None
+    latest_known_season: int | None = None
+    latest_season_episode_count: int | None = None
+    data_available: bool = False
 
 
 class FileInfoOut(BaseModel):

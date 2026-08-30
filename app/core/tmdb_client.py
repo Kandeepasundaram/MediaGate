@@ -85,6 +85,24 @@ def _iter_api_results(results) -> list:
     return [r for r in results if hasattr(r, "id")]
 
 
+def _latest_season_episode_count(t, number_of_seasons: int | None) -> int | None:
+    """Episode count for the show's newest season, read off the TV Details
+    response's `seasons` list -- best-effort since tmdbv3api wraps nested
+    JSON in its own AsObj type rather than plain dicts."""
+    if not number_of_seasons:
+        return None
+    seasons = getattr(t, "seasons", None)
+    if not seasons:
+        return None
+    try:
+        for s in seasons:
+            if getattr(s, "season_number", None) == number_of_seasons:
+                return getattr(s, "episode_count", None)
+    except TypeError:
+        return None
+    return None
+
+
 def _scraped_to_result(r: ScrapedResult | None, media_type: str) -> MediaResult | None:
     if r is None:
         return None
@@ -235,7 +253,10 @@ class TMDBClient:
                     source="api",
                     raw=dict(t),
                 )
-                result.raw["number_of_seasons"] = getattr(t, "number_of_seasons", None)
+                number_of_seasons = getattr(t, "number_of_seasons", None)
+                result.raw["number_of_seasons"] = number_of_seasons
+                result.raw["status"] = getattr(t, "status", None)
+                result.raw["latest_season_episode_count"] = _latest_season_episode_count(t, number_of_seasons)
                 return result
             except Exception as exc:
                 logger.warning("TMDB API get_tv_details failed, falling back to scraper: %s", exc)

@@ -40,6 +40,7 @@ from app.models import (
     RematchImdbRequest,
     RematchResponse,
     RematchTmdbRequest,
+    TvStatusOut,
     WatchedBatchRequest,
     WatchedBatchResponse,
     WatchedUpdateRequest,
@@ -83,6 +84,7 @@ def _to_out(row: dict) -> LibraryItemOut:
         archived_at=row["archived_at"],
         file_name=file_name,
         size_bytes=size_bytes,
+        episode_title=meta.get("episode_title"),
     )
 
 
@@ -115,6 +117,29 @@ def metadata_status(media_type: MediaType | None = None, db: Database = Depends(
     return MetadataStatusResponse(
         pending=db.count_unmatched_media_items(media_type),
         failed=db.count_failed_match_items(media_type),
+    )
+
+
+@router.get("/tv-status", response_model=TvStatusOut)
+def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvStatusOut:
+    """Live TMDB season/episode counts for the detail pane's "new season
+    available" banner -- deliberately independent of the archive_tracker
+    table (which is an opt-in, separately-added watchlist for the
+    Notifications tab); this just answers "is there more of this show than
+    what's in the library" for whatever show is currently open, no tracking
+    side effect. Scraper mode returns an empty MediaResult.raw, so
+    data_available naturally comes back false and the pane shows no banner
+    rather than a wrong one.
+    """
+    media = tmdb.get_tv_details(tmdb_id)
+    if media is None:
+        raise HTTPException(status_code=404, detail=f"No TMDB details found for tmdb_id {tmdb_id}")
+    return TvStatusOut(
+        tmdb_id=tmdb_id,
+        status=media.raw.get("status"),
+        latest_known_season=media.raw.get("number_of_seasons"),
+        latest_season_episode_count=media.raw.get("latest_season_episode_count"),
+        data_available=media.source == "api",
     )
 
 

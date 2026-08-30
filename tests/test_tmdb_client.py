@@ -216,6 +216,62 @@ def test_search_movie_still_parses_real_nonempty_api_results(monkeypatch):
     fake_scraper.search_movie.assert_not_called()
 
 
+def test_get_tv_details_extracts_latest_season_episode_count(monkeypatch):
+    """Backs the detail pane's "new season available" banner: the newest
+    season's episode_count, read off TV Details' real (AsObj-wrapped)
+    `seasons` list rather than a mock standing in for it."""
+    fake_scraper = MagicMock()
+    client = TMDBClient(api_key="fake-key", scraper=fake_scraper)
+
+    class FakeTV:
+        def details(self, tmdb_id):
+            return AsObj({
+                "id": 1399, "name": "Test Show", "first_air_date": "2011-04-17",
+                "overview": "A show.", "poster_path": "/p.jpg",
+                "number_of_seasons": 2, "status": "Ended",
+                "seasons": [
+                    {"season_number": 1, "episode_count": 10},
+                    {"season_number": 2, "episode_count": 8},
+                ],
+            })
+
+    monkeypatch.setattr(tmdbv3api, "TV", FakeTV)
+
+    result = client.get_tv_details(1399)
+    assert result.tmdb_id == 1399
+    assert result.raw["number_of_seasons"] == 2
+    assert result.raw["status"] == "Ended"
+    assert result.raw["latest_season_episode_count"] == 8
+
+
+def test_get_tv_details_handles_missing_seasons_list(monkeypatch):
+    fake_scraper = MagicMock()
+    client = TMDBClient(api_key="fake-key", scraper=fake_scraper)
+
+    class FakeTV:
+        def details(self, tmdb_id):
+            return AsObj({
+                "id": 1399, "name": "Test Show", "first_air_date": "2011-04-17",
+                "overview": "", "poster_path": None,
+                "number_of_seasons": 1, "status": "Returning Series",
+            })
+
+    monkeypatch.setattr(tmdbv3api, "TV", FakeTV)
+
+    result = client.get_tv_details(1399)
+    assert result.raw["latest_season_episode_count"] is None
+
+
+def test_get_tv_details_scraper_mode_has_empty_raw():
+    fake_scraper = MagicMock()
+    fake_scraper.get_tv_details.return_value = ScrapedResult(tmdb_id=1399, title="Test Show", year=2011)
+    client = TMDBClient(api_key="", scraper=fake_scraper)
+
+    result = client.get_tv_details(1399)
+    assert result.source == "scraper"
+    assert result.raw == {}
+
+
 def test_get_collection_movies_handles_empty_parts_without_crashing(monkeypatch):
     fake_scraper = MagicMock()
     fake_scraper.get_collection_movies.return_value = []

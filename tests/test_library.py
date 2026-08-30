@@ -121,6 +121,21 @@ def test_list_tv_filters_by_type(client):
     assert tv[0]["season_number"] == 1
 
 
+def test_list_tv_returns_episode_title(client):
+    c, db = client
+    db.create_media_item(
+        original_path="/incoming/show.s01e01.mkv",
+        title="Show",
+        media_type="tv",
+        season_number=1,
+        episode_number=1,
+        metadata={"poster_path": None, "overview": "", "episode_title": "Pilot"},
+    )
+
+    tv = c.get("/api/library/tv").json()["items"]
+    assert tv[0]["episode_title"] == "Pilot"
+
+
 def test_set_watched_toggles_and_persists(client):
     c, db = client
     media_id = _seed_movie(db)
