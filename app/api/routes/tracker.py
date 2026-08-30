@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from email.utils import format_datetime
+from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 
 from app.core.tmdb_client import TMDBClient
 from app.core.tracker import check_movie_collection, check_tv_show
@@ -140,6 +143,39 @@ def get_notification_history(limit: int = 50, db: Database = Depends(get_databas
     return NotificationHistoryResponse(
         history=[NotificationHistoryEntryOut(**row) for row in db.list_notification_history(limit)]
     )
+
+
+def _rfc822(iso_timestamp: str) -> str:
+    return format_datetime(datetime.fromisoformat(iso_timestamp))
+
+
+@router.get("/feed.rss")
+def notification_feed_rss(limit: int = 50, db: Database = Depends(get_database)) -> Response:
+    """RSS 2.0 feed of the notification history, for pointing a feed reader
+    at instead of (or alongside) the webhook -- some setups want "check when
+    I feel like it" rather than a push. Note: if server.api_token is set,
+    this endpoint needs it too (it's under /api/*, same as everything else),
+    so the feed reader has to be one that can send a custom header.
+    """
+    history = db.list_notification_history(limit)
+    items_xml = "".join(
+        f"<item>"
+        f"<title>{escape(h['title'])}</title>"
+        f"<description>{escape(h['message'])}</description>"
+        f"<pubDate>{_rfc822(h['created_at'])}</pubDate>"
+        f'<guid isPermaLink="false">media-manager-notification-{h["id"]}</guid>'
+        f"</item>"
+        for h in history
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<rss version="2.0"><channel>'
+        "<title>Media Manager Notifications</title>"
+        "<description>New seasons and sequels detected for tracked titles</description>"
+        f"{items_xml}"
+        "</channel></rss>"
+    )
+    return Response(content=xml, media_type="application/rss+xml")
 
 
 @router.get("/status", response_model=TrackerStatusResponse)

@@ -338,6 +338,31 @@ def test_settings_webhook_url_round_trips(client):
     assert resp.json()["webhook_url"] == "https://example.com/hook"
 
 
+def test_notification_feed_rss_returns_valid_xml(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.upsert_tracker(tmdb_id=5, media_type="tv", title="Show")
+    tracker_row = db.get_tracker(5, "tv")
+    db.log_notification(tracker_row["id"], 5, "tv", "Show", "New season available for Show")
+
+    resp = c.get("/api/tracker/feed.rss")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/rss+xml")
+
+    import xml.etree.ElementTree as ET
+
+    root = ET.fromstring(resp.text)
+    titles = [item.find("title").text for item in root.findall(".//item")]
+    assert "Show" in titles
+
+
+def test_notification_feed_rss_empty_when_no_history(client):
+    c, _ = client
+    resp = c.get("/api/tracker/feed.rss")
+    assert resp.status_code == 200
+    assert "<channel>" in resp.text
+
+
 def test_confirm_archive_notifies_media_servers_on_success(client):
     c, incoming_movies = client
     app.dependency_overrides[get_config]().media_server.plex_url = "http://plex.local:32400"
