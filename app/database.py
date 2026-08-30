@@ -9,11 +9,11 @@ from __future__ import annotations
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     archived_at TEXT,
     watched INTEGER NOT NULL DEFAULT 0,
     metadata TEXT,
+    match_attempted_at TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -175,6 +176,30 @@ class Database:
     def get_media_item_by_final_path(self, path: str) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM media_items WHERE final_path = ?", (path,))
 
+    def list_unmatched_media_items(self, retry_cooldown_hours: float = 6.0, limit: int = 1) -> list[dict[str, Any]]:
+        """Auto-adopted items with no TMDB match yet, for the metadata
+        backfill background task. Never-attempted items come first; a
+        previously-failed lookup is only retried after `retry_cooldown_hours`
+        so a title with no real TMDB match doesn't get re-searched on every
+        backfill cycle."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=retry_cooldown_hours)).isoformat()
+        return self.fetch_all(
+            "SELECT * FROM media_items "
+            "WHERE tmdb_id IS NULL AND (match_attempted_at IS NULL OR match_attempted_at < ?) "
+            "ORDER BY (match_attempted_at IS NULL) DESC, created_at ASC "
+            "LIMIT ?",
+            (cutoff, limit),
+        )
+
+    def count_unmatched_media_items(self, media_type: str | None = None) -> int:
+        if media_type:
+            row = self.fetch_one(
+                "SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL AND media_type = ?", (media_type,)
+            )
+        else:
+            row = self.fetch_one("SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL")
+        return row["n"]
+
     # ---- archive_tracker CRUD ----
 
     def upsert_tracker(self, tmdb_id: int, media_type: str, title: str, **fields: Any) -> None:
@@ -279,7 +304,18 @@ def _migration_v2(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v3(conn: sqlite3.Connection) -> None:
+    """Add media_items.match_attempted_at, for the background TMDB metadata
+    backfill (auto-adopted library-browser files start with tmdb_id NULL and
+    no metadata; this tracks when a match was last tried so failed lookups
+    get retried on a cooldown instead of every backfill cycle). A plain
+    nullable column add -- unlike v2, this one doesn't need a table rebuild.
+    """
+    conn.execute("ALTER TABLE media_items ADD COLUMN match_attempted_at TEXT")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
+    3: _migration_v3,
 }

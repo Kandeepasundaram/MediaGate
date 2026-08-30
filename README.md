@@ -8,12 +8,15 @@ automated import. It scans separate incoming folders for movies and TV (which
 can be the same as the archive folder if your library is organized in-place),
 fetches metadata from TMDB, renames and archives movies/TV episodes, purges
 non-English subtitles, and tracks shows/movies for new-season and sequel
-releases. A web dashboard (served by the same FastAPI app) lets you review and
-approve archive operations, browse your library as movie/TV poster galleries
-with a watched toggle, and hand-pick specific files in the archive folders
-(tracked or not) to re-run through TMDB matching or delete outright — from
-any machine on the LAN, with browser-native notifications when the tracker
-finds something new.
+releases. Movies/TV galleries auto-adopt anything already sitting in your
+archive folders (e.g. a library Radarr/Sonarr already organized) — no need
+to run existing files through the archive flow first — with a background
+job filling in TMDB posters/metadata afterward. A web dashboard (served by
+the same FastAPI app) lets you review and approve archive operations,
+browse your library as movie/TV poster galleries with a watched toggle,
+and hand-pick specific files in the archive folders (tracked or not) to
+re-run through TMDB matching or delete outright — from any machine on the
+LAN, with browser-native notifications when the tracker finds something new.
 
 ## Architecture
 

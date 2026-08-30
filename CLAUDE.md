@@ -146,8 +146,24 @@ and the Settings UI reports the field as locked.
 
 **Library API / gallery tabs** (`app/api/routes/library.py`): this is Media
 Manager's actual reason to exist alongside Radarr/Sonarr, which already
-handle automated import — `GET /api/library/movies`/`tv` list what *this
-app* has archived (not a live filesystem scan; that's `/api/scan`), and
+handle automated import. `GET /api/library/movies`/`tv` first call
+`library_adopt.adopt_new_files()` (scans `archive_movies`/`archive_tv`,
+registers any file not yet in `media_items` — **no copy/move, no network
+call**, `final_path` is just set to wherever the file already is) and only
+then return everything tracked — so a library Radarr/Sonarr already
+organized shows up without ever being run through the archive/preview flow.
+Newly-adopted rows start with `tmdb_id NULL` and empty `metadata`; a
+background task (`app/core/metadata_backfill.py`, started in `main.py`'s
+`lifespan` alongside the tracker scheduler) works through them one at a
+time via `Database.list_unmatched_media_items()` — TMDB lookups only, still
+no file operations — filling in `tmdb_id`/canonical title/poster/overview.
+A failed lookup still sets `match_attempted_at` (not just a successful one)
+so a title with no real TMDB match gets retried on a 6-hour cooldown instead
+of every backfill cycle. The dashboard polls `GET /api/library/metadata-status`
+after each gallery load and shows a "fetching metadata for N more..." hint,
+re-loading the gallery every 8s while `pending > 0` so posters fill in
+without a manual refresh.
+
 `POST /api/library/{id}/watched` is manual watch-state tracking, independent
 of the `watchstate` container this homelab also runs. TV episodes come back
 as a flat list (one row per episode) — grouping into one card per show
@@ -191,11 +207,14 @@ either direction. This required a real migration: `operation_log`'s
 `operation_type` CHECK didn't originally allow `'delete'`, and its `media_id`
 FK didn't have `ON DELETE SET NULL`, so deleting a media item that already
 had history entries would violate the constraint on the delete itself. Both
-are fixed together in `_migration_v2` in `app/database.py` (`SCHEMA_VERSION`
-is now `2`) via SQLite's table-rebuild pattern (no in-place `ALTER` for
-CHECK/FK constraints) — this is the only schema migration that's actually
-had to run against a real (not fresh) database so far, since it landed after
-the first live deploy.
+are fixed together in `_migration_v2` in `app/database.py` via SQLite's
+table-rebuild pattern (no in-place `ALTER` for CHECK/FK constraints) — the
+first schema migration that's actually had to run against a real (not
+fresh) database, since it landed after the first live deploy.
+`_migration_v3` (adds `media_items.match_attempted_at` for the metadata
+backfill above) is the simpler case: a plain nullable column add, which
+SQLite *can* do with an in-place `ALTER TABLE ... ADD COLUMN`, no rebuild
+needed. `SCHEMA_VERSION` is now `3`.
 
 **Frontend** (`app/static/`): single `index.html` with seven tabs (Movies,
 TV, Browse & Clean Up, Archive, Notifications, History, Settings) driven by

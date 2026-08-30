@@ -14,6 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.config_loader import AppConfig
+from app.core.library_adopt import adopt_new_files
 from app.core.scanner import scan_directory
 from app.database import Database
 from app.dependencies import get_config, get_database
@@ -24,6 +25,7 @@ from app.models import (
     LibraryItemOut,
     LibraryResponse,
     MediaType,
+    MetadataStatusResponse,
     WatchedUpdateRequest,
 )
 
@@ -55,13 +57,30 @@ def _to_out(row: dict) -> LibraryItemOut:
 
 
 @router.get("/movies", response_model=LibraryResponse)
-def list_movies(db: Database = Depends(get_database)) -> LibraryResponse:
+def list_movies(config: AppConfig = Depends(get_config), db: Database = Depends(get_database)) -> LibraryResponse:
+    """Auto-adopts (registers, no file operations, no network calls) any
+    file physically in archive_movies not yet tracked, then returns
+    everything tracked -- so files already organized by Radarr/Sonarr show
+    up here without needing to be manually run through Ready to Archive.
+    Newly-adopted rows show with a placeholder poster until the background
+    metadata backfill (see /metadata-status) fills them in.
+    """
+    adopt_new_files(db, config, "movie")
     return LibraryResponse(items=[_to_out(r) for r in db.list_media_items(media_type="movie")])
 
 
 @router.get("/tv", response_model=LibraryResponse)
-def list_tv(db: Database = Depends(get_database)) -> LibraryResponse:
+def list_tv(config: AppConfig = Depends(get_config), db: Database = Depends(get_database)) -> LibraryResponse:
+    adopt_new_files(db, config, "tv")
     return LibraryResponse(items=[_to_out(r) for r in db.list_media_items(media_type="tv")])
+
+
+@router.get("/metadata-status", response_model=MetadataStatusResponse)
+def metadata_status(media_type: MediaType | None = None, db: Database = Depends(get_database)) -> MetadataStatusResponse:
+    """Pending count for the background TMDB metadata backfill, so the
+    dashboard can show progress and know when to stop polling for updates.
+    """
+    return MetadataStatusResponse(pending=db.count_unmatched_media_items(media_type))
 
 
 @router.post("/{item_id}/watched", response_model=LibraryItemOut)

@@ -320,10 +320,60 @@ local server: untracked file detection, "Re-run Archive Match" correctly
 switching tabs and populating the preview table, and delete removing the
 file from disk with the table auto-refreshing.
 
+## Movies/TV galleries were still empty against real data — root cause and fix
+
+After the manual library browser shipped and correctly found 173 real
+Radarr-managed movies, the user asked the obvious next question: why were
+the Movies/TV *gallery* tabs still showing empty against that same real
+library? Answer: `/api/library/movies`/`tv` only ever read `media_items`,
+and nothing had been run through the archive/preview/confirm flow yet —
+Browse reads the filesystem directly, the galleries didn't. Running the
+existing files through "Re-run Archive Match" would have "fixed" this but
+wrongly — that path always *copies* to a freshly-computed
+`Title (Year)/Title (Year).ext` path, which for files Radarr already
+organized (different filename convention, already in the right folder)
+would create a duplicate second copy of every movie.
+
+Real fix, per the user's two-stage design: **stage 1** — `/api/library/movies`/
+`tv` now call `library_adopt.adopt_new_files()` first (scans the archive
+roots, registers anything untracked with `final_path` = its real current
+path, no copy/move, no network call) before returning the list, so an
+existing organized library shows up immediately. Newly-adopted rows have no
+TMDB match yet (`tmdb_id NULL`), so a new background task
+(`app/core/metadata_backfill.py`, started in `main.py`'s `lifespan`
+alongside the tracker scheduler) works through the backlog one item every
+few seconds via `asyncio.to_thread` (so TMDBScraper's blocking 2s rate-limit
+sleep doesn't stall the event loop), filling in poster/overview/canonical
+title. **Stage 2** (organize/rename/move already-adopted files from the
+gallery/browse view) is explicitly deferred to later, per the user.
+
+Chose "background job + progress" over a synchronous fetch or a manual
+per-batch button after flagging the real scale concern: 173+ movies at
+~2s/lookup in scraper mode is 6+ minutes, too long for a blocking page
+load. `GET /api/library/metadata-status` reports the pending count; the
+dashboard polls it after each gallery load and self-schedules a reload
+every 8s while `pending > 0`, so posters fill in without a manual refresh,
+and stops polling on its own once nothing's left (checked by tab-active
+state each cycle, not a persistent interval).
+
+A failed TMDB lookup still records `match_attempted_at` — otherwise a
+title with no real match would get re-searched every single backfill
+cycle forever. Needed a third migration: `media_items.match_attempted_at`,
+a plain nullable column add (`_migration_v3`, `SCHEMA_VERSION` now `3`) —
+unlike `_migration_v2`, SQLite allows this one as an in-place `ALTER TABLE
+... ADD COLUMN`, no table rebuild needed.
+
+16 new tests (`test_library_adopt.py`, `test_metadata_backfill.py`, plus DB
+and API-level cases for adoption/status). 92 total, passing. Manually
+verified end to end on a local server (adoption on load, placeholder
+poster, and the "fetching metadata for N more..." progress hint all
+correct) — not yet re-verified against the live Arcane deployment's real
+173-movie library after this specific change lands (see next steps).
+
 ## Recommended next steps (not done here)
 
-1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed) — also needed to verify the gallery's poster rendering against real (not manually seeded) archived data.
-2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts now that `GET /api/scan` finds the 409 real files there — not yet tried an actual preview/confirm against real (not synthetic) media, so the gallery is still empty on the live deployment (it only reflects what *this app* has archived, and nothing has been archived through it yet). The new Browse tab is a lower-risk way to test against that real data first, since it doesn't require archiving anything.
-3. Build the two still-deferred pieces from the scope clarification above: a real reports view, and a TV status view beyond the tracker's pending-only list.
+1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed) — needed both for real archive-flow matches and to confirm the metadata backfill actually finds matches for the real (Radarr-named) library, not just placeholder-poster behavior.
+2. Redeploy to Arcane and confirm the 173 real movies get auto-adopted into the Movies gallery on next load, and that the backfill progress hint appears and posters fill in over time.
+3. Build the two still-deferred pieces from the scope clarification above: a real reports view, and a TV status view beyond the tracker's pending-only list. Stage 2 of the library browser (organize/rename/move already-adopted files in place) is also still open.
 4. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
 5. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep both the network-specific build issue and the stop/start-to-rebuild gotcha above.

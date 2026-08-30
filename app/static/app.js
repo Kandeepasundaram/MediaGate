@@ -90,14 +90,27 @@ function wireWatchedToggles(container) {
   });
 }
 
+async function checkBackfillProgress(mediaType, tabKey, reloadFn) {
+  try {
+    const status = await api(`/api/library/metadata-status?media_type=${mediaType}`);
+    if (status.pending > 0) {
+      $(`#${tabKey}-count`).textContent += ` — fetching metadata for ${status.pending} more...`;
+      setTimeout(() => {
+        if ($(`#tab-${tabKey}`).classList.contains("active")) reloadFn();
+      }, 8000);
+    }
+  } catch (e) { /* next manual reload will retry */ }
+}
+
 async function loadMoviesGallery() {
   const gallery = $("#movies-gallery");
   gallery.innerHTML = "Loading...";
   try {
     const data = await api("/api/library/movies");
     $("#movies-count").textContent = `${data.items.length} movie(s) archived`;
+    checkBackfillProgress("movie", "movies", loadMoviesGallery);
     if (data.items.length === 0) {
-      gallery.innerHTML = `<p class="gallery-empty">No movies archived yet — approve some from "Ready to Archive".</p>`;
+      gallery.innerHTML = `<p class="gallery-empty">No movies found — approve some from "Ready to Archive", or drop files into your movies archive folder and reload this tab.</p>`;
       return;
     }
     gallery.innerHTML = data.items.map((item) => `
@@ -140,8 +153,9 @@ async function loadTvGallery() {
   try {
     const data = await api("/api/library/tv");
     $("#tv-count").textContent = `${data.items.length} episode(s) across ${new Set(data.items.map((i) => i.title)).size} show(s)`;
+    checkBackfillProgress("tv", "tv", loadTvGallery);
     if (data.items.length === 0) {
-      gallery.innerHTML = `<p class="gallery-empty">No TV episodes archived yet — approve some from "Ready to Archive".</p>`;
+      gallery.innerHTML = `<p class="gallery-empty">No TV episodes found — approve some from "Ready to Archive", or drop files into your TV archive folder and reload this tab.</p>`;
       return;
     }
     const shows = groupEpisodesByShow(data.items);

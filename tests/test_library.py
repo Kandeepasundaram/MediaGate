@@ -213,3 +213,39 @@ def test_delete_file_rejects_path_outside_media_dirs(client, tmp_path):
     resp = c.post("/api/library/delete-file", json={"path": str(outside)})
     assert resp.status_code == 400
     assert outside.exists()
+
+
+def test_list_movies_auto_adopts_untracked_archive_files(client):
+    """Stage 1 of the manual library browser: a file already sitting in
+    archive_movies (e.g. imported by Radarr) shows up in the gallery on the
+    next load, with no TMDB match yet (that's the background backfill's job)."""
+    c, _ = client
+    (_archive_movies_dir(c) / "Radarr.Movie.2019.mkv").write_bytes(b"data")
+
+    resp = c.get("/api/library/movies")
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["title"] == "Radarr Movie"
+    assert items[0]["poster_path"] is None  # not matched yet
+
+
+def test_list_movies_does_not_reduplicate_on_repeated_calls(client):
+    c, _ = client
+    (_archive_movies_dir(c) / "Movie.2020.mkv").write_bytes(b"data")
+
+    c.get("/api/library/movies")
+    resp = c.get("/api/library/movies")
+
+    assert len(resp.json()["items"]) == 1
+
+
+def test_metadata_status_reports_pending_count(client):
+    c, _ = client
+    (_archive_movies_dir(c) / "Movie.2020.mkv").write_bytes(b"data")
+    c.get("/api/library/movies")  # triggers adoption
+
+    resp = c.get("/api/library/metadata-status")
+    assert resp.json()["pending"] == 1
+
+    resp_filtered = c.get("/api/library/metadata-status", params={"media_type": "tv"})
+    assert resp_filtered.json()["pending"] == 0

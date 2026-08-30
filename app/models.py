@@ -170,6 +170,10 @@ class DeleteFileRequest(BaseModel):
     path: str
 
 
+class MetadataStatusResponse(BaseModel):
+    pending: int
+
+
 class SettingsOut(BaseModel):
     incoming_movies: str
     incoming_tv: str

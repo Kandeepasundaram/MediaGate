@@ -86,6 +86,43 @@ def test_operation_log(db):
     assert ops[0]["status"] == "success"
 
 
+def test_list_unmatched_media_items_excludes_matched(db):
+    db.create_media_item(original_path="a", title="A", media_type="movie", tmdb_id=1)
+    unmatched_id = db.create_media_item(original_path="b", title="B", media_type="movie")
+
+    unmatched = db.list_unmatched_media_items(limit=10)
+    assert [r["id"] for r in unmatched] == [unmatched_id]
+
+
+def test_list_unmatched_media_items_prioritizes_never_attempted(db):
+    attempted_id = db.create_media_item(original_path="a", title="A", media_type="movie")
+    db.update_media_item(attempted_id, match_attempted_at="2026-01-01T00:00:00+00:00")
+    never_attempted_id = db.create_media_item(original_path="b", title="B", media_type="movie")
+
+    unmatched = db.list_unmatched_media_items(limit=10)
+    assert unmatched[0]["id"] == never_attempted_id
+    assert unmatched[1]["id"] == attempted_id
+
+
+def test_list_unmatched_media_items_respects_cooldown(db):
+    from datetime import datetime, timezone
+
+    item_id = db.create_media_item(original_path="a", title="A", media_type="movie")
+    db.update_media_item(item_id, match_attempted_at=datetime.now(timezone.utc).isoformat())
+
+    assert db.list_unmatched_media_items(retry_cooldown_hours=6.0, limit=10) == []
+    assert len(db.list_unmatched_media_items(retry_cooldown_hours=0.0, limit=10)) == 1
+
+
+def test_count_unmatched_media_items_filters_by_type(db):
+    db.create_media_item(original_path="a", title="A", media_type="movie")
+    db.create_media_item(original_path="b", title="B", media_type="tv")
+
+    assert db.count_unmatched_media_items() == 2
+    assert db.count_unmatched_media_items("movie") == 1
+    assert db.count_unmatched_media_items("tv") == 1
+
+
 def test_log_operation_accepts_delete_type(db):
     db.log_operation("delete", "success", details={"path": "/some/file.mkv"})
     ops = db.list_operations(operation_type="delete")
@@ -101,7 +138,7 @@ def test_get_media_item_by_final_path(db):
     assert db.get_media_item_by_final_path("/nope") is None
 
 
-def test_migration_v2_upgrades_v1_database_to_allow_delete(tmp_path):
+def test_migrations_upgrade_v1_database_to_current(tmp_path):
     from app.database import Database, _now
 
     db_path = tmp_path / "old.db"
@@ -148,7 +185,7 @@ def test_migration_v2_upgrades_v1_database_to_allow_delete(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 2
+    assert version == 3
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -157,3 +194,8 @@ def test_migration_v2_upgrades_v1_database_to_allow_delete(tmp_path):
     # And 'delete' is now a valid operation_type.
     db.log_operation("delete", "success", details={"path": "/x"})
     assert len(db.list_operations(operation_type="delete")) == 1
+
+    # v3's match_attempted_at column exists and is usable.
+    item_id = db.create_media_item(original_path="x", title="T", media_type="movie")
+    db.update_media_item(item_id, match_attempted_at="2026-01-01T00:00:00+00:00")
+    assert db.get_media_item(item_id)["match_attempted_at"] == "2026-01-01T00:00:00+00:00"

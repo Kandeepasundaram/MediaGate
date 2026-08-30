@@ -9,3 +9,6 @@ logs/*.log
 .env
 .pytest_cache/
 *.egg-info/
+/sample_media/
+/data/
+/logs/
