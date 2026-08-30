@@ -10,15 +10,17 @@ from app.config_loader import (
     AppConfig,
     LoggingConfig,
     NotificationsConfig,
+    OMDbConfig,
     PathsConfig,
     ServerConfig,
     SubtitlesConfig,
     TMDBConfig,
     TrackerConfig,
 )
+from app.core.omdb_client import OMDbClient
 from app.core.tmdb_client import MediaResult
 from app.database import Database
-from app.dependencies import get_config, get_database, get_tmdb_client
+from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client
 from app.main import app
 
 
@@ -43,6 +45,7 @@ def client(tmp_path):
         subtitles=SubtitlesConfig(),
         tracker=TrackerConfig(),
         notifications=NotificationsConfig(),
+        omdb=OMDbConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
         config_path=tmp_path / "config.yaml",
@@ -60,6 +63,7 @@ def client(tmp_path):
     app.dependency_overrides[get_config] = lambda: config
     app.dependency_overrides[get_database] = lambda: db
     app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+    app.dependency_overrides[get_omdb_client] = lambda: OMDbClient(api_key="")
 
     with TestClient(app) as c:
         yield c, incoming_movies
@@ -353,3 +357,116 @@ def test_rematch_imdb_404_when_not_found(client):
 
     resp = c.post("/api/library/rematch-imdb", json={"ids": [1], "imdb_id": "tt0000000", "media_type": "movie"})
     assert resp.status_code == 404
+
+
+def test_rematch_imdb_persists_imdb_id(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Unmatched.File.mkv"
+    video.write_bytes(b"data")
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = []
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    fake_tmdb.find_by_imdb_id.return_value = MediaResult(tmdb_id=278, title="X", media_type="movie", year=1994)
+    c.post("/api/library/rematch-imdb", json={"ids": [item_id], "imdb_id": "tt0111161", "media_type": "movie"})
+
+    ratings_resp = c.get(f"/api/library/{item_id}/ratings")
+    assert ratings_resp.json()["imdb_id"] == "tt0111161"
+    fake_tmdb.get_external_imdb_id.assert_not_called()  # already known, no TMDB round trip needed
+
+
+def test_rematch_tmdb_updates_item(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Wrong.Match.2020.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=550, title="Correct Title", media_type="movie", year=1999, overview="right one"
+    )
+    resp = c.post("/api/library/rematch-tmdb", json={"ids": [item_id], "tmdb_id": 550, "media_type": "movie"})
+    assert resp.status_code == 200
+    assert resp.json()["tmdb_id"] == 550
+
+    updated = c.get("/api/library/movies").json()["items"][0]
+    assert updated["tmdb_id"] == 550
+    assert updated["title"] == "Correct Title"
+
+
+def test_rematch_tmdb_404_when_not_found(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = None
+
+    resp = c.post("/api/library/rematch-tmdb", json={"ids": [1], "tmdb_id": 999999, "media_type": "movie"})
+    assert resp.status_code == 404
+
+
+def test_ratings_resolves_imdb_id_lazily_from_tmdb_id(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = [MediaResult(tmdb_id=99, title="Sample Movie", media_type="movie", year=2020)]
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    fake_tmdb.get_external_imdb_id.return_value = "tt0111161"
+    resp = c.get(f"/api/library/{item_id}/ratings")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imdb_id"] == "tt0111161"
+    assert body["omdb_configured"] is False  # no OMDb key in this fixture's config
+
+    # Cached on the row now -- a second call shouldn't need another TMDB lookup.
+    fake_tmdb.get_external_imdb_id.reset_mock()
+    c.get(f"/api/library/{item_id}/ratings")
+    fake_tmdb.get_external_imdb_id.assert_not_called()
+
+
+def test_ratings_404_for_missing_item(client):
+    c, _ = client
+    resp = c.get("/api/library/999999/ratings")
+    assert resp.status_code == 404
+
+
+def test_ratings_returns_values_when_omdb_configured(client, monkeypatch):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_external_imdb_id.return_value = "tt0111161"
+
+    from app.core.omdb_client import RatingsResult
+
+    fake_omdb = MagicMock()
+    fake_omdb.enabled = True
+    fake_omdb.get_ratings.return_value = RatingsResult(
+        imdb_rating=9.3, imdb_votes="2,900,000", rotten_tomatoes="91%", metacritic="80"
+    )
+    app.dependency_overrides[get_omdb_client] = lambda: fake_omdb
+
+    resp = c.get(f"/api/library/{item_id}/ratings")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imdb_rating"] == 9.3
+    assert body["rotten_tomatoes"] == "91%"
+    assert body["omdb_configured"] is True
+
+
+def test_settings_omdb_key_round_trips(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"omdb_api_key": "abc123"})
+    assert resp.status_code == 200
+    assert resp.json()["omdb_api_key_set"] is True
+    assert "abc123" not in resp.text

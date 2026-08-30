@@ -370,6 +370,21 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
 
 .detail-title { font-size: 1.15rem; font-weight: 600; margin: 0 0 0.2rem; padding-right: 2rem; }
 .detail-year { color: var(--text-dim); font-size: 0.85rem; margin: 0 0 0.8rem; }
+
+.detail-ratings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+}
+
+.rating-badge {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.78rem;
+}
 .detail-overview { font-size: 0.85rem; line-height: 1.5; margin: 0.8rem 0; }
 
 .detail-episodes {

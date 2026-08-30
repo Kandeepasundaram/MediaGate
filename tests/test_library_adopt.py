@@ -4,6 +4,7 @@ from app.config_loader import (
     AppConfig,
     LoggingConfig,
     NotificationsConfig,
+    OMDbConfig,
     PathsConfig,
     ServerConfig,
     SubtitlesConfig,
@@ -24,6 +25,7 @@ def _config(tmp_path) -> AppConfig:
         subtitles=SubtitlesConfig(),
         tracker=TrackerConfig(),
         notifications=NotificationsConfig(),
+        omdb=OMDbConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
     )

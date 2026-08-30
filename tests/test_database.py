@@ -228,7 +228,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 4
+    assert version == 5
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -247,3 +247,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show")
     row = db.get_tracker(1, "tv")
     assert row["muted"] == 0
+
+    # v5's media_items.imdb_id column exists and is usable.
+    db.update_media_item(item_id, imdb_id="tt0111161")
+    assert db.get_media_item(item_id)["imdb_id"] == "tt0111161"

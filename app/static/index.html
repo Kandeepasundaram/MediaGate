@@ -158,6 +158,10 @@
         <input type="text" id="setting-webhook-url" placeholder="https://example.com/hook">
       </label>
       <p class="hint">POSTed to when a tracked title newly has a season/sequel available (muted titles are skipped).</p>
+      <label>OMDb API key (optional)
+        <input type="password" id="setting-omdb-key" placeholder="leave blank to keep current">
+      </label>
+      <p id="omdb-key-note" class="hint">Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.</p>
       <button type="submit" class="primary">Save Settings</button>
       <span id="settings-status"></span>
       <p class="hint">A backup of the previous config.yaml is kept as config.yaml.bak on every save.</p>

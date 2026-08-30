@@ -289,6 +289,7 @@ function renderDetailPane() {
         <input type="checkbox" id="detail-watched-toggle" data-id="${item.id}" ${item.watched ? "checked" : ""}>
         Watched
       </label>
+      <div id="detail-ratings" class="detail-ratings"></div>
       <p class="detail-overview">${item.overview || "No overview available."}</p>
       ${detailFixMarkup()}
     `;
@@ -301,6 +302,7 @@ function renderDetailPane() {
         e.target.checked = !e.target.checked;
       }
     });
+    loadRatings(item.id);
   } else {
     const show = pane.data;
     content.innerHTML = `
@@ -308,6 +310,7 @@ function renderDetailPane() {
       ${posterMarkupLarge(show.title, show.poster_path)}
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
+      <div id="detail-ratings" class="detail-ratings"></div>
       <p class="detail-overview">${show.overview || "No overview available."}</p>
       <div class="detail-episodes">
         ${show.episodes.map((ep) => `
@@ -333,9 +336,34 @@ function renderDetailPane() {
         }
       });
     });
+    loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
   }
 
   wireDetailFix();
+}
+
+async function loadRatings(itemId) {
+  const el = $("#detail-ratings");
+  if (!el) return;
+  el.textContent = "Loading ratings...";
+  try {
+    const r = await api(`/api/library/${itemId}/ratings`);
+    if (!r.omdb_configured) {
+      el.innerHTML = `<span class="hint">Ratings unavailable — no OMDb API key configured in Settings.</span>`;
+      return;
+    }
+    if (r.imdb_rating == null && !r.rotten_tomatoes) {
+      el.innerHTML = `<span class="hint">No ratings found${r.imdb_id ? "" : " (no IMDb match yet)"}.</span>`;
+      return;
+    }
+    const parts = [];
+    if (r.imdb_rating != null) parts.push(`IMDb ${r.imdb_rating}/10${r.imdb_votes ? ` (${r.imdb_votes} votes)` : ""}`);
+    if (r.rotten_tomatoes) parts.push(`🍅 ${r.rotten_tomatoes}`);
+    if (r.metacritic) parts.push(`Metacritic ${r.metacritic}`);
+    el.innerHTML = parts.map((p) => `<span class="rating-badge">${p}</span>`).join("");
+  } catch (e) {
+    el.innerHTML = `<span class="hint">Ratings error: ${e.message}</span>`;
+  }
 }
 
 function posterMarkupLarge(title, posterPath) {
@@ -348,6 +376,7 @@ function posterMarkupLarge(title, posterPath) {
 function detailFixMarkup() {
   return `
     <div class="detail-fix">
+      <button id="detail-change-match-btn">Change Match (search TMDB)</button>
       <label>IMDb ID
         <input type="text" id="detail-imdb-input" placeholder="tt1234567">
       </label>
@@ -357,7 +386,69 @@ function detailFixMarkup() {
   `;
 }
 
+async function openPaneMatchPicker() {
+  const pane = state.detailPane;
+  if (!pane) return;
+  const mediaType = pane.kind === "movie" ? "movie" : "tv";
+  const modal = $("#match-modal");
+  const results = $("#match-results");
+  results.innerHTML = "Searching...";
+  modal.classList.remove("hidden");
+
+  try {
+    const data = await api(`/api/archive/search?title=${encodeURIComponent(pane.data.title)}&media_type=${mediaType}`);
+    if (data.results.length === 0) {
+      results.innerHTML = "<p>No candidates found.</p>";
+      return;
+    }
+    results.innerHTML = data.results.map((r, i) => `
+      <div class="match-result-row">
+        <span>${r.title}${r.year ? ` (${r.year})` : ""}</span>
+        <button class="primary use-match-btn" data-result-index="${i}">Use</button>
+      </div>
+    `).join("");
+    results.querySelectorAll(".use-match-btn").forEach((btn) => {
+      btn.addEventListener("click", () => applyPaneMatchOverride(data.results[Number(btn.dataset.resultIndex)]));
+    });
+  } catch (e) {
+    results.innerHTML = `<p>Error: ${e.message}</p>`;
+  }
+}
+
+async function applyPaneMatchOverride(candidate) {
+  const pane = state.detailPane;
+  closeMatchPicker();
+  if (!pane || candidate.tmdb_id == null) return;
+
+  const ids = pane.kind === "movie" ? [pane.data.id] : pane.data.episodes.map((e) => e.id);
+  const mediaType = pane.kind === "movie" ? "movie" : "tv";
+
+  $("#detail-fetch-status").textContent = "Applying match...";
+  try {
+    await api("/api/library/rematch-tmdb", {
+      method: "POST",
+      body: JSON.stringify({ ids, tmdb_id: candidate.tmdb_id, media_type: mediaType }),
+    });
+    await reopenDetailPaneAfterRematch(pane, ids);
+  } catch (e) {
+    $("#detail-fetch-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function reopenDetailPaneAfterRematch(pane, ids) {
+  if (pane.kind === "movie") {
+    await loadMoviesGallery();
+    const updated = state.movieItems.find((i) => i.id === pane.data.id);
+    if (updated) openDetailPane("movie", updated);
+  } else {
+    await loadTvGallery();
+    const updated = groupEpisodesByShow(state.tvItems).find((s) => s.episodes.some((e) => ids.includes(e.id)));
+    if (updated) openDetailPane("tv", updated);
+  }
+}
+
 function wireDetailFix() {
+  $("#detail-change-match-btn").addEventListener("click", openPaneMatchPicker);
   $("#detail-fetch-btn").addEventListener("click", async () => {
     const pane = state.detailPane;
     if (!pane) return;
@@ -374,15 +465,7 @@ function wireDetailFix() {
         body: JSON.stringify({ ids, imdb_id: imdbId, media_type: mediaType }),
       });
       $("#detail-fetch-status").textContent = "Updated.";
-      if (pane.kind === "movie") {
-        await loadMoviesGallery();
-        const updated = state.movieItems.find((i) => i.id === pane.data.id);
-        if (updated) openDetailPane("movie", updated);
-      } else {
-        await loadTvGallery();
-        const updated = groupEpisodesByShow(state.tvItems).find((s) => s.episodes.some((e) => ids.includes(e.id)));
-        if (updated) openDetailPane("tv", updated);
-      }
+      await reopenDetailPaneAfterRematch(pane, ids);
     } catch (e) {
       $("#detail-fetch-status").textContent = `Error: ${e.message}`;
     }
@@ -916,6 +999,9 @@ async function loadSettings() {
         ? "A key is currently set. Leave blank to keep it."
         : "No key set — running in TMDB scraper fallback mode.";
     $("#setting-webhook-url").value = s.webhook_url || "";
+    $("#omdb-key-note").textContent = s.omdb_api_key_set
+      ? "A key is currently set. Leave blank to keep it. Powers IMDb/Rotten Tomatoes ratings in the detail pane."
+      : "Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.";
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
   }
@@ -932,11 +1018,14 @@ async function saveSettings(e) {
   };
   const keyValue = $("#setting-tmdb-key").value;
   if (keyValue) payload.tmdb_api_key = keyValue;
+  const omdbKeyValue = $("#setting-omdb-key").value;
+  if (omdbKeyValue) payload.omdb_api_key = omdbKeyValue;
 
   $("#settings-status").textContent = "Saving...";
   try {
     await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
     $("#setting-tmdb-key").value = "";
+    $("#setting-omdb-key").value = "";
     $("#settings-status").textContent = "Saved.";
     loadSettings();
     loadStatus();

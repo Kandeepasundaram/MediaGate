@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -125,6 +126,20 @@ class TMDBScraper:
         if tmdb_id is None:
             return None
         return self._parse_detail(resp.text, tmdb_id)
+
+    def get_imdb_id(self, tmdb_id: int, media_type: str) -> str | None:
+        """Scrapes the IMDb id back out of a TMDB detail page's external-links
+        sidebar -- used for ratings lookups (OMDb needs an imdb_id, TMDB's own
+        search results don't carry one)."""
+        resp = self._get(f"{BASE_URL}/{media_type}/{tmdb_id}")
+        if resp is None:
+            return None
+        soup = BeautifulSoup(resp.text, "lxml")
+        link = soup.select_one('a[href*="imdb.com/title/"]')
+        if not link or not link.get("href"):
+            return None
+        match = re.search(r"(tt\d+)", link["href"])
+        return match.group(1) if match else None
 
     def get_collection_movies(self, collection_id: int) -> list[ScrapedResult]:
         resp = self._get(f"{BASE_URL}/collection/{collection_id}")

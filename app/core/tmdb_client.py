@@ -267,6 +267,26 @@ class TMDBClient:
     def _year_from_date(date_str: str | None) -> int | None:
         return int(date_str[:4]) if date_str else None
 
+    def get_external_imdb_id(self, tmdb_id: int, media_type: str) -> str | None:
+        """Resolves a TMDB id to its IMDb id -- needed for OMDb ratings
+        lookups, since TMDB search results don't carry one directly."""
+        return self._cached(("imdb_id", tmdb_id, media_type), lambda: self._get_external_imdb_id(tmdb_id, media_type))
+
+    def _get_external_imdb_id(self, tmdb_id: int, media_type: str) -> str | None:
+        if self._api:
+            try:
+                resp = requests.get(
+                    f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/external_ids",
+                    params={"api_key": self.api_key},
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                return resp.json().get("imdb_id") or None
+            except Exception as exc:
+                logger.warning("TMDB API external_ids failed, falling back to scraper: %s", exc)
+
+        return self.scraper.get_imdb_id(tmdb_id, media_type)
+
     def get_collection_movies(self, collection_id: int) -> list[MediaResult]:
         return self._cached(("collection", collection_id), lambda: self._get_collection_movies(collection_id))
 

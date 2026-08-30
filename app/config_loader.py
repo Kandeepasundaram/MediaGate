@@ -24,6 +24,7 @@ _DEFAULT_CONFIG: dict = {
     },
     "tracker": {"cron_time": "06:00", "notification_ttl_days": 30},
     "notifications": {"webhook_url": ""},
+    "omdb": {"api_key": ""},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
     "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"]},
 }
@@ -61,6 +62,11 @@ class NotificationsConfig:
 
 
 @dataclass
+class OMDbConfig:
+    api_key: str = ""
+
+
+@dataclass
 class LoggingConfig:
     level: str = "INFO"
     file: Path = Path("./logs/media_manager.log")
@@ -81,6 +87,7 @@ class AppConfig:
     subtitles: SubtitlesConfig
     tracker: TrackerConfig
     notifications: NotificationsConfig
+    omdb: OMDbConfig
     logging: LoggingConfig
     server: ServerConfig
     config_path: Path = Path("config.yaml")
@@ -123,6 +130,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         ),
         tracker=TrackerConfig(**raw["tracker"]),
         notifications=NotificationsConfig(**raw["notifications"]),
+        omdb=OMDbConfig(**raw["omdb"]),
         logging=LoggingConfig(
             level=raw["logging"]["level"],
             file=Path(raw["logging"]["file"]),
@@ -151,6 +159,7 @@ _EDITABLE_KEYS = {
     "tmdb": {"api_key"},
     "server": {"cors_origins"},
     "notifications": {"webhook_url"},
+    "omdb": {"api_key"},
 }
 
 

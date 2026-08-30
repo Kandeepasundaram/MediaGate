@@ -199,13 +199,28 @@ class RematchImdbRequest(BaseModel):
     media_type: MediaType
 
 
-class RematchImdbResponse(BaseModel):
+class RematchTmdbRequest(BaseModel):
+    ids: list[int]
+    tmdb_id: int
+    media_type: MediaType
+
+
+class RematchResponse(BaseModel):
     updated: int
     tmdb_id: int | None = None
     title: str | None = None
     year: int | None = None
     poster_path: str | None = None
     overview: str | None = None
+
+
+class RatingsOut(BaseModel):
+    imdb_id: str | None = None
+    imdb_rating: float | None = None
+    imdb_votes: str | None = None
+    rotten_tomatoes: str | None = None
+    metacritic: str | None = None
+    omdb_configured: bool = False
 
 
 class BrowseItemOut(BaseModel):
@@ -243,6 +258,7 @@ class SettingsOut(BaseModel):
     tmdb_api_key_set: bool
     tmdb_api_key_locked_by_env: bool
     webhook_url: str = ""
+    omdb_api_key_set: bool = False
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -253,6 +269,7 @@ class SettingsUpdateRequest(BaseModel):
     cors_origins: list[str] | None = None
     tmdb_api_key: str | None = None
     webhook_url: str | None = None
+    omdb_api_key: str | None = None
 
 
 class PathCheck(BaseModel):

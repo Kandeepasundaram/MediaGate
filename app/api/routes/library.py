@@ -16,12 +16,13 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.config_loader import AppConfig
 from app.core.library_adopt import adopt_new_files
+from app.core.omdb_client import OMDbClient
 from app.core.organizer import OrganizeError, organize_file
 from app.core.renamer import RenamePlan
 from app.core.scanner import scan_directory
-from app.core.tmdb_client import TMDBClient
+from app.core.tmdb_client import MediaResult, TMDBClient
 from app.database import Database
-from app.dependencies import get_config, get_database, get_tmdb_client
+from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client
 from app.models import (
     ArchiveConfirmRequest,
     ArchiveConfirmResponse,
@@ -33,8 +34,10 @@ from app.models import (
     LibraryResponse,
     MediaType,
     MetadataStatusResponse,
+    RatingsOut,
     RematchImdbRequest,
-    RematchImdbResponse,
+    RematchResponse,
+    RematchTmdbRequest,
     WatchedBatchRequest,
     WatchedBatchResponse,
     WatchedUpdateRequest,
@@ -119,44 +122,120 @@ def set_watched_batch(payload: WatchedBatchRequest, db: Database = Depends(get_d
     return WatchedBatchResponse(updated=updated)
 
 
-@router.post("/rematch-imdb", response_model=RematchImdbResponse)
+@router.post("/rematch-imdb", response_model=RematchResponse)
 def rematch_by_imdb_id(
     payload: RematchImdbRequest,
     db: Database = Depends(get_database),
     tmdb: TMDBClient = Depends(get_tmdb_client),
-) -> RematchImdbResponse:
+) -> RematchResponse:
     """Manual-match path for the detail pane: a title the automatic
     search/backfill couldn't identify (tmdb_id null) or matched wrong. One
     IMDb-id lookup, applied to every id in `ids` -- a TV show's IMDb id
     identifies the whole series, so the caller passes every episode row
-    for that show, not just one.
+    for that show, not just one. The imdb_id is already known here (the
+    user typed it), so it's persisted directly -- no need for the ratings
+    endpoint to later re-derive it via a TMDB external_ids call.
     """
     media = tmdb.find_by_imdb_id(payload.imdb_id.strip(), payload.media_type)
     if media is None:
         raise HTTPException(status_code=404, detail=f"No TMDB match found for IMDb id {payload.imdb_id!r}")
 
     now = datetime.now(timezone.utc).isoformat()
-    updated = 0
-    for item_id in payload.ids:
-        if db.get_media_item(item_id) is None:
-            continue
-        db.update_media_item(
-            item_id,
-            tmdb_id=media.tmdb_id,
-            title=media.title,
-            year=media.year,
-            metadata={"poster_path": media.poster_path, "overview": media.overview},
-            match_attempted_at=now,
-        )
-        updated += 1
+    updated = _apply_rematch(db, payload.ids, media, now, imdb_id=payload.imdb_id.strip())
 
-    return RematchImdbResponse(
+    return RematchResponse(
         updated=updated,
         tmdb_id=media.tmdb_id,
         title=media.title,
         year=media.year,
         poster_path=media.poster_path,
         overview=media.overview,
+    )
+
+
+@router.post("/rematch-tmdb", response_model=RematchResponse)
+def rematch_by_tmdb_id(
+    payload: RematchTmdbRequest,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+) -> RematchResponse:
+    """Manual-match path for the detail pane's "Change Match" search picker
+    (same candidate list as the archive preview table's picker) -- for
+    fixing a title the automatic search matched to the wrong TMDB entry.
+    Applied to every id in `ids`, same fan-out as rematch-imdb.
+    """
+    media = tmdb.get_tv_details(payload.tmdb_id) if payload.media_type == "tv" else tmdb.get_movie_details(payload.tmdb_id)
+    if media is None:
+        raise HTTPException(status_code=404, detail=f"No TMDB details found for tmdb_id {payload.tmdb_id}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    updated = _apply_rematch(db, payload.ids, media, now, imdb_id=None)
+
+    return RematchResponse(
+        updated=updated,
+        tmdb_id=media.tmdb_id,
+        title=media.title,
+        year=media.year,
+        poster_path=media.poster_path,
+        overview=media.overview,
+    )
+
+
+def _apply_rematch(db: Database, ids: list[int], media: MediaResult, now: str, imdb_id: str | None) -> int:
+    updated = 0
+    for item_id in ids:
+        if db.get_media_item(item_id) is None:
+            continue
+        fields = dict(
+            tmdb_id=media.tmdb_id,
+            title=media.title,
+            year=media.year,
+            metadata={"poster_path": media.poster_path, "overview": media.overview},
+            match_attempted_at=now,
+        )
+        if imdb_id is not None:
+            fields["imdb_id"] = imdb_id
+        db.update_media_item(item_id, **fields)
+        updated += 1
+    return updated
+
+
+@router.get("/{item_id}/ratings", response_model=RatingsOut)
+def get_ratings(
+    item_id: int,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    omdb: OMDbClient = Depends(get_omdb_client),
+) -> RatingsOut:
+    """IMDb rating + Rotten Tomatoes score for the detail pane, via OMDb
+    (optional -- omdb_configured tells the frontend whether to show a
+    "no key configured" hint instead of "unavailable"). The imdb_id is
+    resolved from tmdb_id on first request and cached on the row so a
+    repeat pane-open doesn't need another TMDB round trip.
+    """
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+
+    imdb_id = item["imdb_id"]
+    if imdb_id is None and item["tmdb_id"] is not None:
+        imdb_id = tmdb.get_external_imdb_id(item["tmdb_id"], item["media_type"])
+        if imdb_id:
+            db.update_media_item(item_id, imdb_id=imdb_id)
+
+    if not omdb.enabled or imdb_id is None:
+        return RatingsOut(imdb_id=imdb_id, omdb_configured=omdb.enabled)
+
+    ratings = omdb.get_ratings(imdb_id)
+    if ratings is None:
+        return RatingsOut(imdb_id=imdb_id, omdb_configured=True)
+    return RatingsOut(
+        imdb_id=imdb_id,
+        imdb_rating=ratings.imdb_rating,
+        imdb_votes=ratings.imdb_votes,
+        rotten_tomatoes=ratings.rotten_tomatoes,
+        metacritic=ratings.metacritic,
+        omdb_configured=True,
     )
 
 

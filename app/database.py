@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     watched INTEGER NOT NULL DEFAULT 0,
     metadata TEXT,
     match_attempted_at TEXT,
+    imdb_id TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -347,9 +348,19 @@ def _migration_v4(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE archive_tracker ADD COLUMN muted INTEGER NOT NULL DEFAULT 0")
 
 
+def _migration_v5(conn: sqlite3.Connection) -> None:
+    """Add media_items.imdb_id -- resolved lazily (via TMDB external_ids)
+    the first time a ratings lookup is requested for that item, or set
+    directly when the user manually matches via an IMDb id in the detail
+    pane. Cached here so repeat ratings lookups don't need another TMDB
+    round trip just to re-derive the same imdb_id."""
+    conn.execute("ALTER TABLE media_items ADD COLUMN imdb_id TEXT")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
     3: _migration_v3,
     4: _migration_v4,
+    5: _migration_v5,
 }

@@ -4,6 +4,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.config_loader import AppConfig, load_config
+from app.core.omdb_client import OMDbClient
 from app.core.tmdb_client import TMDBClient
 from app.database import Database
 
@@ -27,8 +28,15 @@ def get_tmdb_client() -> TMDBClient:
     return TMDBClient(api_key=cfg.tmdb.api_key, language=cfg.tmdb.language)
 
 
+@lru_cache
+def get_omdb_client() -> OMDbClient:
+    cfg = get_config()
+    return OMDbClient(api_key=cfg.omdb.api_key)
+
+
 def reset_singletons() -> None:
     """Test helper: clear cached singletons so a fresh config/db can be injected."""
     get_config.cache_clear()
     get_database.cache_clear()
     get_tmdb_client.cache_clear()
+    get_omdb_client.cache_clear()

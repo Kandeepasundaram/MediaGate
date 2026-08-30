@@ -48,3 +48,20 @@ def test_find_by_imdb_id_returns_none_on_request_failure():
     scraper.session.get = MagicMock(side_effect=requests.ConnectionError("boom"))
 
     assert scraper.find_by_imdb_id("tt0111161", "movie") is None
+
+
+def test_get_imdb_id_extracts_from_external_link():
+    scraper = TMDBScraper(rate_limit_seconds=0)
+    html = '<a class="ext" href="https://www.imdb.com/title/tt0111161/">IMDb</a>'
+    resp = _fake_response("https://www.themoviedb.org/movie/278-the-shawshank-redemption", text=html)
+    scraper.session.get = MagicMock(return_value=resp)
+
+    assert scraper.get_imdb_id(278, "movie") == "tt0111161"
+
+
+def test_get_imdb_id_returns_none_when_no_imdb_link():
+    scraper = TMDBScraper(rate_limit_seconds=0)
+    resp = _fake_response("https://www.themoviedb.org/movie/278-the-shawshank-redemption", text="<p>no link here</p>")
+    scraper.session.get = MagicMock(return_value=resp)
+
+    assert scraper.get_imdb_id(278, "movie") is None

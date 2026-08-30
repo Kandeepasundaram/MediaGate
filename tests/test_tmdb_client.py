@@ -112,6 +112,42 @@ def test_find_by_imdb_id_api_falls_back_to_scraper_on_error(monkeypatch):
     assert result.source == "scraper"
 
 
+def test_get_external_imdb_id_uses_scraper_when_no_api_key():
+    fake_scraper = MagicMock()
+    fake_scraper.get_imdb_id.return_value = "tt0111161"
+
+    client = TMDBClient(api_key="", scraper=fake_scraper)
+    assert client.get_external_imdb_id(278, "movie") == "tt0111161"
+    fake_scraper.get_imdb_id.assert_called_once_with(278, "movie")
+
+
+def test_get_external_imdb_id_uses_api_when_key_set(monkeypatch):
+    fake_scraper = MagicMock()
+    client = TMDBClient(api_key="fake-key", scraper=fake_scraper)
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"imdb_id": "tt0111161"}
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+
+    assert client.get_external_imdb_id(278, "movie") == "tt0111161"
+    fake_scraper.get_imdb_id.assert_not_called()
+
+
+def test_get_external_imdb_id_api_falls_back_to_scraper_on_error(monkeypatch):
+    fake_scraper = MagicMock()
+    fake_scraper.get_imdb_id.return_value = "tt0111161"
+    client = TMDBClient(api_key="fake-key", scraper=fake_scraper)
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
+
+    assert client.get_external_imdb_id(278, "movie") == "tt0111161"
+
+
 def test_client_falls_back_to_scraper_on_api_failure(monkeypatch):
     fake_scraper = MagicMock()
     fake_scraper.search_movie.return_value = [ScrapedResult(tmdb_id=7, title="Y")]
