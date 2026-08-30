@@ -109,7 +109,11 @@ def test_scan_preview_confirm_flow(client):
     assert len(history_resp.json()["operations"]) == 1
 
     stats_resp = c.get("/api/stats")
-    assert stats_resp.json()["total_movies"] == 1
+    stats = stats_resp.json()
+    assert stats["total_movies"] == 1
+    assert stats["movies_size_bytes"] == len(b"fake video data")
+    assert stats["tv_size_bytes"] == 0
+    assert stats["total_size_bytes"] == stats["movies_size_bytes"]
 
 
 def test_scan_covers_archive_dirs_and_excludes_already_handled(client):

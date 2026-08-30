@@ -185,6 +185,8 @@ class StatsResponse(BaseModel):
     total_movies: int
     total_tv_episodes: int
     total_size_bytes: int
+    movies_size_bytes: int = 0
+    tv_size_bytes: int = 0
 
 
 class LibraryItemOut(BaseModel):

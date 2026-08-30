@@ -1570,7 +1570,8 @@ async function loadStats() {
       <p>Total media items: <strong>${stats.total_media_items}</strong></p>
       <p>Movies: <strong>${stats.total_movies}</strong></p>
       <p>TV episodes: <strong>${stats.total_tv_episodes}</strong></p>
-      <p>Total archived size: <strong>${formatBytes(stats.total_size_bytes)}</strong></p>
+      <p>Total archived size: <strong>${formatBytes(stats.total_size_bytes)}</strong>
+        (movies: ${formatBytes(stats.movies_size_bytes)}, TV: ${formatBytes(stats.tv_size_bytes)})</p>
     `;
   } catch (e) {
     card.textContent = `Error: ${e.message}`;

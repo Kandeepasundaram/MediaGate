@@ -22,14 +22,15 @@ def get_status(
 @router.get("/stats", response_model=StatsResponse)
 def get_stats(db: Database = Depends(get_database)) -> StatsResponse:
     items = db.list_media_items()
-    total_size = sum(
-        _file_size(item["final_path"]) for item in items if item.get("final_path")
-    )
+    movies_size = sum(_file_size(i["final_path"]) for i in items if i["media_type"] == "movie" and i.get("final_path"))
+    tv_size = sum(_file_size(i["final_path"]) for i in items if i["media_type"] == "tv" and i.get("final_path"))
     return StatsResponse(
         total_media_items=len(items),
         total_movies=sum(1 for i in items if i["media_type"] == "movie"),
         total_tv_episodes=sum(1 for i in items if i["media_type"] == "tv"),
-        total_size_bytes=total_size,
+        total_size_bytes=movies_size + tv_size,
+        movies_size_bytes=movies_size,
+        tv_size_bytes=tv_size,
     )
 
 
