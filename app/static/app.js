@@ -5,6 +5,7 @@ const state = {
   movieItems: [],
   tvItems: [],
   matchPicker: null, // { mediaType, onApply } for the current match-modal search
+  tvStatusCache: {}, // tmdb_id -> TvStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
 };
 
 function $(sel) { return document.querySelector(sel); }
@@ -103,17 +104,33 @@ async function toggleWatched(itemId, watched) {
   });
 }
 
-function wireWatchedToggles(container) {
+function wireWatchedToggles(container, items) {
   container.querySelectorAll(".watched-toggle input").forEach((input) => {
     input.addEventListener("click", (e) => e.stopPropagation());
     input.addEventListener("change", async () => {
       try {
         await toggleWatched(Number(input.dataset.id), input.checked);
+        if (items) {
+          const item = items.find((i) => i.id === Number(input.dataset.id));
+          if (item) item.watched = input.checked;
+        }
+        setWatchedBadge(input.closest(".gallery-card"), input.checked);
       } catch (e) {
         input.checked = !input.checked;
       }
     });
   });
+}
+
+function setWatchedBadge(card, watched) {
+  const badges = card ? card.querySelector(".gallery-badges") : null;
+  if (!badges) return;
+  const existing = badges.querySelector(".badge-ok");
+  if (watched && !existing) {
+    badges.insertAdjacentHTML("beforeend", `<span class="badge badge-ok" title="Watched">✓</span>`);
+  } else if (!watched && existing) {
+    existing.remove();
+  }
 }
 
 async function checkBackfillProgress(mediaType, tabKey, reloadFn) {
@@ -176,6 +193,10 @@ function renderMoviesGallery() {
   gallery.innerHTML = items.map((item, i) => `
     <div class="gallery-card" data-item-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
+      <div class="gallery-badges">
+        ${item.tmdb_id == null ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
+        ${item.watched ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
+      </div>
       ${posterMarkup(item.title, item.poster_path)}
       <div class="gallery-info">
         <div class="gallery-title" title="${item.title}">${item.title}</div>
@@ -189,7 +210,7 @@ function renderMoviesGallery() {
       </div>
     </div>
   `).join("");
-  wireWatchedToggles(gallery);
+  wireWatchedToggles(gallery, items);
   gallery.querySelectorAll(".gallery-select").forEach((cb) => {
     cb.addEventListener("click", (e) => e.stopPropagation());
   });
@@ -247,6 +268,10 @@ function renderTvGallery() {
   }
   gallery.innerHTML = shows.map((show, i) => `
     <div class="gallery-card" data-show-index="${i}">
+      <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">
+        ${show.tmdb_id == null ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
+        ${show.episodes.every((e) => e.watched) ? `<span class="badge badge-ok" title="All episodes watched">✓</span>` : ""}
+      </div>
       ${posterMarkup(show.title, show.poster_path)}
       <div class="gallery-info">
         <div class="gallery-title" title="${show.title}">${show.title}</div>
@@ -258,6 +283,23 @@ function renderTvGallery() {
   `).join("");
   gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
     card.addEventListener("click", () => openDetailPane("tv", shows[i]));
+  });
+  loadTvGalleryBadges(shows);
+}
+
+// Best-effort "new season/episodes available" badge per show card, filled in
+// after the initial paint -- one TMDB lookup per show, cached in
+// state.tvStatusCache so repeat renders (search/sort/filter) don't refetch.
+function loadTvGalleryBadges(shows) {
+  shows.forEach((show) => {
+    if (show.tmdb_id == null) return;
+    getTvStatus(show.tmdb_id).then((status) => {
+      const info = computeTvStatusInfo(status, show.episodes);
+      if (!info || !info.hasGap) return;
+      const container = $(`.gallery-badges[data-tv-badges="${show.tmdb_id}"]`);
+      if (!container || container.querySelector(".badge-new")) return;
+      container.insertAdjacentHTML("beforeend", `<span class="badge badge-new" title="${info.gapMessage}">🆕</span>`);
+    });
   });
 }
 
@@ -411,6 +453,7 @@ function renderTvBody() {
       });
       seasonEpisodes.forEach((ep) => { ep.watched = newWatched; });
       renderTvBody();
+      renderTvGallery(); // keeps the gallery card's "all watched" badge in sync
     } catch (err) {
       btn.disabled = false;
     }
@@ -423,6 +466,7 @@ function renderTvBody() {
         const ep = show.episodes.find((e) => e.id === Number(input.dataset.id));
         if (ep) ep.watched = input.checked;
         renderTvBody(); // keeps the "Mark Season Watched" button label in sync
+        renderTvGallery(); // keeps the gallery card's "all watched" badge in sync
       } catch (err) {
         input.checked = !input.checked;
       }
@@ -441,34 +485,65 @@ function renderTvBody() {
   });
 }
 
+// GET /api/library/tv-status, memoized in state.tvStatusCache so the gallery
+// badges and the detail pane banner (and repeat renders of either) don't
+// keep re-issuing the same TMDB lookup for a show already checked this session.
+async function getTvStatus(tmdbId) {
+  if (tmdbId in state.tvStatusCache) return state.tvStatusCache[tmdbId];
+  try {
+    const status = await api(`/api/library/tv-status?tmdb_id=${tmdbId}`);
+    state.tvStatusCache[tmdbId] = status;
+    return status;
+  } catch (e) {
+    state.tvStatusCache[tmdbId] = null;
+    return null;
+  }
+}
+
+// Pure comparison of a TvStatusOut against what's actually archived --
+// shared by the gallery "new season" badge and the detail pane banner so
+// the two never disagree about what counts as "behind".
+function computeTvStatusInfo(status, episodes) {
+  if (!status || !status.data_available || status.latest_known_season == null) return null;
+  const localMaxSeason = Math.max(...episodes.map((e) => e.season_number));
+  const localEpisodeCountInMaxSeason = episodes.filter((e) => e.season_number === localMaxSeason).length;
+
+  let gapMessage = null;
+  if (status.latest_known_season > localMaxSeason) {
+    gapMessage = `Season ${status.latest_known_season} is out — you have up to season ${localMaxSeason}.`;
+  } else if (
+    status.latest_known_season === localMaxSeason &&
+    status.latest_season_episode_count != null &&
+    status.latest_season_episode_count > localEpisodeCountInMaxSeason
+  ) {
+    gapMessage = `Season ${localMaxSeason} has ${status.latest_season_episode_count} episode(s) — you have ${localEpisodeCountInMaxSeason}.`;
+  }
+
+  return {
+    hasGap: gapMessage != null,
+    gapMessage,
+    totalArchived: episodes.length,
+    totalEpisodes: status.total_episodes,
+    statusLabel: status.status,
+  };
+}
+
 async function loadTvStatus(tmdbId, episodes) {
   const el = $("#detail-tv-status");
   if (!el) return;
-  try {
-    const status = await api(`/api/library/tv-status?tmdb_id=${tmdbId}`);
-    if (!status.data_available || status.latest_known_season == null) {
-      el.innerHTML = "";
-      return;
-    }
-    const localMaxSeason = Math.max(...episodes.map((e) => e.season_number));
-    const localEpisodeCountInMaxSeason = episodes.filter((e) => e.season_number === localMaxSeason).length;
-
-    let message = null;
-    if (status.latest_known_season > localMaxSeason) {
-      message = `Season ${status.latest_known_season} is out — you have up to season ${localMaxSeason}.`;
-    } else if (
-      status.latest_known_season === localMaxSeason &&
-      status.latest_season_episode_count != null &&
-      status.latest_season_episode_count > localEpisodeCountInMaxSeason
-    ) {
-      message = `Season ${localMaxSeason} has ${status.latest_season_episode_count} episode(s) — you have ${localEpisodeCountInMaxSeason}.`;
-    }
-    el.innerHTML = message
-      ? `<div class="tv-status-banner">📺 ${message}${status.status ? ` <span class="hint">(${status.status})</span>` : ""}</div>`
-      : "";
-  } catch (e) {
+  const status = await getTvStatus(tmdbId);
+  const info = computeTvStatusInfo(status, episodes);
+  if (!info) {
     el.innerHTML = "";
+    return;
   }
+  const fraction = info.totalEpisodes != null
+    ? `${info.totalArchived} of ${info.totalEpisodes} episodes archived`
+    : `${info.totalArchived} episode(s) archived`;
+  const parts = info.hasGap ? [info.gapMessage, fraction] : [fraction];
+  const cls = info.hasGap ? "tv-status-banner" : "tv-status-banner tv-status-ok";
+  const icon = info.hasGap ? "📺" : "✅";
+  el.innerHTML = `<div class="${cls}">${icon} ${parts.join(" · ")}${info.statusLabel ? ` <span class="hint">(${info.statusLabel})</span>` : ""}</div>`;
 }
 
 async function loadRatings(itemId) {

@@ -477,7 +477,10 @@ def test_tv_status_reports_latest_season_and_episode_count(client):
     fake_tmdb = app.dependency_overrides[get_tmdb_client]()
     fake_tmdb.get_tv_details.return_value = MediaResult(
         tmdb_id=1399, title="Show", media_type="tv", source="api",
-        raw={"number_of_seasons": 3, "status": "Returning Series", "latest_season_episode_count": 6},
+        raw={
+            "number_of_seasons": 3, "number_of_episodes": 26,
+            "status": "Returning Series", "latest_season_episode_count": 6,
+        },
     )
 
     resp = c.get("/api/library/tv-status", params={"tmdb_id": 1399})
@@ -486,6 +489,7 @@ def test_tv_status_reports_latest_season_and_episode_count(client):
     assert body["latest_known_season"] == 3
     assert body["status"] == "Returning Series"
     assert body["latest_season_episode_count"] == 6
+    assert body["total_episodes"] == 26
     assert body["data_available"] is True
 
 

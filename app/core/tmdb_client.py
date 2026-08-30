@@ -255,6 +255,7 @@ class TMDBClient:
                 )
                 number_of_seasons = getattr(t, "number_of_seasons", None)
                 result.raw["number_of_seasons"] = number_of_seasons
+                result.raw["number_of_episodes"] = getattr(t, "number_of_episodes", None)
                 result.raw["status"] = getattr(t, "status", None)
                 result.raw["latest_season_episode_count"] = _latest_season_episode_count(t, number_of_seasons)
                 return result

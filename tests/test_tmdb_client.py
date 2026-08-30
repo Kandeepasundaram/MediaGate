@@ -228,7 +228,7 @@ def test_get_tv_details_extracts_latest_season_episode_count(monkeypatch):
             return AsObj({
                 "id": 1399, "name": "Test Show", "first_air_date": "2011-04-17",
                 "overview": "A show.", "poster_path": "/p.jpg",
-                "number_of_seasons": 2, "status": "Ended",
+                "number_of_seasons": 2, "number_of_episodes": 18, "status": "Ended",
                 "seasons": [
                     {"season_number": 1, "episode_count": 10},
                     {"season_number": 2, "episode_count": 8},
@@ -240,6 +240,7 @@ def test_get_tv_details_extracts_latest_season_episode_count(monkeypatch):
     result = client.get_tv_details(1399)
     assert result.tmdb_id == 1399
     assert result.raw["number_of_seasons"] == 2
+    assert result.raw["number_of_episodes"] == 18
     assert result.raw["status"] == "Ended"
     assert result.raw["latest_season_episode_count"] == 8
 

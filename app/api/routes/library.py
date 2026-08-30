@@ -139,6 +139,7 @@ def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvSt
         status=media.raw.get("status"),
         latest_known_season=media.raw.get("number_of_seasons"),
         latest_season_episode_count=media.raw.get("latest_season_episode_count"),
+        total_episodes=media.raw.get("number_of_episodes"),
         data_available=media.source == "api",
     )
 

@@ -184,6 +184,7 @@ class TvStatusOut(BaseModel):
     status: str | None = None
     latest_known_season: int | None = None
     latest_season_episode_count: int | None = None
+    total_episodes: int | None = None
     data_available: bool = False
 
 
