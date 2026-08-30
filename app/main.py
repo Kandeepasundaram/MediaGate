@@ -3,14 +3,14 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import archive, library, scan, settings, status, tracker
 from app.core import metadata_backfill, scheduler
-from app.dependencies import get_config, get_database
+from app.dependencies import get_config, get_database, require_api_token
 
 logger = logging.getLogger("media_manager")
 
@@ -50,12 +50,13 @@ def create_app() -> FastAPI:
         logger.exception("Unhandled error on %s %s", request.method, request.url.path)
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
-    app.include_router(scan.router)
-    app.include_router(archive.router)
-    app.include_router(tracker.router)
-    app.include_router(status.router)
-    app.include_router(settings.router)
-    app.include_router(library.router)
+    token_gate = [Depends(require_api_token)]
+    app.include_router(scan.router, dependencies=token_gate)
+    app.include_router(archive.router, dependencies=token_gate)
+    app.include_router(tracker.router, dependencies=token_gate)
+    app.include_router(status.router, dependencies=token_gate)
+    app.include_router(settings.router, dependencies=token_gate)
+    app.include_router(library.router, dependencies=token_gate)
 
     app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
 

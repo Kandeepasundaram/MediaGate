@@ -39,6 +39,7 @@ def _to_out(config: AppConfig) -> SettingsOut:
         webhook_url=config.notifications.webhook_url,
         omdb_api_key_set=bool(config.omdb.api_key),
         auto_track_new=config.tracker.auto_track_new,
+        api_token_set=bool(config.server.api_token),
     )
 
 
@@ -69,6 +70,8 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["omdb"]["api_key"] = payload.omdb_api_key
     if payload.auto_track_new is not None:
         updates["tracker"]["auto_track_new"] = payload.auto_track_new
+    if payload.api_token is not None:
+        updates["server"]["api_token"] = payload.api_token
 
     updates = {k: v for k, v in updates.items() if v}
     new_config = update_settings(config.config_path, updates)

@@ -26,7 +26,7 @@ _DEFAULT_CONFIG: dict = {
     "notifications": {"webhook_url": ""},
     "omdb": {"api_key": ""},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
-    "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"]},
+    "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"], "api_token": ""},
 }
 
 
@@ -78,6 +78,7 @@ class ServerConfig:
     host: str = "0.0.0.0"
     port: int = 8000
     cors_origins: list[str] = field(default_factory=lambda: ["*"])
+    api_token: str = ""
 
 
 @dataclass
@@ -158,7 +159,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
 _EDITABLE_KEYS = {
     "paths": {"incoming_movies", "incoming_tv", "archive_movies", "archive_tv"},
     "tmdb": {"api_key"},
-    "server": {"cors_origins"},
+    "server": {"cors_origins", "api_token"},
     "notifications": {"webhook_url"},
     "omdb": {"api_key"},
     "tracker": {"auto_track_new"},

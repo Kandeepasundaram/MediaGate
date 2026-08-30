@@ -208,6 +208,11 @@
         <input type="checkbox" id="setting-auto-track-new">
         Automatically track newly-archived titles for season/sequel alerts
       </label>
+      <label>API token (optional, for exposing this dashboard past your LAN)
+        <input type="password" id="setting-api-token" placeholder="leave blank to keep current">
+      </label>
+      <p id="api-token-note" class="hint"></p>
+      <button type="button" id="disable-api-token-btn" class="hidden">Disable API Token</button>
       <button type="submit" class="primary">Save Settings</button>
       <span id="settings-status"></span>
       <p class="hint">A backup of the previous config.yaml is kept as config.yaml.bak on every save.</p>

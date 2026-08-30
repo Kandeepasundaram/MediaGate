@@ -44,11 +44,32 @@ function formatBytes(bytes) {
   return `${n.toFixed(1)} ${units[i]}`;
 }
 
+// ---- Optional API token (see Settings > API token) ----
+const API_TOKEN_KEY = "media-manager:api-token";
+
+function getStoredApiToken() {
+  try { return localStorage.getItem(API_TOKEN_KEY) || ""; } catch (e) { return ""; }
+}
+
+function setStoredApiToken(token) {
+  try {
+    if (token) localStorage.setItem(API_TOKEN_KEY, token);
+    else localStorage.removeItem(API_TOKEN_KEY);
+  } catch (e) { /* private browsing / storage disabled -- token won't persist across reloads */ }
+}
+
 async function api(path, options = {}) {
-  const resp = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  const token = getStoredApiToken();
+  if (token) headers["X-API-Token"] = token;
+
+  const resp = await fetch(path, { ...options, headers });
+  if (resp.status === 401) {
+    const entered = window.prompt("This dashboard requires an API token to continue. Enter it:");
+    if (!entered) throw new Error("401: API token required");
+    setStoredApiToken(entered);
+    return api(path, options);
+  }
   if (!resp.ok) {
     const text = await resp.text().catch(() => resp.statusText);
     throw new Error(`${resp.status}: ${text}`);
@@ -1611,6 +1632,10 @@ async function loadSettings() {
     $("#omdb-key-note").textContent = s.omdb_api_key_set
       ? "A key is currently set. Leave blank to keep it. Powers IMDb/Rotten Tomatoes ratings in the detail pane."
       : "Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.";
+    $("#api-token-note").textContent = s.api_token_set
+      ? "A token is currently set and required on every request. Leave blank to keep it."
+      : "Disabled -- every request is currently allowed with no token.";
+    $("#disable-api-token-btn").classList.toggle("hidden", !s.api_token_set);
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
   }
@@ -1630,16 +1655,35 @@ async function saveSettings(e) {
   if (keyValue) payload.tmdb_api_key = keyValue;
   const omdbKeyValue = $("#setting-omdb-key").value;
   if (omdbKeyValue) payload.omdb_api_key = omdbKeyValue;
+  const apiTokenValue = $("#setting-api-token").value;
+  if (apiTokenValue) payload.api_token = apiTokenValue;
 
   $("#settings-status").textContent = "Saving...";
   try {
     await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
     $("#setting-tmdb-key").value = "";
     $("#setting-omdb-key").value = "";
+    $("#setting-api-token").value = "";
+    // We just set this token server-side ourselves, so this browser needs it stored too, or the very next request 401s.
+    if (apiTokenValue) setStoredApiToken(apiTokenValue);
     $("#settings-status").textContent = "Saved.";
     loadSettings();
     loadStatus();
     checkPermissions(); // catches a typo'd path immediately instead of waiting for a manual "Test Permissions" click
+  } catch (e) {
+    $("#settings-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function disableApiToken() {
+  const ok = await showConfirm("Disable the API token? Every /api/* request will then be allowed with no token.");
+  if (!ok) return;
+  $("#settings-status").textContent = "Saving...";
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify({ api_token: "" }) });
+    setStoredApiToken("");
+    $("#settings-status").textContent = "API token disabled.";
+    loadSettings();
   } catch (e) {
     $("#settings-status").textContent = `Error: ${e.message}`;
   }
@@ -1805,6 +1849,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
+  $("#disable-api-token-btn").addEventListener("click", disableApiToken);
   $("#export-library-btn").addEventListener("click", exportLibrary);
   $("#import-library-input").addEventListener("change", (e) => {
     importLibrary(e.target.files[0]);

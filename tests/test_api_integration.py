@@ -334,11 +334,47 @@ def test_settings_webhook_url_round_trips(client):
     assert resp.json()["webhook_url"] == "https://example.com/hook"
 
 
+def test_api_token_disabled_by_default(client):
+    c, _ = client
+    resp = c.get("/api/status")
+    assert resp.status_code == 200
+
+
+def test_api_token_gate_rejects_missing_or_wrong_token(client):
+    c, _ = client
+    app.dependency_overrides[get_config]().server.api_token = "secret123"
+    try:
+        assert c.get("/api/status").status_code == 401
+        assert c.get("/api/status", headers={"X-API-Token": "wrong"}).status_code == 401
+        assert c.get("/api/status", headers={"X-API-Token": "secret123"}).status_code == 200
+    finally:
+        app.dependency_overrides[get_config]().server.api_token = ""
+
+
+def test_api_token_gate_leaves_static_assets_open(client):
+    c, _ = client
+    app.dependency_overrides[get_config]().server.api_token = "secret123"
+    try:
+        resp = c.get("/index.html")
+        assert resp.status_code == 200
+    finally:
+        app.dependency_overrides[get_config]().server.api_token = ""
+
+
 def test_settings_auto_track_new_round_trips(client):
     c, _ = client
     resp = c.post("/api/settings", json={"auto_track_new": True})
     assert resp.status_code == 200
     assert resp.json()["auto_track_new"] is True
+
+
+def test_settings_api_token_round_trips_as_set_flag_only(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"api_token": "secret123"})
+    assert resp.status_code == 200
+    assert resp.json()["api_token_set"] is True
+    # the raw token value is never echoed back, only whether one is set
+    assert "api_token" not in resp.json()
 
 
 def test_confirm_archive_auto_tracks_when_enabled(client):

@@ -4,6 +4,8 @@ from __future__ import annotations
 import time
 from functools import lru_cache
 
+from fastapi import Depends, Header, HTTPException
+
 from app.config_loader import AppConfig, load_config
 from app.core.omdb_client import OMDbClient
 from app.core.tmdb_client import TMDBClient
@@ -35,6 +37,21 @@ def get_tmdb_client() -> TMDBClient:
 def get_omdb_client() -> OMDbClient:
     cfg = get_config()
     return OMDbClient(api_key=cfg.omdb.api_key)
+
+
+def require_api_token(
+    config: AppConfig = Depends(get_config), x_api_token: str | None = Header(default=None)
+) -> None:
+    """Optional shared-secret gate for the API, off by default (empty
+    token) -- this is a LAN dashboard with no login system, so this exists
+    for the one case that matters: someone exposing it past the LAN via a
+    reverse proxy who wants more than "whoever can reach the port". Applied
+    as a router-level dependency (not global middleware) so it goes through
+    Depends(get_config) like everything else, honoring dependency_overrides
+    in tests instead of hitting the real cached singleton directly.
+    """
+    if config.server.api_token and x_api_token != config.server.api_token:
+        raise HTTPException(status_code=401, detail="Missing or invalid API token")
 
 
 def reset_singletons() -> None:

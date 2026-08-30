@@ -384,6 +384,7 @@ class SettingsOut(BaseModel):
     webhook_url: str = ""
     omdb_api_key_set: bool = False
     auto_track_new: bool = False
+    api_token_set: bool = False
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -396,6 +397,7 @@ class SettingsUpdateRequest(BaseModel):
     webhook_url: str | None = None
     omdb_api_key: str | None = None
     auto_track_new: bool | None = None
+    api_token: str | None = None
 
 
 class PathCheck(BaseModel):
