@@ -188,6 +188,16 @@
       <button id="check-permissions-btn">Test Permissions</button>
       <div id="permissions-result"></div>
     </div>
+
+    <h3>Backup &amp; Restore</h3>
+    <div class="card">
+      <p class="hint">Exports/imports the library database (titles, watch state, matches) as JSON -- not the media files themselves.</p>
+      <button id="export-library-btn">Export Library (JSON)</button>
+      <label>Import from file
+        <input type="file" id="import-library-input" accept="application/json">
+      </label>
+      <span id="backup-status" class="hint"></span>
+    </div>
   </section>
 </main>
 

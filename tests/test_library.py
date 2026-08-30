@@ -444,6 +444,78 @@ def test_file_info_404_for_unknown_item(client):
     assert resp.status_code == 404
 
 
+def test_export_returns_all_media_items(client):
+    c, db = client
+    _seed_movie(db)
+    db.create_media_item(
+        original_path="/incoming/show.s01e01.mkv", title="Show", media_type="tv",
+        season_number=1, episode_number=1,
+    )
+
+    resp = c.get("/api/library/export")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["items"]) == 2
+    assert body["exported_at"]
+    movie = next(i for i in body["items"] if i["media_type"] == "movie")
+    assert movie["title"] == "Movie"
+    assert movie["metadata"]["poster_path"] == "/poster.jpg"
+
+
+def test_import_creates_new_items(client):
+    c, db = client
+    export_item = dict(
+        original_path="/incoming/x.mkv", title="Imported Movie", year=2021,
+        tmdb_id=None, media_type="movie", season_number=None, episode_number=None,
+        final_path="/archive/Imported Movie (2021)/Imported Movie (2021).mkv",
+        archived_at=None, watched=False, metadata={}, imdb_id=None, manual_override=False,
+    )
+
+    resp = c.post("/api/library/import", json={"items": [export_item]})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imported"] == 1
+    assert body["skipped"] == 0
+
+    items = db.list_media_items(media_type="movie")
+    assert len(items) == 1
+    assert items[0]["title"] == "Imported Movie"
+
+
+def test_import_skips_item_already_tracked_by_final_path(client):
+    c, db = client
+    existing = _seed_movie(db)
+    export_item = dict(
+        original_path="/incoming/movie.mkv", title="Movie", year=2020,
+        tmdb_id=None, media_type="movie", season_number=None, episode_number=None,
+        final_path="/archive/Movie (2020)/Movie (2020).mkv",
+        archived_at=None, watched=False, metadata={}, imdb_id=None, manual_override=False,
+    )
+
+    resp = c.post("/api/library/import", json={"items": [export_item]})
+    body = resp.json()
+    assert body["imported"] == 0
+    assert body["skipped"] == 1
+    assert len(db.list_media_items(media_type="movie")) == 1
+    assert db.get_media_item(existing)["title"] == "Movie"
+
+
+def test_export_import_round_trips(client):
+    c, db = client
+    _seed_movie(db)
+
+    exported = c.get("/api/library/export").json()
+
+    # Simulate restoring into a fresh, empty database.
+    for item_id in [i["id"] for i in db.list_media_items()]:
+        db.delete_media_item(item_id)
+    assert db.list_media_items() == []
+
+    resp = c.post("/api/library/import", json={"items": exported["items"]})
+    assert resp.json()["imported"] == 1
+    assert db.list_media_items(media_type="movie")[0]["title"] == "Movie"
+
+
 def test_manual_override_sets_title_and_clears_tmdb_id(client):
     c, db = client
     media_id = db.create_media_item(

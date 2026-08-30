@@ -304,6 +304,36 @@ class ManualOverrideRequest(BaseModel):
     year: int | None = None
 
 
+class MediaItemExportOut(BaseModel):
+    original_path: str
+    title: str
+    year: int | None = None
+    tmdb_id: int | None = None
+    media_type: MediaType
+    season_number: int | None = None
+    episode_number: int | None = None
+    final_path: str | None = None
+    archived_at: str | None = None
+    watched: bool = False
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    imdb_id: str | None = None
+    manual_override: bool = False
+
+
+class LibraryExportResponse(BaseModel):
+    items: list[MediaItemExportOut]
+    exported_at: str
+
+
+class LibraryImportRequest(BaseModel):
+    items: list[MediaItemExportOut]
+
+
+class LibraryImportResponse(BaseModel):
+    imported: int
+    skipped: int
+
+
 class SettingsOut(BaseModel):
     incoming_movies: str
     incoming_tv: str

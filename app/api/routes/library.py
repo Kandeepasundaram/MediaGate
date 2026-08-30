@@ -32,10 +32,14 @@ from app.models import (
     BrowseResponse,
     DeleteFileRequest,
     FileInfoOut,
+    LibraryExportResponse,
     LibraryHealthOut,
+    LibraryImportRequest,
+    LibraryImportResponse,
     LibraryItemOut,
     LibraryResponse,
     ManualOverrideRequest,
+    MediaItemExportOut,
     MediaType,
     MetadataStatusResponse,
     MovieRelatedTitleOut,
@@ -56,13 +60,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/library", tags=["library"])
 
 
-def _to_out(row: dict) -> LibraryItemOut:
+def _metadata_dict(row: dict) -> dict:
     try:
         meta = json.loads(row["metadata"]) if row.get("metadata") else {}
     except json.JSONDecodeError:
         meta = {}
-    if not isinstance(meta, dict):
-        meta = {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def _to_out(row: dict) -> LibraryItemOut:
+    meta = _metadata_dict(row)
 
     file_name = None
     size_bytes = None
@@ -124,6 +131,68 @@ def metadata_status(media_type: MediaType | None = None, db: Database = Depends(
         pending=db.count_unmatched_media_items(media_type),
         failed=db.count_failed_match_items(media_type),
     )
+
+
+@router.get("/export", response_model=LibraryExportResponse)
+def export_library(db: Database = Depends(get_database)) -> LibraryExportResponse:
+    """Dumps every media_items row as portable JSON -- a backup/restore path
+    that doesn't depend on copying the SQLite file directly (e.g. moving to
+    a fresh install, or archiving a snapshot alongside the media itself).
+    `id` is deliberately omitted: importing into a different (or rebuilt)
+    database shouldn't assume the old row ids still mean anything there.
+    """
+    items = [
+        MediaItemExportOut(
+            original_path=row["original_path"],
+            title=row["title"],
+            year=row["year"],
+            tmdb_id=row["tmdb_id"],
+            media_type=row["media_type"],
+            season_number=row["season_number"],
+            episode_number=row["episode_number"],
+            final_path=row["final_path"],
+            archived_at=row["archived_at"],
+            watched=bool(row["watched"]),
+            metadata=_metadata_dict(row),
+            imdb_id=row["imdb_id"],
+            manual_override=bool(row["manual_override"]),
+        )
+        for row in db.list_media_items()
+    ]
+    return LibraryExportResponse(items=items, exported_at=datetime.now(timezone.utc).isoformat())
+
+
+@router.post("/import", response_model=LibraryImportResponse)
+def import_library(payload: LibraryImportRequest, db: Database = Depends(get_database)) -> LibraryImportResponse:
+    """Restores media_items rows from a previous /export. An item is skipped
+    (not overwritten) when its final_path is already tracked -- the same
+    dedupe rule adopt_new_files uses -- so re-importing the same backup
+    twice, or importing into a library that's since moved on, doesn't
+    clobber anything or create duplicates.
+    """
+    imported = 0
+    skipped = 0
+    for item in payload.items:
+        if item.final_path and db.get_media_item_by_final_path(item.final_path) is not None:
+            skipped += 1
+            continue
+        db.create_media_item(
+            original_path=item.original_path,
+            title=item.title,
+            year=item.year,
+            tmdb_id=item.tmdb_id,
+            media_type=item.media_type,
+            season_number=item.season_number,
+            episode_number=item.episode_number,
+            final_path=item.final_path,
+            archived_at=item.archived_at,
+            watched=1 if item.watched else 0,
+            metadata=item.metadata,
+            imdb_id=item.imdb_id,
+            manual_override=1 if item.manual_override else 0,
+        )
+        imported += 1
+    return LibraryImportResponse(imported=imported, skipped=skipped)
 
 
 @router.get("/health", response_model=LibraryHealthOut)

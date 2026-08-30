@@ -1432,6 +1432,40 @@ async function saveSettings(e) {
   }
 }
 
+async function exportLibrary() {
+  const status = $("#backup-status");
+  status.textContent = "Exporting...";
+  try {
+    const data = await api("/api/library/export");
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `media-manager-library-${data.exported_at.slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    status.textContent = `Exported ${data.items.length} item(s).`;
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function importLibrary(file) {
+  const status = $("#backup-status");
+  if (!file) return;
+  status.textContent = "Importing...";
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const data = await api("/api/library/import", { method: "POST", body: JSON.stringify({ items: parsed.items || [] }) });
+    status.textContent = `Imported ${data.imported} item(s), skipped ${data.skipped} already-tracked item(s).`;
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
 async function checkPermissions() {
   const result = $("#permissions-result");
   result.textContent = "Checking...";
@@ -1544,6 +1578,11 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
+  $("#export-library-btn").addEventListener("click", exportLibrary);
+  $("#import-library-input").addEventListener("change", (e) => {
+    importLibrary(e.target.files[0]);
+    e.target.value = "";
+  });
   $("#browse-refresh-btn").addEventListener("click", loadBrowse);
   $("#cleanup-orphans-btn").addEventListener("click", cleanupOrphans);
   $("#browse-type").addEventListener("change", loadBrowse);
