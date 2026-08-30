@@ -43,12 +43,15 @@ container with an in-process scheduler and browser notifications) and things
 written but not live-tested (real Ubuntu systemd install, real TMDB
 scraping against themoviedb.org).
 
-The container is generic on purpose: nothing homelab-specific (media paths,
-TMDB key) is baked in at build/deploy time. `docker-compose.yml` only needs
-one bind mount (`/media`, your library root) and one named volume (`/config`,
-for `config.yaml` + the SQLite DB + logs) — everything else is set from the
-dashboard's Settings tab after first boot (see the "Settings API" section
-below). This was a deliberate pivot mid-build once the deploy target became
+The container is generic on purpose: nothing homelab-specific is baked in at
+build time. `docker-compose.yml` needs two bind mounts (`/media/movies`,
+`/media/tv` — real host paths go in `.env` via `${MOVIES_HOST_PATH}`/
+`${TV_HOST_PATH}` substitution, not the compose file itself, since Arcane
+treats a git-synced compose file as read-only) and one named volume
+(`/config`, for `config.yaml` + the SQLite DB + logs). The TMDB key and
+whether to use a separate incoming folder are set from the dashboard's
+Settings tab after first boot (see the "Settings API" section below). This
+was a deliberate pivot mid-build once the deploy target became
 "generic container configured post-install," away from the original plan's
 per-host `config.yaml` editing.
 

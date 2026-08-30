@@ -30,15 +30,17 @@ architecture notes aimed at AI coding agents working in this repo.
 ## Quick start (Docker / homelab)
 
 ```bash
+cp .env.example .env   # set MOVIES_HOST_PATH / TV_HOST_PATH to your real folders
 docker compose up -d --build
 ```
 
-Edit `docker-compose.yml` first to point the `/media` bind mount at your
-actual media library root — everything else (incoming/movie/TV subpaths,
-TMDB key) is configured from the dashboard's **Settings** tab after first
-boot, no `.env` or rebuild needed. Dashboard's published on port **26431**
-(container listens on 8000 internally; change the `ports:` line if you want
-a different published port). See `INSTALL.md` for the Arcane-specific
+Host paths go in `.env`, not `docker-compose.yml` — keeps them out of git
+and out of Arcane's read-only synced compose file. Everything else (TMDB
+key, whether you want a separate incoming folder) is configured from the
+dashboard's **Settings** tab after first boot, no rebuild needed.
+Dashboard's published on port **26431** (container listens on 8000
+internally; change the `ports:` line if you want a different published
+port). See `INSTALL.md` for the Arcane-specific
 walkthrough.
 
 ## Quick start (development)

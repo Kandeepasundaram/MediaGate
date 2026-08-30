@@ -10,21 +10,31 @@ after first boot.
    as anonymous/ephemeral storage:**
    - `/config` — holds `config.yaml` (your Settings-tab changes), the SQLite
      database, and logs.
-   - `/media` — bind-mount your actual media library's root here. The app
-     never sees paths outside whatever you mount at `/media`.
-2. **Via `docker-compose.yml`** (works as-is with Arcane, which manages
-   compose stacks): edit the `/path/on/host/to/media:/media` line to your
-   real host path, then:
+   - `/media/movies`, `/media/tv` — bind-mount your actual movie/TV folders
+     here. Whatever's already in them gets scanned in place; you don't need
+     a separate staging folder (see `paths.active_dir` in `CONFIG.md` if you
+     want one anyway).
+2. **Set the real host paths in `.env`, not `docker-compose.yml`** — the
+   compose file is git-managed (Arcane treats it read-only once deployed
+   from a repo), so host-specific paths live in `.env` instead, which stays
+   editable:
    ```bash
+   cp .env.example .env
+   # edit .env: MOVIES_HOST_PATH=/your/real/movies/path
+   #            TV_HOST_PATH=/your/real/tv/path
    docker compose up -d --build
    ```
-   Or in Arcane: create a new stack, paste `docker-compose.yml`'s contents,
-   edit that one volume line, deploy.
-3. **First boot**: open `http://<host-ip>:26431`. Go to **Settings** and set
-   the Incoming/Movies/TV directories to subpaths under `/media` matching
-   your actual layout (e.g. `/media/incoming`, `/media/movies`, `/media/tv`).
-   Optionally set a TMDB API key there too — leave it blank to run in
-   scraper-fallback mode.
+   In Arcane: create a Project "From Git Repo" pointing at this repo (add it
+   under Customization → Git Repositories first if it's not already there;
+   auth type "None" works for a public repo), enable **Sync Files** (`build:
+   .` needs the Dockerfile and app source alongside the compose file, not
+   just the compose file itself), sync, then edit the project's `.env` panel
+   with your real `MOVIES_HOST_PATH`/`TV_HOST_PATH`, then start it.
+3. **First boot**: open `http://<host-ip>:26431`. Go to **Settings** and
+   optionally set a TMDB API key — leave it blank to run in scraper-fallback
+   mode. The Incoming/Movies/TV path fields default to `/media/incoming`
+   (unmounted, harmless), `/media/movies`, `/media/tv` — leave the last two
+   as-is to match the bind mounts above.
 4. **Test write access**: Settings tab → "Test Permissions". If a path shows
    not writable, either the host directory doesn't exist yet (create it) or
    its ownership doesn't match the container's user. The container runs as

@@ -10,19 +10,21 @@ services:
       # database, and logs. Must be a real volume/bind mount or every
       # redeploy loses your settings and archive history.
       - media-manager-config:/config
-      # Point this at your media library's root on the host. Everything
-      # under it (incoming + archive folders) is configured *inside* the
-      # app after first boot: open the dashboard's Settings tab and set
-      # the Incoming/Movies/TV directories to subpaths under /media that
-      # match your actual layout, e.g. /media/incoming, /media/movies.
-      - /path/on/host/to/media:/media
+      # Set MOVIES_HOST_PATH / TV_HOST_PATH in this stack's .env (not this
+      # file -- keeps host-specific paths out of git). Whatever's already in
+      # each folder is scanned in place; a separate "incoming" staging
+      # folder isn't required (see paths.active_dir in config.docker.yaml).
+      - ${MOVIES_HOST_PATH:-/path/on/host/to/movies}:/media/movies
+      - ${TV_HOST_PATH:-/path/on/host/to/tv}:/media/tv
     environment:
       TZ: "UTC"
-      # Uncomment to lock the TMDB key via env instead of the Settings UI
-      # (the Settings UI will show it as locked and refuse to change it):
-      # TMDB_API_KEY: ""
+      # Set TMDB_API_KEY in .env to lock the key via env instead of the
+      # Settings UI (the Settings UI will show it as locked and refuse to
+      # change it). Leave unset to configure it from the dashboard instead.
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
     # Uncomment and set to your host media owner's uid:gid if the app can't
-    # write to /media as root (check Settings > Test Permissions first):
+    # write to /media/movies or /media/tv as root (check Settings > Test
+    # Permissions first):
     # user: "1000:1000"
 
 volumes:
