@@ -290,3 +290,66 @@ def test_permissions_check_reports_free_space(client):
     resp = c.get("/api/settings/permissions-check")
     body = resp.json()
     assert all(p["free_bytes"] is not None and p["free_bytes"] > 0 for p in body["paths"])
+
+
+def test_rematch_imdb_updates_unmatched_item(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Unmatched.File.mkv"
+    video.write_bytes(b"data")
+
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = []  # simulate no automatic match
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item = c.get("/api/library/movies").json()["items"][0]
+    assert item["tmdb_id"] is None
+
+    fake_tmdb.find_by_imdb_id.return_value = MediaResult(
+        tmdb_id=278, title="The Shawshank Redemption", media_type="movie", year=1994, overview="...", poster_path="/p.jpg"
+    )
+    resp = c.post(
+        "/api/library/rematch-imdb",
+        json={"ids": [item["id"]], "imdb_id": "tt0111161", "media_type": "movie"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["updated"] == 1
+    assert body["tmdb_id"] == 278
+
+    updated_item = c.get("/api/library/movies").json()["items"][0]
+    assert updated_item["tmdb_id"] == 278
+    assert updated_item["title"] == "The Shawshank Redemption"
+    assert updated_item["poster_path"] == "/p.jpg"
+
+
+def test_rematch_imdb_applies_to_multiple_episode_ids(client):
+    c, incoming_movies = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+
+    tv_dir = incoming_movies.parent / "tv"
+    tv_dir.mkdir(exist_ok=True)
+    for ep in ("S01E01", "S01E02"):
+        f = tv_dir / f"Show.{ep}.mkv"
+        f.write_bytes(b"data")
+        fake_tmdb.search_tv.return_value = []
+        preview = c.post("/api/archive/preview", json={"paths": [str(f)]}).json()
+        c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    ids = [i["id"] for i in c.get("/api/library/tv").json()["items"]]
+    assert len(ids) == 2
+
+    fake_tmdb.find_by_imdb_id.return_value = MediaResult(
+        tmdb_id=99, title="Show", media_type="tv", year=2020, overview="desc", poster_path="/s.jpg"
+    )
+    resp = c.post("/api/library/rematch-imdb", json={"ids": ids, "imdb_id": "tt1234567", "media_type": "tv"})
+    assert resp.json()["updated"] == 2
+    assert all(i["tmdb_id"] == 99 for i in c.get("/api/library/tv").json()["items"])
+
+
+def test_rematch_imdb_404_when_not_found(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.find_by_imdb_id.return_value = None
+
+    resp = c.post("/api/library/rematch-imdb", json={"ids": [1], "imdb_id": "tt0000000", "media_type": "movie"})
+    assert resp.status_code == 404

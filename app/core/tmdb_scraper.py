@@ -108,6 +108,24 @@ class TMDBScraper:
             return None
         return self._parse_detail(resp.text, tmdb_id)
 
+    def find_by_imdb_id(self, imdb_id: str, media_type: str) -> ScrapedResult | None:
+        """Best-effort manual-match fallback: themoviedb.org redirects
+        /movie/{imdb_id} or /tv/{imdb_id} to the real .../{tmdb_id}-{slug}
+        page when the IMDb id matches a known title. `resp.history` is only
+        populated when a redirect actually happened, which is what
+        distinguishes a real match from themoviedb.org just echoing the
+        literal (unmatched) imdb_id back -- that string still contains
+        digits after the "tt" prefix, so digit-extraction alone would give
+        a false positive on a 404/no-match response.
+        """
+        resp = self._get(f"{BASE_URL}/{media_type}/{imdb_id}")
+        if resp is None or not resp.history:
+            return None
+        tmdb_id = self._extract_id(str(resp.url))
+        if tmdb_id is None:
+            return None
+        return self._parse_detail(resp.text, tmdb_id)
+
     def get_collection_movies(self, collection_id: int) -> list[ScrapedResult]:
         resp = self._get(f"{BASE_URL}/collection/{collection_id}")
         if resp is None:

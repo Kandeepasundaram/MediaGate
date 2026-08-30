@@ -168,6 +168,7 @@ class LibraryItemOut(BaseModel):
     year: int | None = None
     season_number: int | None = None
     episode_number: int | None = None
+    tmdb_id: int | None = None
     poster_path: str | None = None
     overview: str = ""
     watched: bool
@@ -190,6 +191,21 @@ class WatchedBatchRequest(BaseModel):
 
 class WatchedBatchResponse(BaseModel):
     updated: int
+
+
+class RematchImdbRequest(BaseModel):
+    ids: list[int]
+    imdb_id: str
+    media_type: MediaType
+
+
+class RematchImdbResponse(BaseModel):
+    updated: int
+    tmdb_id: int | None = None
+    title: str | None = None
+    year: int | None = None
+    poster_path: str | None = None
+    overview: str | None = None
 
 
 class BrowseItemOut(BaseModel):

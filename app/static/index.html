@@ -49,8 +49,6 @@
         <option value="added">Recently added</option>
         <option value="title">Title (A-Z)</option>
       </select>
-      <button id="tv-mark-watched-btn">Mark Selected Watched</button>
-      <button id="tv-mark-unwatched-btn">Mark Selected Unwatched</button>
       <span id="tv-count" class="hint"></span>
     </div>
     <div id="tv-gallery" class="gallery"></div>
@@ -188,6 +186,18 @@
     <button id="match-cancel-btn">Cancel</button>
   </div>
 </div>
+
+<div id="command-palette" class="modal hidden">
+  <div class="modal-content palette-content">
+    <input type="text" id="palette-input" class="search-input palette-input" placeholder="Type a command…" autocomplete="off">
+    <div id="palette-results" class="palette-results"></div>
+  </div>
+</div>
+
+<aside id="detail-pane" class="detail-pane hidden">
+  <button id="detail-close-btn" class="detail-close-btn" title="Close">×</button>
+  <div id="detail-pane-content"></div>
+</aside>
 
 <script src="app.js"></script>
 </body>

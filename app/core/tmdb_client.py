@@ -9,6 +9,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+import requests
+
 from app.core.tmdb_scraper import ScrapedResult, TMDBScraper
 
 logger = logging.getLogger(__name__)
@@ -225,6 +227,45 @@ class TMDBClient:
                 logger.warning("TMDB API get_tv_details failed, falling back to scraper: %s", exc)
 
         return _scraped_to_result(self.scraper.get_tv_details(tmdb_id), "tv")
+
+    def find_by_imdb_id(self, imdb_id: str, media_type: str) -> MediaResult | None:
+        """Manual-match path for a title the automatic search/backfill
+        couldn't identify (or matched wrong): looks up TMDB's canonical
+        record directly by IMDb id instead of a fuzzy title search."""
+        return self._cached(("find_imdb", imdb_id, media_type), lambda: self._find_by_imdb_id(imdb_id, media_type))
+
+    def _find_by_imdb_id(self, imdb_id: str, media_type: str) -> MediaResult | None:
+        if self._api:
+            try:
+                resp = requests.get(
+                    f"https://api.themoviedb.org/3/find/{imdb_id}",
+                    params={"api_key": self.api_key, "external_source": "imdb_id", "language": self.language},
+                    timeout=10,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                results = data.get("movie_results" if media_type == "movie" else "tv_results", [])
+                if results:
+                    r = results[0]
+                    return MediaResult(
+                        tmdb_id=r["id"],
+                        title=r.get("title") or r.get("name") or "",
+                        media_type=media_type,
+                        year=self._year_from_date(r.get("release_date") or r.get("first_air_date")),
+                        overview=r.get("overview", ""),
+                        poster_path=r.get("poster_path"),
+                        source="api",
+                        raw=r,
+                    )
+                return None
+            except Exception as exc:
+                logger.warning("TMDB API find_by_imdb_id failed, falling back to scraper: %s", exc)
+
+        return _scraped_to_result(self.scraper.find_by_imdb_id(imdb_id, media_type), media_type)
+
+    @staticmethod
+    def _year_from_date(date_str: str | None) -> int | None:
+        return int(date_str[:4]) if date_str else None
 
     def get_collection_movies(self, collection_id: int) -> list[MediaResult]:
         return self._cached(("collection", collection_id), lambda: self._get_collection_movies(collection_id))

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,8 +19,9 @@ from app.core.library_adopt import adopt_new_files
 from app.core.organizer import OrganizeError, organize_file
 from app.core.renamer import RenamePlan
 from app.core.scanner import scan_directory
+from app.core.tmdb_client import TMDBClient
 from app.database import Database
-from app.dependencies import get_config, get_database
+from app.dependencies import get_config, get_database, get_tmdb_client
 from app.models import (
     ArchiveConfirmRequest,
     ArchiveConfirmResponse,
@@ -31,6 +33,8 @@ from app.models import (
     LibraryResponse,
     MediaType,
     MetadataStatusResponse,
+    RematchImdbRequest,
+    RematchImdbResponse,
     WatchedBatchRequest,
     WatchedBatchResponse,
     WatchedUpdateRequest,
@@ -55,6 +59,7 @@ def _to_out(row: dict) -> LibraryItemOut:
         year=row["year"],
         season_number=row["season_number"],
         episode_number=row["episode_number"],
+        tmdb_id=row["tmdb_id"],
         poster_path=meta.get("poster_path"),
         overview=meta.get("overview", ""),
         watched=bool(row["watched"]),
@@ -112,6 +117,47 @@ def set_watched_batch(payload: WatchedBatchRequest, db: Database = Depends(get_d
         db.update_media_item(item_id, watched=1 if payload.watched else 0)
         updated += 1
     return WatchedBatchResponse(updated=updated)
+
+
+@router.post("/rematch-imdb", response_model=RematchImdbResponse)
+def rematch_by_imdb_id(
+    payload: RematchImdbRequest,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+) -> RematchImdbResponse:
+    """Manual-match path for the detail pane: a title the automatic
+    search/backfill couldn't identify (tmdb_id null) or matched wrong. One
+    IMDb-id lookup, applied to every id in `ids` -- a TV show's IMDb id
+    identifies the whole series, so the caller passes every episode row
+    for that show, not just one.
+    """
+    media = tmdb.find_by_imdb_id(payload.imdb_id.strip(), payload.media_type)
+    if media is None:
+        raise HTTPException(status_code=404, detail=f"No TMDB match found for IMDb id {payload.imdb_id!r}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    updated = 0
+    for item_id in payload.ids:
+        if db.get_media_item(item_id) is None:
+            continue
+        db.update_media_item(
+            item_id,
+            tmdb_id=media.tmdb_id,
+            title=media.title,
+            year=media.year,
+            metadata={"poster_path": media.poster_path, "overview": media.overview},
+            match_attempted_at=now,
+        )
+        updated += 1
+
+    return RematchImdbResponse(
+        updated=updated,
+        tmdb_id=media.tmdb_id,
+        title=media.title,
+        year=media.year,
+        poster_path=media.poster_path,
+        overview=media.overview,
+    )
 
 
 @router.post("/organize", response_model=ArchiveConfirmResponse)

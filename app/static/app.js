@@ -170,8 +170,8 @@ function renderMoviesGallery() {
     gallery.innerHTML = `<p class="gallery-empty">No movies match "${query}".</p>`;
     return;
   }
-  gallery.innerHTML = items.map((item) => `
-    <div class="gallery-card">
+  gallery.innerHTML = items.map((item, i) => `
+    <div class="gallery-card" data-item-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
       ${posterMarkup(item.title, item.poster_path)}
       <div class="gallery-info">
@@ -189,6 +189,9 @@ function renderMoviesGallery() {
   wireWatchedToggles(gallery);
   gallery.querySelectorAll(".gallery-select").forEach((cb) => {
     cb.addEventListener("click", (e) => e.stopPropagation());
+  });
+  gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
+    card.addEventListener("click", () => openDetailPane("movie", items[i]));
   });
 }
 
@@ -209,7 +212,9 @@ function groupEpisodesByShow(items) {
   const shows = new Map();
   for (const item of items) {
     const key = item.title;
-    if (!shows.has(key)) shows.set(key, { title: item.title, poster_path: item.poster_path, episodes: [] });
+    if (!shows.has(key)) {
+      shows.set(key, { title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview, episodes: [] });
+    }
     shows.get(key).episodes.push(item);
   }
   for (const show of shows.values()) {
@@ -245,28 +250,10 @@ function renderTvGallery() {
           <span>${show.episodes.length} episode(s)</span>
         </div>
       </div>
-      <div class="tv-episodes">
-        ${show.episodes.map((ep) => `
-          <div class="tv-episode-row">
-            <input type="checkbox" class="tv-episode-select" data-select-id="${ep.id}">
-            <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
-            <label class="watched-toggle">
-              <input type="checkbox" data-id="${ep.id}" ${ep.watched ? "checked" : ""}>
-              Watched
-            </label>
-          </div>
-        `).join("")}
-      </div>
     </div>
   `).join("");
-  wireWatchedToggles(gallery);
-  gallery.querySelectorAll(".tv-episode-select").forEach((cb) => {
-    cb.addEventListener("click", (e) => e.stopPropagation());
-  });
-  gallery.querySelectorAll(".gallery-card").forEach((card) => {
-    card.addEventListener("click", () => {
-      card.querySelector(".tv-episodes").classList.toggle("expanded");
-    });
+  gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
+    card.addEventListener("click", () => openDetailPane("tv", shows[i]));
   });
 }
 
@@ -281,6 +268,208 @@ async function loadTvGallery() {
   } catch (e) {
     gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
   }
+}
+
+// ---- Detail pane ----
+state.detailPane = null; // { kind: "movie"|"tv", data }
+
+function renderDetailPane() {
+  const pane = state.detailPane;
+  const content = $("#detail-pane-content");
+  if (!pane) return;
+
+  if (pane.kind === "movie") {
+    const item = pane.data;
+    content.innerHTML = `
+      ${item.tmdb_id == null ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
+      ${posterMarkupLarge(item.title, item.poster_path)}
+      <div class="detail-title">${item.title}</div>
+      <div class="detail-year">${item.year || ""}</div>
+      <label class="watched-toggle">
+        <input type="checkbox" id="detail-watched-toggle" data-id="${item.id}" ${item.watched ? "checked" : ""}>
+        Watched
+      </label>
+      <p class="detail-overview">${item.overview || "No overview available."}</p>
+      ${detailFixMarkup()}
+    `;
+    $("#detail-watched-toggle").addEventListener("change", async (e) => {
+      try {
+        await toggleWatched(item.id, e.target.checked);
+        item.watched = e.target.checked;
+        renderMoviesGallery(); // syncs the same checkbox shown on the gallery card
+      } catch (err) {
+        e.target.checked = !e.target.checked;
+      }
+    });
+  } else {
+    const show = pane.data;
+    content.innerHTML = `
+      ${show.tmdb_id == null ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
+      ${posterMarkupLarge(show.title, show.poster_path)}
+      <div class="detail-title">${show.title}</div>
+      <div class="detail-year">${show.episodes.length} episode(s)</div>
+      <p class="detail-overview">${show.overview || "No overview available."}</p>
+      <div class="detail-episodes">
+        ${show.episodes.map((ep) => `
+          <div class="detail-episode-row">
+            <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
+            <label class="watched-toggle">
+              <input type="checkbox" class="detail-ep-watched" data-id="${ep.id}" ${ep.watched ? "checked" : ""}>
+              Watched
+            </label>
+          </div>
+        `).join("")}
+      </div>
+      ${detailFixMarkup()}
+    `;
+    content.querySelectorAll(".detail-ep-watched").forEach((input) => {
+      input.addEventListener("change", async () => {
+        try {
+          await toggleWatched(Number(input.dataset.id), input.checked);
+          const ep = show.episodes.find((e) => e.id === Number(input.dataset.id));
+          if (ep) ep.watched = input.checked;
+        } catch (err) {
+          input.checked = !input.checked;
+        }
+      });
+    });
+  }
+
+  wireDetailFix();
+}
+
+function posterMarkupLarge(title, posterPath) {
+  const url = posterUrl(posterPath);
+  return url
+    ? `<img class="detail-poster" src="${url}" alt="${title}">`
+    : `<div class="detail-poster-placeholder">${title}</div>`;
+}
+
+function detailFixMarkup() {
+  return `
+    <div class="detail-fix">
+      <label>IMDb ID
+        <input type="text" id="detail-imdb-input" placeholder="tt1234567">
+      </label>
+      <button id="detail-fetch-btn">Fetch Metadata from IMDb ID</button>
+      <span id="detail-fetch-status" class="hint"></span>
+    </div>
+  `;
+}
+
+function wireDetailFix() {
+  $("#detail-fetch-btn").addEventListener("click", async () => {
+    const pane = state.detailPane;
+    if (!pane) return;
+    const imdbId = $("#detail-imdb-input").value.trim();
+    if (!imdbId) return;
+
+    const ids = pane.kind === "movie" ? [pane.data.id] : pane.data.episodes.map((e) => e.id);
+    const mediaType = pane.kind === "movie" ? "movie" : "tv";
+
+    $("#detail-fetch-status").textContent = "Fetching...";
+    try {
+      await api("/api/library/rematch-imdb", {
+        method: "POST",
+        body: JSON.stringify({ ids, imdb_id: imdbId, media_type: mediaType }),
+      });
+      $("#detail-fetch-status").textContent = "Updated.";
+      if (pane.kind === "movie") {
+        await loadMoviesGallery();
+        const updated = state.movieItems.find((i) => i.id === pane.data.id);
+        if (updated) openDetailPane("movie", updated);
+      } else {
+        await loadTvGallery();
+        const updated = groupEpisodesByShow(state.tvItems).find((s) => s.episodes.some((e) => ids.includes(e.id)));
+        if (updated) openDetailPane("tv", updated);
+      }
+    } catch (e) {
+      $("#detail-fetch-status").textContent = `Error: ${e.message}`;
+    }
+  });
+}
+
+function openDetailPane(kind, data) {
+  state.detailPane = { kind, data };
+  renderDetailPane();
+  $("#detail-pane").classList.remove("hidden");
+}
+
+function closeDetailPane() {
+  state.detailPane = null;
+  $("#detail-pane").classList.add("hidden");
+}
+
+// ---- Command palette ----
+const COMMANDS = [
+  { category: "Navigate", label: "Go to Movies", run: () => switchToTab("movies") },
+  { category: "Navigate", label: "Go to TV", run: () => switchToTab("tv") },
+  { category: "Navigate", label: "Go to Browse & Clean Up", run: () => switchToTab("browse") },
+  { category: "Navigate", label: "Go to Ready to Archive", run: () => switchToTab("archive") },
+  { category: "Navigate", label: "Go to Notifications", run: () => switchToTab("notifications") },
+  { category: "Navigate", label: "Go to History", run: () => switchToTab("history") },
+  { category: "Navigate", label: "Go to Settings", run: () => switchToTab("settings") },
+  { category: "Library", label: "Scan Library", run: () => { switchToTab("archive"); scanAndPreview(); } },
+  { category: "Library", label: "Refresh Browse & Clean Up", run: () => { switchToTab("browse"); loadBrowse(); } },
+  { category: "Library", label: "Check Storage Permissions", run: () => { switchToTab("settings"); checkPermissions(); } },
+  { category: "View", label: "Toggle Light / Dark Theme", run: () => $("#theme-toggle-btn").click() },
+];
+const PALETTE_CATEGORY_ORDER = ["Navigate", "Library", "View"];
+
+state.paletteVisible = [];
+state.paletteIndex = 0;
+
+function filterCommands(query) {
+  const q = query.trim().toLowerCase();
+  const matches = q ? COMMANDS.filter((c) => c.label.toLowerCase().includes(q)) : COMMANDS;
+  return matches.slice().sort((a, b) => PALETTE_CATEGORY_ORDER.indexOf(a.category) - PALETTE_CATEGORY_ORDER.indexOf(b.category));
+}
+
+function renderPalette() {
+  const results = $("#palette-results");
+  if (state.paletteVisible.length === 0) {
+    results.innerHTML = `<p class="palette-empty">No matching commands.</p>`;
+    return;
+  }
+  let html = "";
+  let lastCategory = null;
+  state.paletteVisible.forEach((cmd, i) => {
+    if (cmd.category !== lastCategory) {
+      html += `<div class="palette-category">${cmd.category}</div>`;
+      lastCategory = cmd.category;
+    }
+    html += `<div class="palette-item${i === state.paletteIndex ? " active" : ""}" data-index="${i}">${cmd.label}</div>`;
+  });
+  results.innerHTML = html;
+  results.querySelectorAll(".palette-item").forEach((el) => {
+    el.addEventListener("click", () => runPaletteCommand(Number(el.dataset.index)));
+    el.addEventListener("mouseenter", () => {
+      state.paletteIndex = Number(el.dataset.index);
+      results.querySelectorAll(".palette-item").forEach((e2) => e2.classList.remove("active"));
+      el.classList.add("active");
+    });
+  });
+}
+
+function runPaletteCommand(index) {
+  const cmd = state.paletteVisible[index];
+  if (!cmd) return;
+  closeCommandPalette();
+  cmd.run();
+}
+
+function openCommandPalette() {
+  $("#command-palette").classList.remove("hidden");
+  const input = $("#palette-input");
+  input.value = "";
+  state.paletteVisible = filterCommands("");
+  state.paletteIndex = 0;
+  renderPalette();
+  input.focus();
+}
+
+function closeCommandPalette() {
+  $("#command-palette").classList.add("hidden");
 }
 
 // ---- Archive tab ----
@@ -798,8 +987,23 @@ function switchToTab(tabName) {
   if (btn) btn.click();
 }
 
+function movePaletteSelection(delta) {
+  if (state.paletteVisible.length === 0) return;
+  state.paletteIndex = (state.paletteIndex + delta + state.paletteVisible.length) % state.paletteVisible.length;
+  renderPalette();
+}
+
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
+    const paletteOpen = !$("#command-palette").classList.contains("hidden");
+    if (paletteOpen) {
+      if (e.key === "Escape") { e.preventDefault(); closeCommandPalette(); return; }
+      if (e.key === "ArrowDown") { e.preventDefault(); movePaletteSelection(1); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); movePaletteSelection(-1); return; }
+      if (e.key === "Enter") { e.preventDefault(); runPaletteCommand(state.paletteIndex); return; }
+      return; // any other key types normally into the palette input
+    }
+
     if ((e.ctrlKey || e.metaKey) && e.key === "s") {
       e.preventDefault();
       approveSelected();
@@ -808,6 +1012,7 @@ function setupKeyboardShortcuts() {
     if (e.key === "Escape") {
       $("#confirm-modal").classList.add("hidden");
       closeMatchPicker();
+      closeDetailPane();
       return;
     }
 
@@ -819,12 +1024,8 @@ function setupKeyboardShortcuts() {
       return;
     }
     if (e.key === "/") {
-      const activeTab = $(".tab-panel.active").id.replace("tab-", "");
-      const searchBox = $(`#${activeTab}-search`);
-      if (searchBox) {
-        e.preventDefault();
-        searchBox.focus();
-      }
+      e.preventDefault();
+      openCommandPalette();
     }
   });
 }
@@ -877,16 +1078,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#tv-search").addEventListener("input", renderTvGallery);
   $("#tv-sort").addEventListener("change", renderTvGallery);
-  $("#tv-mark-watched-btn").addEventListener("click", async () => {
-    const ids = $all(".tv-episode-select:checked").map((b) => Number(b.dataset.selectId));
-    await markWatchedBatch(ids, true);
-    loadTvGallery();
-  });
-  $("#tv-mark-unwatched-btn").addEventListener("click", async () => {
-    const ids = $all(".tv-episode-select:checked").map((b) => Number(b.dataset.selectId));
-    await markWatchedBatch(ids, false);
-    loadTvGallery();
-  });
 
   $("#history-type-filter").addEventListener("change", loadHistory);
+
+  $("#detail-close-btn").addEventListener("click", closeDetailPane);
+  $("#palette-input").addEventListener("input", () => {
+    state.paletteVisible = filterCommands($("#palette-input").value);
+    state.paletteIndex = 0;
+    renderPalette();
+  });
+  $("#command-palette").addEventListener("click", (e) => {
+    if (e.target.id === "command-palette") closeCommandPalette();
+  });
 });
