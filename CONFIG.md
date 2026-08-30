@@ -60,8 +60,8 @@ on it.
 ## `server`
 | Key | Default | Description |
 |---|---|---|
-| `host` | `0.0.0.0` | Bind address for uvicorn. |
-| `port` | `8000` | Bind port for uvicorn. |
+| `host` | `0.0.0.0` | Not currently read by any startup path — informational only. The actual bind address is hardcoded (`0.0.0.0`) in `docker-entrypoint.sh` / whatever `uvicorn` invocation you use. |
+| `port` | `8000` | Same caveat — `docker-entrypoint.sh` hardcodes `--port 8000`. To publish the app on a different port in Docker, change `docker-compose.yml`'s `ports:` mapping (host-side) rather than this value; the container always listens on 8000 internally. |
 | `cors_origins` | `["*"]` | Allowed CORS origins for the dashboard API. The dashboard is same-origin with the API by default, so this rarely needs changing. Editable from the Settings tab. |
 
 ## Environment variable overrides

@@ -20,7 +20,7 @@ after first boot.
    ```
    Or in Arcane: create a new stack, paste `docker-compose.yml`'s contents,
    edit that one volume line, deploy.
-3. **First boot**: open `http://<host-ip>:8000`. Go to **Settings** and set
+3. **First boot**: open `http://<host-ip>:26431`. Go to **Settings** and set
    the Incoming/Movies/TV directories to subpaths under `/media` matching
    your actual layout (e.g. `/media/incoming`, `/media/movies`, `/media/tv`).
    Optionally set a TMDB API key there too — leave it blank to run in
@@ -38,8 +38,9 @@ after first boot.
    permission prompt on the dashboard. See `README.md` for how this works.
 6. **Reverse proxy**: none required. The app doesn't hardcode absolute URLs
    or assume a specific host/port, so putting Traefik/Caddy/nginx in front of
-   it later needs no app changes — just point the proxy at the container's
-   port 8000.
+   it later needs no app changes — just point the proxy at the published
+   port (26431, or whatever `docker-compose.yml`'s `ports:` maps it to; the
+   container listens on 8000 internally regardless).
 
 ## Bare-metal Ubuntu (alternative to Docker)
 
@@ -80,7 +81,8 @@ after first boot.
 
 ## Dashboard access + notifications (either deployment)
 
-No client install needed. Open `http://<server-ip>:8000` in any browser. The
+No client install needed. Open `http://<server-ip>:26431` (Docker — or
+`:8000` for a bare-metal install) in any browser. The
 dashboard will ask for notification permission on first load — accept it and
 you'll get a native OS notification whenever the tracker check flags a new
 season or sequel, for as long as that browser tab is open (it can be

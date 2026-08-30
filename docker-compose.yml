@@ -4,7 +4,7 @@ services:
     container_name: media-manager
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "26431:8000"
     volumes:
       # Persists config.yaml (settings saved from the web UI), the SQLite
       # database, and logs. Must be a real volume/bind mount or every

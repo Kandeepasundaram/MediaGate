@@ -4,12 +4,12 @@ Self-hosted media management system: scans an incoming directory, fetches metada
 from TMDB, renames and archives movies/TV episodes to an external drive, purges
 non-English subtitles, and tracks shows/movies for new-season and sequel releases.
 A web dashboard (served by the same FastAPI app) lets you review and approve
-archive operations from any machine on the LAN, and a small Windows agent turns
-tracker alerts into native toast notifications.
+archive operations from any machine on the LAN, with browser-native notifications
+when the tracker finds something new.
 
 ## Architecture
 
-- **Backend**: FastAPI + SQLite, runs on the Ubuntu host that has the media drive mounted.
+- **Backend**: FastAPI + SQLite, one Docker container (see `docker-compose.yml`) with the media library and app state bind-mounted/volumed in.
 - **Dashboard**: vanilla HTML/CSS/JS single-page app served from `app/static/`.
 - **TMDB integration**: hybrid client (`app/core/tmdb_client.py`) — uses the official
   API when `TMDB_API_KEY` is set, otherwise falls back to scraping themoviedb.org.
@@ -36,7 +36,9 @@ docker compose up -d --build
 Edit `docker-compose.yml` first to point the `/media` bind mount at your
 actual media library root — everything else (incoming/movie/TV subpaths,
 TMDB key) is configured from the dashboard's **Settings** tab after first
-boot, no `.env` or rebuild needed. See `INSTALL.md` for the Arcane-specific
+boot, no `.env` or rebuild needed. Dashboard's published on port **26431**
+(container listens on 8000 internally; change the `ports:` line if you want
+a different published port). See `INSTALL.md` for the Arcane-specific
 walkthrough.
 
 ## Quick start (development)
