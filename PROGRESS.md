@@ -253,10 +253,10 @@ homelab already runs — a deliberately separate, simpler mechanism scoped to
 this app), a TV status view, hand-picking specific titles for
 rename/clean/reorganize outside the Radarr/Sonarr automated pipeline, and
 reports on what's archived/watched. First piece built: **Movies and TV
-gallery tabs** with a manual watched toggle — the other three (a real
-reports view, TV status UI beyond the tracker's pending-only list, and a
-"browse everything, not just newly-scanned files" cleanup workflow) were
-explicitly deferred by the user in favor of the gallery first.
+gallery tabs** with a manual watched toggle (a real reports view and TV
+status UI beyond the tracker's pending-only list were explicitly deferred
+by the user in favor of the gallery first — see the "manual library
+browser" entry below for the second piece, built next).
 
 Implementation:
 - `RenamePlan` gained `poster_path`/`overview` (was computed by
@@ -286,10 +286,44 @@ Implementation:
   from the TMDB CDN, watched checkbox persisted through a full API
   round-trip, TV grouping and per-episode expand/collapse worked correctly.
 
+## Manual library browser for cleanup (second deferred piece, built)
+
+Adds `GET /api/library/browse?media_type=` (raw `scan_directory()` over
+`archive_movies`/`archive_tv`, no exclusion filter — every file shows up,
+cross-referenced against `media_items` by `final_path` to mark
+tracked/untracked) and `POST /api/library/delete-file` (the one genuinely
+destructive endpoint in the app), plus a new "Browse & Clean Up" tab:
+a flat table, checkboxes, a "Re-run Archive Match on Selected" button that
+feeds the existing preview/confirm flow (factored `previewPaths()` out of
+`scanAndPreview()` for the reuse), and a per-row Delete with the existing
+confirm-modal (never a native `confirm()`).
+
+**Caught a real bug via the test suite, not by inspection**: deleting a
+tracked file's `media_items` row *before* logging the delete operation
+violated `operation_log.media_id`'s foreign key (the row it would reference
+no longer existed). Fixed by logging first, but that only shifted the
+failure — deleting a media item that already had unrelated history entries
+(e.g. its original `archive` log line) would then fail the same FK from the
+other direction, since nothing let the child row's reference go. Real fix:
+`operation_log.media_id` needed `ON DELETE SET NULL`, which (like the
+`operation_type` CHECK needing `'delete'` added) SQLite can't do with an
+in-place `ALTER`, so both landed together in `_migration_v2` via the
+table-rebuild pattern. This is the first migration that's had to actually
+run against a live, non-fresh database (the Arcane deployment) rather than
+just being exercised against a fresh test DB — added a dedicated test that
+hand-builds a v1-shape database and asserts `db.migrate()` upgrades it
+correctly, since the normal `db` fixture only ever exercises the
+already-current schema.
+
+10 new tests. 76 total, passing. Manually verified end to end against a
+local server: untracked file detection, "Re-run Archive Match" correctly
+switching tabs and populating the preview table, and delete removing the
+file from disk with the table auto-refreshing.
+
 ## Recommended next steps (not done here)
 
 1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed) — also needed to verify the gallery's poster rendering against real (not manually seeded) archived data.
-2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts now that `GET /api/scan` finds the 409 real files there — not yet tried an actual preview/confirm against real (not synthetic) media, so the gallery is still empty on the live deployment (it only reflects what *this app* has archived, and nothing has been archived through it yet).
-3. Build the three deferred pieces from the scope clarification above: a real reports view, a TV status view beyond the tracker's pending-only list, and a manual library browser for cleanup (not just newly-scanned files).
+2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts now that `GET /api/scan` finds the 409 real files there — not yet tried an actual preview/confirm against real (not synthetic) media, so the gallery is still empty on the live deployment (it only reflects what *this app* has archived, and nothing has been archived through it yet). The new Browse tab is a lower-risk way to test against that real data first, since it doesn't require archiving anything.
+3. Build the two still-deferred pieces from the scope clarification above: a real reports view, and a TV status view beyond the tracker's pending-only list.
 4. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
 5. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep both the network-specific build issue and the stop/start-to-rebuild gotcha above.

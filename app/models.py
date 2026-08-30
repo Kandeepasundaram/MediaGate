@@ -149,6 +149,27 @@ class WatchedUpdateRequest(BaseModel):
     watched: bool
 
 
+class BrowseItemOut(BaseModel):
+    path: str
+    size_bytes: int
+    parsed_title: str
+    year: int | None = None
+    season: int | None = None
+    episode: int | None = None
+    tracked: bool
+    media_id: int | None = None
+    watched: bool = False
+
+
+class BrowseResponse(BaseModel):
+    directory: str
+    items: list[BrowseItemOut]
+
+
+class DeleteFileRequest(BaseModel):
+    path: str
+
+
 class SettingsOut(BaseModel):
     incoming_movies: str
     incoming_tv: str

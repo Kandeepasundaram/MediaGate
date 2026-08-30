@@ -10,13 +10,15 @@ fetches metadata from TMDB, renames and archives movies/TV episodes, purges
 non-English subtitles, and tracks shows/movies for new-season and sequel
 releases. A web dashboard (served by the same FastAPI app) lets you review and
 approve archive operations, browse your library as movie/TV poster galleries
-with a watched toggle, from any machine on the LAN, with browser-native
-notifications when the tracker finds something new.
+with a watched toggle, and hand-pick specific files in the archive folders
+(tracked or not) to re-run through TMDB matching or delete outright — from
+any machine on the LAN, with browser-native notifications when the tracker
+finds something new.
 
 ## Architecture
 
 - **Backend**: FastAPI + SQLite, one Docker container (see `docker-compose.yml`) with the media library and app state bind-mounted/volumed in.
-- **Dashboard**: vanilla HTML/CSS/JS single-page app served from `app/static/`, with Movies/TV gallery tabs (`GET /api/library/movies`/`tv`) showing TMDB posters and a manual watched toggle (`POST /api/library/{id}/watched`) — independent of automated *arr imports.
+- **Dashboard**: vanilla HTML/CSS/JS single-page app served from `app/static/`, with Movies/TV gallery tabs (`GET /api/library/movies`/`tv`) showing TMDB posters and a manual watched toggle (`POST /api/library/{id}/watched`), and a Browse & Clean Up tab (`GET /api/library/browse`, `POST /api/library/delete-file`) for manual cleanup of anything sitting in the archive folders — independent of automated *arr imports.
 - **TMDB integration**: hybrid client (`app/core/tmdb_client.py`) — uses the official
   API when `TMDB_API_KEY` is set, otherwise falls back to scraping themoviedb.org.
 - **Notifications**: browser `Notification` API in the dashboard (`app/static/app.js`)

@@ -15,6 +15,7 @@
 <nav class="tabs">
   <button class="tab-btn active" data-tab="movies">Movies</button>
   <button class="tab-btn" data-tab="tv">TV</button>
+  <button class="tab-btn" data-tab="browse">Browse &amp; Clean Up</button>
   <button class="tab-btn" data-tab="archive">Ready to Archive</button>
   <button class="tab-btn" data-tab="notifications">Notifications</button>
   <button class="tab-btn" data-tab="history">History</button>
@@ -34,6 +35,31 @@
       <span id="tv-count" class="hint"></span>
     </div>
     <div id="tv-gallery" class="gallery"></div>
+  </section>
+
+  <section id="tab-browse" class="tab-panel">
+    <div class="toolbar">
+      <select id="browse-type">
+        <option value="movie">Movies</option>
+        <option value="tv">TV</option>
+      </select>
+      <button id="browse-refresh-btn">Refresh</button>
+      <button id="browse-rematch-btn">Re-run Archive Match on Selected</button>
+      <span id="browse-status" class="hint"></span>
+    </div>
+    <table id="browse-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Path</th>
+          <th>Parsed As</th>
+          <th>Size</th>
+          <th>Tracked</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
   </section>
 
   <section id="tab-archive" class="tab-panel">

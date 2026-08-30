@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -127,3 +128,88 @@ def test_list_handles_missing_metadata_gracefully(client):
     item = resp.json()["items"][0]
     assert item["poster_path"] is None
     assert item["overview"] == ""
+
+
+def _archive_movies_dir(c) -> Path:
+    return Path(c.get("/api/settings").json()["archive_movies"])
+
+
+def test_browse_finds_untracked_file(client):
+    c, _ = client
+    archive_dir = _archive_movies_dir(c)
+    (archive_dir / "Random.Movie.2019.mkv").write_bytes(b"data")
+
+    resp = c.get("/api/library/browse", params={"media_type": "movie"})
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["tracked"] is False
+    assert items[0]["media_id"] is None
+
+
+def test_browse_marks_tracked_file(client):
+    c, db = client
+    archive_dir = _archive_movies_dir(c)
+    organized = archive_dir / "Movie (2020)"
+    organized.mkdir()
+    video = organized / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+    media_id = db.create_media_item(
+        original_path="x", final_path=str(video), title="Movie", year=2020, media_type="movie"
+    )
+
+    resp = c.get("/api/library/browse", params={"media_type": "movie"})
+    item = resp.json()["items"][0]
+    assert item["tracked"] is True
+    assert item["media_id"] == media_id
+
+
+def test_browse_filters_by_media_type(client):
+    c, _ = client
+    (_archive_movies_dir(c) / "movie.mkv").write_bytes(b"1")
+
+    tv_items = c.get("/api/library/browse", params={"media_type": "tv"}).json()["items"]
+    assert tv_items == []
+
+
+def test_delete_file_removes_untracked_file(client):
+    c, _ = client
+    video = _archive_movies_dir(c) / "junk.mkv"
+    video.write_bytes(b"data")
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video)})
+    assert resp.status_code == 200
+    assert not video.exists()
+
+
+def test_delete_file_removes_tracked_file_and_db_row(client):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+    media_id = db.create_media_item(
+        original_path="x", final_path=str(video), title="Movie", media_type="movie"
+    )
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video)})
+    assert resp.status_code == 200
+    assert not video.exists()
+    assert db.get_media_item(media_id) is None
+
+    ops = db.list_operations(operation_type="delete")
+    assert ops[0]["status"] == "success"
+
+
+def test_delete_file_404_when_missing(client):
+    c, _ = client
+    resp = c.post("/api/library/delete-file", json={"path": str(_archive_movies_dir(c) / "nope.mkv")})
+    assert resp.status_code == 404
+
+
+def test_delete_file_rejects_path_outside_media_dirs(client, tmp_path):
+    c, _ = client
+    outside = tmp_path.parent / "outside.mkv"
+    outside.write_bytes(b"data")
+
+    resp = c.post("/api/library/delete-file", json={"path": str(outside)})
+    assert resp.status_code == 400
+    assert outside.exists()

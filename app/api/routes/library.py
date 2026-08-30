@@ -8,12 +8,26 @@ Radarr/Sonarr's automated import pipeline.
 from __future__ import annotations
 
 import json
+import logging
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.config_loader import AppConfig
+from app.core.scanner import scan_directory
 from app.database import Database
-from app.dependencies import get_database
-from app.models import LibraryItemOut, LibraryResponse, WatchedUpdateRequest
+from app.dependencies import get_config, get_database
+from app.models import (
+    BrowseItemOut,
+    BrowseResponse,
+    DeleteFileRequest,
+    LibraryItemOut,
+    LibraryResponse,
+    MediaType,
+    WatchedUpdateRequest,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -56,3 +70,90 @@ def set_watched(item_id: int, payload: WatchedUpdateRequest, db: Database = Depe
         raise HTTPException(status_code=404, detail="Media item not found")
     db.update_media_item(item_id, watched=1 if payload.watched else 0)
     return _to_out(db.get_media_item(item_id))
+
+
+@router.get("/browse", response_model=BrowseResponse)
+def browse_archive(
+    media_type: MediaType,
+    config: AppConfig = Depends(get_config),
+    db: Database = Depends(get_database),
+) -> BrowseResponse:
+    """Lists every video file physically present in the archive root for
+    `media_type`, tracked in media_items or not -- unlike /api/scan (which
+    only surfaces new, untracked files) and /api/library/movies|tv (which
+    only reflects what's in the database), this is a raw filesystem view
+    meant for manual cleanup of a library that already existed before (or
+    outside) this app, e.g. Radarr/Sonarr-managed files never archived
+    through here.
+    """
+    root = config.paths.archive_movies if media_type == "movie" else config.paths.archive_tv
+    scanned = scan_directory(root)
+
+    items = []
+    for f in scanned:
+        tracked_row = db.get_media_item_by_final_path(str(f.path))
+        items.append(
+            BrowseItemOut(
+                path=str(f.path),
+                size_bytes=f.size_bytes,
+                parsed_title=f.parsed.title,
+                year=f.parsed.year,
+                season=f.parsed.season,
+                episode=f.parsed.episode,
+                tracked=tracked_row is not None,
+                media_id=tracked_row["id"] if tracked_row else None,
+                watched=bool(tracked_row["watched"]) if tracked_row else False,
+            )
+        )
+    return BrowseResponse(directory=str(root), items=items)
+
+
+@router.post("/delete-file")
+def delete_file(
+    payload: DeleteFileRequest,
+    config: AppConfig = Depends(get_config),
+    db: Database = Depends(get_database),
+) -> dict:
+    """Permanently deletes a single file from disk. Only allowed inside a
+    configured incoming/archive root -- a guard against a client bug or bad
+    request touching anything outside the library, since this is the one
+    genuinely destructive endpoint in the app.
+    """
+    target = Path(payload.path).resolve()
+    allowed_roots = [
+        config.paths.incoming_movies,
+        config.paths.incoming_tv,
+        config.paths.archive_movies,
+        config.paths.archive_tv,
+    ]
+    if not any(target == root.resolve() or root.resolve() in target.parents for root in allowed_roots):
+        raise HTTPException(status_code=400, detail="Path is outside the configured media directories")
+    if not target.exists() or not target.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    tracked_row = db.get_media_item_by_final_path(str(target))
+    try:
+        target.unlink()
+    except OSError as exc:
+        db.log_operation(
+            operation_type="delete",
+            status="failed",
+            media_id=tracked_row["id"] if tracked_row else None,
+            error_message=str(exc),
+            details={"path": str(target)},
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to delete: {exc}") from exc
+
+    # Log while media_id still references a real row -- operation_log.media_id
+    # has a foreign key, and deleting the media_items row first would make a
+    # log entry pointing at it fail that constraint.
+    db.log_operation(
+        operation_type="delete",
+        status="success",
+        media_id=tracked_row["id"] if tracked_row else None,
+        details={"path": str(target)},
+    )
+    if tracked_row:
+        db.delete_media_item(tracked_row["id"])
+    logger.info("Deleted %s (was tracked: %s)", target, bool(tracked_row))
+    return {"deleted": True}

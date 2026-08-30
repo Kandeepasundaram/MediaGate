@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -53,8 +53,8 @@ CREATE TABLE IF NOT EXISTS archive_tracker (
 
 CREATE TABLE IF NOT EXISTS operation_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    operation_type TEXT NOT NULL CHECK (operation_type IN ('archive', 'rename', 'purge', 'tracker_check')),
-    media_id INTEGER REFERENCES media_items(id),
+    operation_type TEXT NOT NULL CHECK (operation_type IN ('archive', 'rename', 'purge', 'tracker_check', 'delete')),
+    media_id INTEGER REFERENCES media_items(id) ON DELETE SET NULL,
     details TEXT,
     status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'pending')),
     error_message TEXT,
@@ -172,6 +172,9 @@ class Database:
     def delete_media_item(self, item_id: int) -> None:
         self.execute_query("DELETE FROM media_items WHERE id = ?", (item_id,))
 
+    def get_media_item_by_final_path(self, path: str) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM media_items WHERE final_path = ?", (path,))
+
     # ---- archive_tracker CRUD ----
 
     def upsert_tracker(self, tmdb_id: int, media_type: str, title: str, **fields: Any) -> None:
@@ -250,6 +253,33 @@ def _migration_v1(conn: sqlite3.Connection) -> None:
     """Baseline schema — no-op, _SCHEMA already creates v1 tables."""
 
 
+def _migration_v2(conn: sqlite3.Connection) -> None:
+    """Add 'delete' to operation_log.operation_type's allowed values, and
+    ON DELETE SET NULL on media_id so deleting a media_items row (the new
+    manual-cleanup delete feature) doesn't fail a foreign key check against
+    its own history entries.
+
+    SQLite can't ALTER a CHECK/FK constraint in place, so rebuild the table.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE operation_log_v2 (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            operation_type TEXT NOT NULL CHECK (operation_type IN ('archive', 'rename', 'purge', 'tracker_check', 'delete')),
+            media_id INTEGER REFERENCES media_items(id) ON DELETE SET NULL,
+            details TEXT,
+            status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'pending')),
+            error_message TEXT,
+            created_at TEXT NOT NULL
+        );
+        INSERT INTO operation_log_v2 SELECT * FROM operation_log;
+        DROP TABLE operation_log;
+        ALTER TABLE operation_log_v2 RENAME TO operation_log;
+        """
+    )
+
+
 _MIGRATIONS = {
     1: _migration_v1,
+    2: _migration_v2,
 }

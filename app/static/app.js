@@ -37,6 +37,7 @@ function setupTabs() {
       $(`#tab-${btn.dataset.tab}`).classList.add("active");
       if (btn.dataset.tab === "movies") loadMoviesGallery();
       if (btn.dataset.tab === "tv") loadTvGallery();
+      if (btn.dataset.tab === "browse") loadBrowse();
       if (btn.dataset.tab === "notifications") loadNotifications();
       if (btn.dataset.tab === "history") loadHistory();
       if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); }
@@ -178,31 +179,45 @@ async function loadTvGallery() {
 }
 
 // ---- Archive tab ----
-async function scanAndPreview() {
-  $("#scan-status").textContent = "Scanning...";
+async function previewPaths(paths, sizeByPath = {}) {
   const tbody = $("#archive-table tbody");
   tbody.innerHTML = "";
   state.previewItems = [];
+  state.sizeByPath = sizeByPath;
 
+  if (paths.length === 0) {
+    $("#scan-status").textContent = "No files selected";
+    return;
+  }
+
+  $("#scan-status").textContent = "Fetching metadata...";
   try {
-    const scan = await api("/api/scan");
-    state.sizeByPath = Object.fromEntries(scan.files.map((f) => [f.path, f.size_bytes]));
-
-    if (scan.files.length === 0) {
-      $("#scan-status").textContent = `No new media files found in ${scan.directories.join(", ")}`;
-      return;
-    }
-
-    $("#scan-status").textContent = "Fetching metadata...";
     const preview = await api("/api/archive/preview", {
       method: "POST",
-      body: JSON.stringify({ paths: scan.files.map((f) => f.path) }),
+      body: JSON.stringify({ paths }),
     });
 
     state.previewItems = preview.items;
     renderArchiveTable(preview.items);
     $("#scan-status").textContent = `${preview.items.length} file(s) ready` +
       (preview.errors.length ? `, ${preview.errors.length} error(s)` : "");
+  } catch (e) {
+    $("#scan-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function scanAndPreview() {
+  $("#scan-status").textContent = "Scanning...";
+  try {
+    const scan = await api("/api/scan");
+    if (scan.files.length === 0) {
+      $("#scan-status").textContent = `No new media files found in ${scan.directories.join(", ")}`;
+      $("#archive-table tbody").innerHTML = "";
+      state.previewItems = [];
+      return;
+    }
+    const sizeByPath = Object.fromEntries(scan.files.map((f) => [f.path, f.size_bytes]));
+    await previewPaths(scan.files.map((f) => f.path), sizeByPath);
   } catch (e) {
     $("#scan-status").textContent = `Error: ${e.message}`;
   }
@@ -262,6 +277,70 @@ async function approveAndArchive() {
   } catch (e) {
     $("#scan-status").textContent = `Error: ${e.message}`;
   }
+}
+
+// ---- Browse & Clean Up tab ----
+state.browseItems = [];
+
+async function loadBrowse() {
+  const tbody = $("#browse-table tbody");
+  const mediaType = $("#browse-type").value;
+  tbody.innerHTML = `<tr><td colspan=6>Loading...</td></tr>`;
+  $("#browse-status").textContent = "";
+
+  try {
+    const data = await api(`/api/library/browse?media_type=${mediaType}`);
+    state.browseItems = data.items;
+    if (data.items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan=6>No files found in ${data.directory}</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = data.items.map((item, i) => `
+      <tr>
+        <td><input type="checkbox" class="browse-check" data-index="${i}"></td>
+        <td title="${item.path}">${item.path.split(/[\\/]/).pop()}</td>
+        <td>${item.parsed_title}${item.year ? ` (${item.year})` : ""}${
+          item.season != null ? ` S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}` : ""
+        }</td>
+        <td>${formatBytes(item.size_bytes)}</td>
+        <td class="${item.tracked ? "tracked-yes" : "tracked-no"}">${item.tracked ? "tracked" : "untracked"}</td>
+        <td><button class="danger browse-delete-btn" data-index="${i}">Delete</button></td>
+      </tr>
+    `).join("");
+    $all(".browse-delete-btn").forEach((btn) => {
+      btn.addEventListener("click", () => deleteBrowseItem(Number(btn.dataset.index)));
+    });
+    $("#browse-status").textContent = `${data.items.length} file(s) in ${data.directory}`;
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan=6>Error: ${e.message}</td></tr>`;
+  }
+}
+
+async function deleteBrowseItem(index) {
+  const item = state.browseItems[index];
+  const ok = await showConfirm(`Permanently delete "${item.path}"? This cannot be undone.`);
+  if (!ok) return;
+
+  $("#browse-status").textContent = "Deleting...";
+  try {
+    await api("/api/library/delete-file", { method: "POST", body: JSON.stringify({ path: item.path }) });
+    loadBrowse();
+  } catch (e) {
+    $("#browse-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function rerunArchiveMatch() {
+  const selected = $all(".browse-check:checked").map((cb) => state.browseItems[Number(cb.dataset.index)]);
+  if (selected.length === 0) return;
+
+  $all(".tab-btn").forEach((b) => b.classList.remove("active"));
+  $all(".tab-panel").forEach((p) => p.classList.remove("active"));
+  $('.tab-btn[data-tab="archive"]').classList.add("active");
+  $("#tab-archive").classList.add("active");
+
+  const sizeByPath = Object.fromEntries(selected.map((item) => [item.path, item.size_bytes]));
+  await previewPaths(selected.map((item) => item.path), sizeByPath);
 }
 
 // ---- Notifications tab ----
@@ -477,4 +556,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#approve-btn").addEventListener("click", approveAndArchive);
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
+  $("#browse-refresh-btn").addEventListener("click", loadBrowse);
+  $("#browse-type").addEventListener("change", loadBrowse);
+  $("#browse-rematch-btn").addEventListener("click", rerunArchiveMatch);
 });

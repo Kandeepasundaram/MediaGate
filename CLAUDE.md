@@ -161,9 +161,46 @@ aren't called anywhere; the gallery made them unnecessary for the poster use
 case, though NFO writing could still be worth wiring up separately later for
 Plex/Jellyfin metadata, unrelated to this app's own UI).
 
-**Frontend** (`app/static/`): single `index.html` with six tabs (Movies, TV,
-Archive, Notifications, History, Settings) driven by plain `fetch()` calls
-in `app.js` — no build step, no framework. `Ctrl+S` triggers Approve &
-Archive. The Settings tab's form talks to `/api/settings` and its "Test
-Permissions" button to `/api/settings/permissions-check`. Movies/TV tabs are
-the two gallery views described above.
+**Browse & Clean Up tab** (`GET /api/library/browse`, `POST
+/api/library/delete-file`): a third, distinct view of the library, added for
+manual cleanup of files that predate this app or were imported by
+Radarr/Sonarr directly. Unlike `/api/scan` (excludes anything already
+known) and `/api/library/movies`/`tv` (DB-only), `browse` runs
+`scanner.scan_directory()` straight against `archive_movies`/`archive_tv`
+with **no exclusion filter** — every video file shows up, tracked or not,
+cross-referenced against `media_items` by `final_path`
+(`Database.get_media_item_by_final_path()`) to set `tracked`/`media_id`.
+Selecting rows and clicking "Re-run Archive Match" just feeds those paths
+into the existing `/api/archive/preview` → `/api/archive/confirm` flow
+(`app.js::previewPaths()`, factored out of `scanAndPreview()` for this
+reuse) — there's no special "move" logic for already-organized files, so a
+re-match produces a second, corrected copy and leaves the original in place
+for you to clean up with the Delete button, consistent with the rest of the
+app's "copy, don't move" archiving.
+
+`delete-file` is the one genuinely destructive endpoint in the app: it
+`unlink()`s a file and, if it was tracked, removes its `media_items` row —
+guarded by requiring the resolved path to fall inside one of the four
+configured incoming/archive directories (`400` otherwise), since this is a
+LAN dashboard with no auth and a bad request or client bug shouldn't be able
+to touch anything outside the library. Deleting a tracked item logs the
+`operation_type='delete'` entry to `operation_log` **before** removing the
+`media_items` row, not after — `operation_log.media_id` is a foreign key,
+and logging first while the row still exists avoids a constraint violation
+either direction. This required a real migration: `operation_log`'s
+`operation_type` CHECK didn't originally allow `'delete'`, and its `media_id`
+FK didn't have `ON DELETE SET NULL`, so deleting a media item that already
+had history entries would violate the constraint on the delete itself. Both
+are fixed together in `_migration_v2` in `app/database.py` (`SCHEMA_VERSION`
+is now `2`) via SQLite's table-rebuild pattern (no in-place `ALTER` for
+CHECK/FK constraints) — this is the only schema migration that's actually
+had to run against a real (not fresh) database so far, since it landed after
+the first live deploy.
+
+**Frontend** (`app/static/`): single `index.html` with seven tabs (Movies,
+TV, Browse & Clean Up, Archive, Notifications, History, Settings) driven by
+plain `fetch()` calls in `app.js` — no build step, no framework. `Ctrl+S`
+triggers Approve & Archive. The Settings tab's form talks to
+`/api/settings` and its "Test Permissions" button to
+`/api/settings/permissions-check`. Movies/TV tabs are the two gallery views
+described above; Browse & Clean Up is the raw-filesystem view.
