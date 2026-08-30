@@ -127,6 +127,36 @@ class StatsResponse(BaseModel):
     total_size_bytes: int
 
 
+class SettingsOut(BaseModel):
+    active_dir: str
+    archive_movies: str
+    archive_tv: str
+    cors_origins: list[str]
+    tmdb_api_key_set: bool
+    tmdb_api_key_locked_by_env: bool
+
+
+class SettingsUpdateRequest(BaseModel):
+    active_dir: str | None = None
+    archive_movies: str | None = None
+    archive_tv: str | None = None
+    cors_origins: list[str] | None = None
+    tmdb_api_key: str | None = None
+
+
+class PathCheck(BaseModel):
+    path: str
+    exists: bool
+    writable: bool
+    error: str | None = None
+
+
+class PermissionsCheckResponse(BaseModel):
+    paths: list[PathCheck]
+    running_uid: int | None = None
+    running_gid: int | None = None
+
+
 class LogEntryOut(BaseModel):
     id: int
     operation_type: str

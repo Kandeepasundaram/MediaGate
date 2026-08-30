@@ -43,8 +43,35 @@ The database uses WAL mode, so concurrent reads shouldn't block writes. If you
 still see lock errors, check for another process (e.g. a manual `sqlite3`
 shell) holding a long-running transaction against the same file.
 
-## Cron job runs but nothing happens
-`scripts/cron_job.py` only notifies for tracker entries with
-`pending_notification=1` and no `notification_sent_at`. Check
-`/api/tracker/status` and `/api/tracker/notifications` to see current tracker
-state, and the log file for `tracker_check` failures.
+## Tracker never flags anything
+Check `/api/tracker/status` and `/api/tracker/notifications` for current
+state, and the log file for `tracker_check` failures. In Docker, the daily
+check runs in-process (`app/core/scheduler.py`) as long as the container is
+running — check the container logs around `tracker.cron_time` (default
+`06:00`) for "Scheduled tracker check complete" / "failed" lines. Restarting
+the container resets the daily timer (it schedules relative to the next
+`cron_time`, not a fixed interval from last run), so frequent restarts can
+delay a check by up to a day.
+
+## Docker: settings I saved didn't stick after redeploying the stack
+`/config` isn't a persistent volume (or you're using `docker compose down -v`,
+which deletes volumes). Check `docker-compose.yml` — `media-manager-config`
+must be a named volume or bind mount, and it must survive between deploys.
+
+## Docker: "Test Permissions" shows a path as not writable
+The container's user (root by default) can't write to that host directory —
+usually an NFS/SMB mount with restrictive permissions, or a bind mount owned
+by a different UID after setting `user:` in `docker-compose.yml`. The app
+only reports this; it doesn't attempt to `chown` anything. Fix on the host
+(`chown`/`chmod` the directory, or match `user:` in compose to its owner) and
+redeploy.
+
+## Docker: `pip install` fails during build with an SSL certificate error
+This means something on the build host's network path (a proxy, VPN client,
+or antivirus doing TLS inspection) is intercepting HTTPS to pypi.org and its
+certificate isn't trusted inside the build container — not a problem with
+this repo's `Dockerfile`. Confirm with a plain
+`docker run --rm python:3.12-slim python -c "import urllib.request; urllib.request.urlopen('https://pypi.org')"`
+from the same host; if that also fails, the issue is the host's network, not
+the build. Building from a different network (or the actual Arcane host)
+should work without changes.

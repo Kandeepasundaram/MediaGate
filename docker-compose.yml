@@ -1,0 +1,29 @@
+services:
+  media-manager:
+    build: .
+    container_name: media-manager
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persists config.yaml (settings saved from the web UI), the SQLite
+      # database, and logs. Must be a real volume/bind mount or every
+      # redeploy loses your settings and archive history.
+      - media-manager-config:/config
+      # Point this at your media library's root on the host. Everything
+      # under it (incoming + archive folders) is configured *inside* the
+      # app after first boot: open the dashboard's Settings tab and set
+      # the Incoming/Movies/TV directories to subpaths under /media that
+      # match your actual layout, e.g. /media/incoming, /media/movies.
+      - /path/on/host/to/media:/media
+    environment:
+      TZ: "UTC"
+      # Uncomment to lock the TMDB key via env instead of the Settings UI
+      # (the Settings UI will show it as locked and refuse to change it):
+      # TMDB_API_KEY: ""
+    # Uncomment and set to your host media owner's uid:gid if the app can't
+    # write to /media as root (check Settings > Test Permissions first):
+    # user: "1000:1000"
+
+volumes:
+  media-manager-config:

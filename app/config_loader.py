@@ -74,6 +74,8 @@ class AppConfig:
     tracker: TrackerConfig
     logging: LoggingConfig
     server: ServerConfig
+    config_path: Path = Path("config.yaml")
+    tmdb_api_key_from_env: bool = False
 
 
 def _merge_defaults(raw: dict) -> dict:
@@ -94,7 +96,8 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         raw = _merge_defaults(raw)
 
-    api_key = os.environ.get("TMDB_API_KEY", raw["tmdb"].get("api_key", ""))
+    env_api_key = os.environ.get("TMDB_API_KEY")
+    api_key = env_api_key if env_api_key else raw["tmdb"].get("api_key", "")
 
     cfg = AppConfig(
         paths=PathsConfig(
@@ -114,6 +117,8 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
             file=Path(raw["logging"]["file"]),
         ),
         server=ServerConfig(**raw["server"]),
+        config_path=path,
+        tmdb_api_key_from_env=bool(env_api_key),
     )
 
     if create_dirs:
@@ -123,3 +128,32 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         cfg.logging.file.parent.mkdir(parents=True, exist_ok=True)
 
     return cfg
+
+
+_EDITABLE_KEYS = {
+    "paths": {"active_dir", "archive_movies", "archive_tv"},
+    "tmdb": {"api_key"},
+    "server": {"cors_origins"},
+}
+
+
+def update_settings(config_path: Path | str, updates: dict[str, dict]) -> AppConfig:
+    """Merge `updates` (e.g. {"paths": {"active_dir": "/media/incoming"}}) into
+    config.yaml, restricted to the fields the Settings UI is allowed to touch,
+    then reload and return the resulting AppConfig.
+    """
+    config_path = Path(config_path)
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+    raw = _merge_defaults(raw or {})
+
+    for section, fields in updates.items():
+        if section not in _EDITABLE_KEYS:
+            continue
+        for key, value in fields.items():
+            if key in _EDITABLE_KEYS[section]:
+                raw[section][key] = value
+
+    config_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    # create_dirs=False: don't silently mkdir a path the user just typed —
+    # if it doesn't exist yet, the Settings UI's permissions check will say so.
+    return load_config(config_path, create_dirs=False)

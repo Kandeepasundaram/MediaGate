@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import archive, scan, status, tracker
+from app.api.routes import archive, scan, settings, status, tracker
+from app.core import scheduler
 from app.dependencies import get_config, get_database
 
 logger = logging.getLogger("media_manager")
@@ -17,8 +18,10 @@ logger = logging.getLogger("media_manager")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     get_database().init_db()
-    logger.info("Media Manager started")
+    scheduler_task = scheduler.start()
+    logger.info("Media Manager started (daily tracker check scheduled in-process)")
     yield
+    await scheduler.stop(scheduler_task)
 
 
 def create_app() -> FastAPI:
@@ -47,6 +50,7 @@ def create_app() -> FastAPI:
     app.include_router(archive.router)
     app.include_router(tracker.router)
     app.include_router(status.router)
+    app.include_router(settings.router)
 
     app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
 

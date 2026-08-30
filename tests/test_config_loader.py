@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-from app.config_loader import load_config
+from app.config_loader import load_config, update_settings
 
 
 def test_load_config_creates_default_file_if_missing(tmp_path):
@@ -29,6 +30,37 @@ def test_load_config_merges_partial_user_config(tmp_path):
 
     assert cfg.server.port == 9999
     assert cfg.server.host == "0.0.0.0"  # default preserved for unspecified keys
+
+
+def test_update_settings_writes_editable_paths(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    load_config(config_path)  # create the default file
+
+    new_incoming = tmp_path / "custom" / "incoming"
+    cfg = update_settings(config_path, {"paths": {"active_dir": str(new_incoming)}})
+
+    assert cfg.paths.active_dir == new_incoming
+    # untouched sibling paths keep their previous values
+    assert cfg.paths.archive_movies == Path("./sample_media/archive/movies")
+
+
+def test_update_settings_ignores_non_editable_keys(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    load_config(config_path)
+
+    cfg = update_settings(config_path, {"database": {"path": "/should/not/change.db"}})
+
+    assert cfg.database_path == Path("./data/media_manager.db")
+
+
+def test_update_settings_tmdb_key_round_trips(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    load_config(config_path)
+
+    cfg = update_settings(config_path, {"tmdb": {"api_key": "abc123"}})
+
+    assert cfg.tmdb.api_key == "abc123"
+    assert cfg.tmdb_api_key_from_env is False
 
 
 def test_load_config_no_create_dirs(tmp_path):

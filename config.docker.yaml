@@ -1,0 +1,22 @@
+paths:
+  active_dir: /media/incoming
+  archive_movies: /media/movies
+  archive_tv: /media/tv
+database:
+  path: /config/media_manager.db
+tmdb:
+  api_key: ""
+  language: en-US
+subtitles:
+  keep_languages: [en, eng, english]
+  delete_extensions: [.srt, .ass, .ssa]
+tracker:
+  cron_time: "06:00"
+  notification_ttl_days: 30
+logging:
+  level: INFO
+  file: /config/media_manager.log
+server:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins: ["*"]

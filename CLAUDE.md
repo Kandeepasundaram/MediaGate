@@ -19,21 +19,38 @@ python -m venv .venv
 .venv/Scripts/python -m pytest tests/test_tracker.py
 .venv/Scripts/python -m pytest tests/test_tmdb_client.py::test_parse_filename_tv_show
 
-# Run the tracker check manually (what the daily cron job does)
+# Run the tracker check manually (out-of-band; a non-Docker install with
+# the server itself not running would otherwise rely on cron for this)
 .venv/Scripts/python scripts/cron_job.py
+
+# Docker build + run
+docker compose up -d --build
 ```
 
 There is no separate lint/format tooling configured yet — none was requested.
 
 ## Architecture
 
-FastAPI backend (`app/`) + a vanilla JS dashboard (`app/static/`) served from the
-same process, designed to run on an Ubuntu box with an external HDD mounted,
-reachable from Windows machines on the LAN. See `phases plan.txt` for the
-original phase-by-phase plan and `PROGRESS.md` for what has actually been
-built against it, including deviations and things that are written but not
-live-tested (systemd, cron, real Ubuntu deploy, Windows toast popups, real
-TMDB scraping against themoviedb.org).
+FastAPI backend (`app/`) + a vanilla JS dashboard (`app/static/`) served from
+the same process. Deploy target is a homelab Docker host managed via Arcane
+(see `Dockerfile`, `docker-compose.yml`, `config.docker.yaml`,
+`docker-entrypoint.sh`); a bare-metal Ubuntu/systemd install is documented as
+a fallback in `INSTALL.md` but isn't the primary path. See `phases plan.txt`
+for the original phase-by-phase plan and `PROGRESS.md` for what has actually
+been built against it, including deviations (the plan assumed Ubuntu+systemd
++cron+a Windows winrt agent; the actual build is a single OS-agnostic
+container with an in-process scheduler and browser notifications) and things
+written but not live-tested (real Ubuntu systemd install, real TMDB
+scraping against themoviedb.org).
+
+The container is generic on purpose: nothing homelab-specific (media paths,
+TMDB key) is baked in at build/deploy time. `docker-compose.yml` only needs
+one bind mount (`/media`, your library root) and one named volume (`/config`,
+for `config.yaml` + the SQLite DB + logs) — everything else is set from the
+dashboard's Settings tab after first boot (see the "Settings API" section
+below). This was a deliberate pivot mid-build once the deploy target became
+"generic container configured post-install," away from the original plan's
+per-host `config.yaml` editing.
 
 **Request flow for the core feature (archive a file)**:
 `scanner.scan_directory()` walks `paths.active_dir` → returns `ScannedFile`
@@ -73,14 +90,40 @@ short-lived connection is opened per call via `Database.connect()`):
   operations, surfaced via `/api/archive/history` and `/api/logs`.
 
 **Tracker → notification path**: `app/core/tracker.py::check_for_updates()`
-(called by `scripts/cron_job.py`, meant to run daily via cron/systemd-timer)
 queries TMDB for each tracked title and flags `pending_notification` on
-change — that's it server-side. There is no OS-specific notification agent:
-the dashboard (`app/static/app.js`) polls `/api/tracker/notifications` every
-30s regardless of which tab is active, and fires a browser `Notification` for
-any id it hasn't shown before (tracked in `localStorage`), which works from
-any OS as long as a dashboard tab is open somewhere.
+change — that's it server-side. It's invoked by `app/core/scheduler.py`'s
+`run_daily_tracker_check()`, a background `asyncio` task started in
+`main.py`'s `lifespan` that sleeps until `tracker.cron_time` (re-reading
+config/DB/TMDB-client singletons fresh on every wake, so a Settings-tab
+change takes effect on the next scheduled run without a restart) — no host
+cron needed. `scripts/cron_job.py` does the same `check_for_updates()` call
+for anyone who'd rather drive it from external cron instead. There is no
+OS-specific notification agent: the dashboard (`app/static/app.js`) polls
+`/api/tracker/notifications` every 30s regardless of which tab is active,
+and fires a browser `Notification` for any id it hasn't shown before
+(tracked in `localStorage`), which works from any OS as long as a dashboard
+tab is open somewhere.
+
+**Settings API** (`app/api/routes/settings.py`): `GET`/`POST /api/settings`
+expose a deliberately small editable subset of `AppConfig` —
+`paths.active_dir/archive_movies/archive_tv`, `tmdb.api_key`,
+`server.cors_origins` (the allowlist lives in `_EDITABLE_KEYS` in
+`config_loader.py`). A POST calls `config_loader.update_settings()`, which
+merges only those keys into `config.yaml` on disk (`create_dirs=False` —
+saving a path does **not** auto-create the directory, unlike the very first
+app boot, so a typo doesn't silently mkdir somewhere wrong) and then
+`app.dependencies.reset_singletons()` clears the `lru_cache`s so the next
+`Depends(get_config)`/etc. call anywhere picks up the change immediately.
+`GET /api/settings/permissions-check` write-probes each configured media
+path and reports the container's effective uid/gid — read-only diagnostics
+only; there's intentionally no "fix permissions" action, since that would
+need root and arbitrary-path `chown` triggered by a web request, which is a
+compose/host-level decision (`user:` + matching ownership), not an in-app one.
+If `TMDB_API_KEY` is set as an env var it always wins over the stored value
+and the Settings UI reports the field as locked.
 
 **Frontend** (`app/static/`): single `index.html` with four tabs (Archive,
 Notifications, History, Settings) driven by plain `fetch()` calls in
 `app.js` — no build step, no framework. `Ctrl+S` triggers Approve & Archive.
+The Settings tab's form talks to `/api/settings` and its "Test Permissions"
+button to `/api/settings/permissions-check`.

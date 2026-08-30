@@ -37,7 +37,7 @@ function setupTabs() {
       $(`#tab-${btn.dataset.tab}`).classList.add("active");
       if (btn.dataset.tab === "notifications") loadNotifications();
       if (btn.dataset.tab === "history") loadHistory();
-      if (btn.dataset.tab === "settings") loadStats();
+      if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); }
     });
   });
 }
@@ -261,6 +261,68 @@ async function loadStats() {
   }
 }
 
+// ---- Settings tab ----
+async function loadSettings() {
+  try {
+    const s = await api("/api/settings");
+    $("#setting-active-dir").value = s.active_dir;
+    $("#setting-archive-movies").value = s.archive_movies;
+    $("#setting-archive-tv").value = s.archive_tv;
+    const keyInput = $("#setting-tmdb-key");
+    keyInput.disabled = s.tmdb_api_key_locked_by_env;
+    $("#tmdb-key-note").textContent = s.tmdb_api_key_locked_by_env
+      ? "Locked by the TMDB_API_KEY environment variable; edit it there instead."
+      : s.tmdb_api_key_set
+        ? "A key is currently set. Leave blank to keep it."
+        : "No key set — running in TMDB scraper fallback mode.";
+  } catch (e) {
+    $("#settings-status").textContent = `Error loading settings: ${e.message}`;
+  }
+}
+
+async function saveSettings(e) {
+  e.preventDefault();
+  const payload = {
+    active_dir: $("#setting-active-dir").value.trim(),
+    archive_movies: $("#setting-archive-movies").value.trim(),
+    archive_tv: $("#setting-archive-tv").value.trim(),
+  };
+  const keyValue = $("#setting-tmdb-key").value;
+  if (keyValue) payload.tmdb_api_key = keyValue;
+
+  $("#settings-status").textContent = "Saving...";
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
+    $("#setting-tmdb-key").value = "";
+    $("#settings-status").textContent = "Saved.";
+    loadSettings();
+    loadStatus();
+  } catch (e) {
+    $("#settings-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function checkPermissions() {
+  const result = $("#permissions-result");
+  result.textContent = "Checking...";
+  try {
+    const data = await api("/api/settings/permissions-check");
+    const uidLine = data.running_uid !== null
+      ? `<p class="hint">Container running as uid=${data.running_uid} gid=${data.running_gid}</p>`
+      : "";
+    result.innerHTML = uidLine + data.paths.map((p) => `
+      <div class="path-check-row">
+        <span title="${p.path}">${p.path}</span>
+        <span class="${p.writable ? 'status-success' : 'status-failed'}">
+          ${p.writable ? "writable" : (p.error || "not writable")}
+        </span>
+      </div>
+    `).join("");
+  } catch (e) {
+    result.textContent = `Error: ${e.message}`;
+  }
+}
+
 // ---- Wiring ----
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
@@ -285,4 +347,6 @@ document.addEventListener("DOMContentLoaded", () => {
     boxes.forEach((b) => { b.checked = !allChecked; });
   });
   $("#approve-btn").addEventListener("click", approveAndArchive);
+  $("#settings-form").addEventListener("submit", saveSettings);
+  $("#check-permissions-btn").addEventListener("click", checkPermissions);
 });

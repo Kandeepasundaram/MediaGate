@@ -1,28 +1,29 @@
 paths:
-  active_dir: "./sample_media/incoming"
-  archive_movies: "./sample_media/archive/movies"
-  archive_tv: "./sample_media/archive/tv"
-
+  active_dir: ./sample_media/incoming
+  archive_movies: ./sample_media/archive/movies
+  archive_tv: ./sample_media/archive/tv
 database:
-  path: "./data/media_manager.db"
-
+  path: ./data/media_manager.db
 tmdb:
-  api_key: ""          # set via TMDB_API_KEY env var instead of committing here
-  language: "en-US"
-
+  api_key: ''
+  language: en-US
 subtitles:
-  keep_languages: ["en", "eng", "english"]
-  delete_extensions: [".srt", ".ass", ".ssa"]
-
+  keep_languages:
+  - en
+  - eng
+  - english
+  delete_extensions:
+  - .srt
+  - .ass
+  - .ssa
 tracker:
-  cron_time: "06:00"
+  cron_time: 06:00
   notification_ttl_days: 30
-
 logging:
-  level: "INFO"
-  file: "./logs/media_manager.log"
-
+  level: INFO
+  file: ./logs/media_manager.log
 server:
-  host: "0.0.0.0"
+  host: 0.0.0.0
   port: 8000
-  cors_origins: ["*"]
+  cors_origins:
+  - '*'

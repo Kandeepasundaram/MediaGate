@@ -57,6 +57,31 @@
 
   <section id="tab-settings" class="tab-panel">
     <div id="stats-card" class="card"></div>
+
+    <h3>Media Paths &amp; TMDB Key</h3>
+    <form id="settings-form" class="card">
+      <label>Incoming directory
+        <input type="text" id="setting-active-dir" placeholder="/media/incoming">
+      </label>
+      <label>Movie archive directory
+        <input type="text" id="setting-archive-movies" placeholder="/media/movies">
+      </label>
+      <label>TV archive directory
+        <input type="text" id="setting-archive-tv" placeholder="/media/tv">
+      </label>
+      <label>TMDB API key
+        <input type="password" id="setting-tmdb-key" placeholder="leave blank to keep current">
+      </label>
+      <p id="tmdb-key-note" class="hint"></p>
+      <button type="submit" class="primary">Save Settings</button>
+      <span id="settings-status"></span>
+    </form>
+
+    <h3>Storage Permissions</h3>
+    <div class="card">
+      <button id="check-permissions-btn">Test Permissions</button>
+      <div id="permissions-result"></div>
+    </div>
   </section>
 </main>
 

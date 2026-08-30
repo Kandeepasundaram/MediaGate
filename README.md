@@ -15,10 +15,29 @@ tracker alerts into native toast notifications.
   API when `TMDB_API_KEY` is set, otherwise falls back to scraping themoviedb.org.
 - **Notifications**: browser `Notification` API in the dashboard (`app/static/app.js`)
   — no OS-specific agent. Any machine with the dashboard open in a browser gets a
-  native notification when the tracker cron job flags a new season/sequel.
+  native notification when the tracker check flags a new season/sequel.
+- **Scheduling**: an in-process daily job (`app/core/scheduler.py`) runs the tracker
+  check — no host cron needed when running in Docker. `scripts/cron_job.py` still
+  exists for a non-Docker install that prefers external cron/systemd-timer instead.
+- **Settings**: media paths, the TMDB key, and CORS origins are editable at runtime
+  from the dashboard's Settings tab (`GET`/`POST /api/settings`), persisted back to
+  `config.yaml` — no rebuild or restart required. A `TMDB_API_KEY` env var, if set,
+  takes precedence and locks that field in the UI.
 
 See `phases plan.txt` for the original phased build plan and `CLAUDE.md` for
 architecture notes aimed at AI coding agents working in this repo.
+
+## Quick start (Docker / homelab)
+
+```bash
+docker compose up -d --build
+```
+
+Edit `docker-compose.yml` first to point the `/media` bind mount at your
+actual media library root — everything else (incoming/movie/TV subpaths,
+TMDB key) is configured from the dashboard's **Settings** tab after first
+boot, no `.env` or rebuild needed. See `INSTALL.md` for the Arcane-specific
+walkthrough.
 
 ## Quick start (development)
 
