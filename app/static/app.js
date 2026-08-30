@@ -1420,6 +1420,7 @@ async function loadSettings() {
         ? "A key is currently set. Leave blank to keep it."
         : "No key set — running in TMDB scraper fallback mode.";
     $("#setting-webhook-url").value = s.webhook_url || "";
+    $("#setting-auto-track-new").checked = !!s.auto_track_new;
     $("#omdb-key-note").textContent = s.omdb_api_key_set
       ? "A key is currently set. Leave blank to keep it. Powers IMDb/Rotten Tomatoes ratings in the detail pane."
       : "Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.";
@@ -1436,6 +1437,7 @@ async function saveSettings(e) {
     archive_movies: $("#setting-archive-movies").value.trim(),
     archive_tv: $("#setting-archive-tv").value.trim(),
     webhook_url: $("#setting-webhook-url").value.trim(),
+    auto_track_new: $("#setting-auto-track-new").checked,
   };
   const keyValue = $("#setting-tmdb-key").value;
   if (keyValue) payload.tmdb_api_key = keyValue;

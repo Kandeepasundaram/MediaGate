@@ -358,6 +358,7 @@ class SettingsOut(BaseModel):
     tmdb_api_key_locked_by_env: bool
     webhook_url: str = ""
     omdb_api_key_set: bool = False
+    auto_track_new: bool = False
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -369,6 +370,7 @@ class SettingsUpdateRequest(BaseModel):
     tmdb_api_key: str | None = None
     webhook_url: str | None = None
     omdb_api_key: str | None = None
+    auto_track_new: bool | None = None
 
 
 class PathCheck(BaseModel):

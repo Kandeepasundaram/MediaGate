@@ -22,7 +22,7 @@ _DEFAULT_CONFIG: dict = {
         "keep_languages": ["en", "eng", "english"],
         "delete_extensions": [".srt", ".ass", ".ssa"],
     },
-    "tracker": {"cron_time": "06:00", "notification_ttl_days": 30},
+    "tracker": {"cron_time": "06:00", "notification_ttl_days": 30, "auto_track_new": False},
     "notifications": {"webhook_url": ""},
     "omdb": {"api_key": ""},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
@@ -54,6 +54,7 @@ class SubtitlesConfig:
 class TrackerConfig:
     cron_time: str = "06:00"
     notification_ttl_days: int = 30
+    auto_track_new: bool = False
 
 
 @dataclass
@@ -160,6 +161,7 @@ _EDITABLE_KEYS = {
     "server": {"cors_origins"},
     "notifications": {"webhook_url"},
     "omdb": {"api_key"},
+    "tracker": {"auto_track_new"},
 }
 
 

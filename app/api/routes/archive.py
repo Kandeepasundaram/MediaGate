@@ -11,6 +11,7 @@ from app.core.archiver import ArchiveError, archive_file
 from app.core.renamer import RenamePlan, plan_movie_rename, plan_tv_rename
 from app.core.subtitle_purger import SUBTITLE_EXTENSIONS, purge_subtitles
 from app.core.tmdb_client import MediaResult, TMDBClient, parse_filename
+from app.core.tracker import maybe_auto_track
 from app.database import Database
 from app.dependencies import get_config, get_database, get_tmdb_client
 from app.models import (
@@ -174,6 +175,9 @@ def confirm_archive(
         try:
             media_id = archive_file(db, plan)
             _copy_sibling_subtitles(source, dest.parent)
+            maybe_auto_track(
+                db, config.tracker.auto_track_new, item.tmdb_id, item.media_type, item.title, item.season
+            )
             results.append(
                 ArchiveConfirmResult(source_path=str(source), dest_path=str(dest), media_id=media_id, status="success")
             )

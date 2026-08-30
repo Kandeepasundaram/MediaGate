@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from app.core.tmdb_client import MediaResult
-from app.core.tracker import check_for_updates
+from app.core.tracker import check_for_updates, maybe_auto_track
 
 
 def test_check_for_updates_flags_new_tv_season(db):
@@ -102,6 +102,36 @@ def test_check_for_updates_does_not_fire_webhook_for_muted_title(db):
         check_for_updates(db, tmdb, webhook_url="https://example.com/hook")
 
     mock_post.assert_not_called()
+
+
+def test_maybe_auto_track_noop_when_disabled(db):
+    maybe_auto_track(db, False, tmdb_id=1, media_type="movie", title="Movie")
+    assert db.list_tracked() == []
+
+
+def test_maybe_auto_track_noop_without_tmdb_id(db):
+    maybe_auto_track(db, True, tmdb_id=None, media_type="movie", title="Movie")
+    assert db.list_tracked() == []
+
+
+def test_maybe_auto_track_creates_tracker_for_movie(db):
+    maybe_auto_track(db, True, tmdb_id=42, media_type="movie", title="Movie")
+    row = db.get_tracker(42, "movie")
+    assert row is not None
+    assert row["title"] == "Movie"
+
+
+def test_maybe_auto_track_sets_current_season_for_tv(db):
+    maybe_auto_track(db, True, tmdb_id=7, media_type="tv", title="Show", season=2)
+    row = db.get_tracker(7, "tv")
+    assert row["current_season_archived"] == 2
+
+
+def test_maybe_auto_track_season_never_regresses(db):
+    maybe_auto_track(db, True, tmdb_id=7, media_type="tv", title="Show", season=3)
+    maybe_auto_track(db, True, tmdb_id=7, media_type="tv", title="Show", season=1)
+    row = db.get_tracker(7, "tv")
+    assert row["current_season_archived"] == 3
 
 
 def test_check_for_updates_sends_single_digest_for_multiple_titles(db):

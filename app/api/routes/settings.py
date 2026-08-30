@@ -38,6 +38,7 @@ def _to_out(config: AppConfig) -> SettingsOut:
         tmdb_api_key_locked_by_env=config.tmdb_api_key_from_env,
         webhook_url=config.notifications.webhook_url,
         omdb_api_key_set=bool(config.omdb.api_key),
+        auto_track_new=config.tracker.auto_track_new,
     )
 
 
@@ -48,7 +49,7 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 
 @router.post("", response_model=SettingsOut)
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
-    updates: dict[str, dict] = {"paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}}
+    updates: dict[str, dict] = {"paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tracker": {}}
 
     if payload.incoming_movies is not None:
         updates["paths"]["incoming_movies"] = payload.incoming_movies
@@ -66,6 +67,8 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["notifications"]["webhook_url"] = payload.webhook_url
     if payload.omdb_api_key is not None:
         updates["omdb"]["api_key"] = payload.omdb_api_key
+    if payload.auto_track_new is not None:
+        updates["tracker"]["auto_track_new"] = payload.auto_track_new
 
     updates = {k: v for k, v in updates.items() if v}
     new_config = update_settings(config.config_path, updates)

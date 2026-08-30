@@ -326,6 +326,44 @@ def test_settings_webhook_url_round_trips(client):
     assert resp.json()["webhook_url"] == "https://example.com/hook"
 
 
+def test_settings_auto_track_new_round_trips(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"auto_track_new": True})
+    assert resp.status_code == 200
+    assert resp.json()["auto_track_new"] is True
+
+
+def test_confirm_archive_auto_tracks_when_enabled(client):
+    c, incoming_movies = client
+    app.dependency_overrides[get_config]().tracker.auto_track_new = True
+
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = [
+        MediaResult(tmdb_id=603, title="The Matrix", media_type="movie", year=1999)
+    ]
+    video = incoming_movies / "The.Matrix.1999.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    tracked = c.get("/api/tracker/list").json()["tracked"]
+    assert any(t["tmdb_id"] == 603 for t in tracked)
+
+
+def test_confirm_archive_does_not_auto_track_by_default(client):
+    c, incoming_movies = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = [
+        MediaResult(tmdb_id=603, title="The Matrix", media_type="movie", year=1999)
+    ]
+    video = incoming_movies / "The.Matrix.1999.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    assert c.get("/api/tracker/list").json()["tracked"] == []
+
+
 def test_permissions_check_reports_free_space(client):
     c, _ = client
     resp = c.get("/api/settings/permissions-check")

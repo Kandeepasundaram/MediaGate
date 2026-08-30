@@ -16,6 +16,32 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def maybe_auto_track(
+    db: Database,
+    auto_track_enabled: bool,
+    tmdb_id: int | None,
+    media_type: str,
+    title: str,
+    season: int | None = None,
+) -> None:
+    """Adds a freshly-archived title to the tracker automatically, when
+    tracker.auto_track_new is on -- opt-in, since not every archived title
+    is something the user wants season/sequel alerts for. For TV,
+    current_season_archived only ever moves forward: archiving an old
+    episode out of order shouldn't make the tracker think the show
+    regressed and re-flag a season the user already has.
+    """
+    if not auto_track_enabled or tmdb_id is None:
+        return
+    fields: dict = {}
+    if media_type == "tv" and season is not None:
+        existing = db.get_tracker(tmdb_id, media_type)
+        current_max = existing["current_season_archived"] if existing else None
+        if current_max is None or season > current_max:
+            fields["current_season_archived"] = season
+    db.upsert_tracker(tmdb_id=tmdb_id, media_type=media_type, title=title, **fields)
+
+
 def _is_due(row: dict, now: datetime) -> bool:
     """Whether a scheduled check_for_updates run should touch this title --
     "Check Now" in the UI bypasses this entirely and always checks. A

@@ -22,6 +22,7 @@ from app.core.organizer import OrganizeError, organize_file
 from app.core.renamer import RenamePlan
 from app.core.scanner import scan_directory
 from app.core.tmdb_client import MediaResult, TMDBClient
+from app.core.tracker import maybe_auto_track
 from app.database import Database
 from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client
 from app.models import (
@@ -506,7 +507,9 @@ def get_file_info(item_id: int, db: Database = Depends(get_database)) -> FileInf
 
 
 @router.post("/organize", response_model=ArchiveConfirmResponse)
-def organize_selected(payload: ArchiveConfirmRequest, db: Database = Depends(get_database)) -> ArchiveConfirmResponse:
+def organize_selected(
+    payload: ArchiveConfirmRequest, config: AppConfig = Depends(get_config), db: Database = Depends(get_database)
+) -> ArchiveConfirmResponse:
     """Stage 2 of the manual library browser: given TMDB-matched preview
     items (from the same /api/archive/preview used by "Ready to Archive"),
     moves each file to its computed destination in place and updates its
@@ -533,6 +536,9 @@ def organize_selected(payload: ArchiveConfirmRequest, db: Database = Depends(get
         )
         try:
             media_id = organize_file(db, plan)
+            maybe_auto_track(
+                db, config.tracker.auto_track_new, item.tmdb_id, item.media_type, item.title, item.season
+            )
             results.append(
                 ArchiveConfirmResult(source_path=str(source), dest_path=str(dest), media_id=media_id, status="success")
             )
