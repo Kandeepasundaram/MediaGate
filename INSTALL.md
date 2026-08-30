@@ -32,21 +32,13 @@
    30 3 * * * /home/<user>/media-manager/scripts/backup.sh
    ```
 
-## Windows client (dashboard access + notifications)
+## Windows (or any) client — dashboard access + notifications
 
-1. Open `http://<ubuntu-host-ip>:8000` in a browser to use the dashboard — no
-   client install needed for that part.
-2. For toast notifications, on the Windows machine:
-   ```powershell
-   python -m venv .venv
-   .venv\Scripts\pip install -r requirements.txt
-   .venv\Scripts\pip install winrt-Windows.UI.Notifications winrt-Windows.Data.Xml.Dom
-   ```
-3. Run `scripts\setup_windows.bat` as Administrator to register the agent
-   (`scripts/windows_toast.py`) as a Task Scheduler entry that starts on logon.
-4. Set `tracker.windows_agent_url` in `config.yaml` on the Ubuntu side to
-   `http://<windows-machine-ip>:8765/notify` so the cron job can reach it.
-5. Allow inbound TCP 8765 through Windows Firewall for the notification agent.
+No install needed. Open `http://<server-ip>:8000` in any browser. The
+dashboard will ask for notification permission on first load — accept it and
+you'll get a native OS notification whenever the tracker cron job flags a new
+season or sequel, for as long as that browser tab is open (it can be
+minimized/backgrounded).
 
 ## Troubleshooting
 

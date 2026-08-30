@@ -17,7 +17,6 @@ subtitles:
 tracker:
   cron_time: "06:00"
   notification_ttl_days: 30
-  windows_agent_url: "http://192.168.1.100:8765/notify"  # Windows toast agent, see scripts/windows_toast.py
 
 logging:
   level: "INFO"

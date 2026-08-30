@@ -199,19 +199,6 @@ class Database:
             (_now(), tracker_id),
         )
 
-    def mark_notification_sent(self, tracker_id: int) -> None:
-        """Record that a toast was sent, without clearing pending_notification
-        (that only happens when the user acknowledges it in the dashboard)."""
-        self.execute_query(
-            "UPDATE archive_tracker SET notification_sent_at = ? WHERE id = ?",
-            (_now(), tracker_id),
-        )
-
-    def list_unsent_notifications(self) -> list[dict[str, Any]]:
-        return self.fetch_all(
-            "SELECT * FROM archive_tracker WHERE pending_notification = 1 AND notification_sent_at IS NULL"
-        )
-
     # ---- operation_log CRUD ----
 
     def log_operation(

@@ -29,16 +29,14 @@ include an `error_message` (typically a permissions or disk-space issue on the
 archive destination). Archiving copies files (`shutil.copy2`), so the original
 in `active_dir` is left untouched on both success and failure — safe to retry.
 
-## Windows toast notifications never appear
-- Confirm `tracker.windows_agent_url` is set on the Ubuntu side and reachable
-  (`curl -X POST http://<windows-ip>:8765/notify -d '{"title":"t","body":"b"}'`).
-- Confirm Windows Firewall allows inbound TCP on port 8765.
-- Confirm the `winrt-Windows.UI.Notifications` / `winrt-Windows.Data.Xml.Dom`
-  packages are installed in the Windows agent's virtualenv — without them the
-  agent logs the notification instead of showing a toast (check its console
-  output / Task Scheduler history).
-- Confirm the scheduled task from `scripts/setup_windows.bat` is actually
-  running: `schtasks /Query /TN MediaManagerNotificationAgent`.
+## Browser notifications never appear
+- Check the browser's site permission for the dashboard's origin — it must be
+  "Allow", not "Block" or the default "Ask" (a page reload after clicking
+  "Allow" in the permission prompt is required the first time).
+- Browser notifications only fire while a dashboard tab is open somewhere
+  (it can be minimized/backgrounded); closing the browser entirely stops them.
+- Check `/api/tracker/notifications` directly — if it's empty, the tracker
+  cron job hasn't flagged anything yet (see below), it's not a browser issue.
 
 ## SQLite "database is locked"
 The database uses WAL mode, so concurrent reads shouldn't block writes. If you

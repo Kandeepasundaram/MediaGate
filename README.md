@@ -13,8 +13,9 @@ tracker alerts into native toast notifications.
 - **Dashboard**: vanilla HTML/CSS/JS single-page app served from `app/static/`.
 - **TMDB integration**: hybrid client (`app/core/tmdb_client.py`) — uses the official
   API when `TMDB_API_KEY` is set, otherwise falls back to scraping themoviedb.org.
-- **Windows notification agent**: `scripts/windows_toast.py`, a tiny HTTP server that
-  turns POSTs from the Ubuntu cron job into Windows toast notifications.
+- **Notifications**: browser `Notification` API in the dashboard (`app/static/app.js`)
+  — no OS-specific agent. Any machine with the dashboard open in a browser gets a
+  native notification when the tracker cron job flags a new season/sequel.
 
 See `phases plan.txt` for the original phased build plan and `CLAUDE.md` for
 architecture notes aimed at AI coding agents working in this repo.

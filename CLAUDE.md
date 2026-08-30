@@ -67,22 +67,20 @@ short-lived connection is opened per call via `Database.connect()`):
   season/episode, `watched`, `metadata` (JSON).
 - `archive_tracker` — one row per `(tmdb_id, media_type)` being watched for
   new seasons/sequels; `pending_notification` drives the dashboard's
-  Notifications tab, `notification_sent_at` (set by `mark_notification_sent`,
-  distinct from `acknowledge_notification`) tracks whether the Windows toast
-  agent has already been pinged so the cron job doesn't re-notify every run.
+  Notifications tab and browser notifications, cleared by
+  `acknowledge_notification()` when the user clicks "Mark Downloaded".
 - `operation_log` — audit trail for `archive`/`rename`/`purge`/`tracker_check`
   operations, surfaced via `/api/archive/history` and `/api/logs`.
 
 **Tracker → notification path**: `app/core/tracker.py::check_for_updates()`
-(called by `scripts/cron_job.py`, meant to run daily via cron/systemd-timer on
-Ubuntu) queries TMDB for each tracked title, flags `pending_notification` on
-change, then the cron job POSTs to `tracker.windows_agent_url` — a separate
-Windows-only process (`scripts/windows_toast.py`, HTTP server on :8765 that
-raises a native toast via `winrt`) started by Task Scheduler
-(`scripts/setup_windows.bat`). The Ubuntu backend never imports
-`windows_toast.py`; the two sides only talk over HTTP.
+(called by `scripts/cron_job.py`, meant to run daily via cron/systemd-timer)
+queries TMDB for each tracked title and flags `pending_notification` on
+change — that's it server-side. There is no OS-specific notification agent:
+the dashboard (`app/static/app.js`) polls `/api/tracker/notifications` every
+30s regardless of which tab is active, and fires a browser `Notification` for
+any id it hasn't shown before (tracked in `localStorage`), which works from
+any OS as long as a dashboard tab is open somewhere.
 
 **Frontend** (`app/static/`): single `index.html` with four tabs (Archive,
 Notifications, History, Settings) driven by plain `fetch()` calls in
 `app.js` — no build step, no framework. `Ctrl+S` triggers Approve & Archive.
-Notifications poll every 30s while that tab is active.

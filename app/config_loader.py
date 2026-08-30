@@ -21,11 +21,7 @@ _DEFAULT_CONFIG: dict = {
         "keep_languages": ["en", "eng", "english"],
         "delete_extensions": [".srt", ".ass", ".ssa"],
     },
-    "tracker": {
-        "cron_time": "06:00",
-        "notification_ttl_days": 30,
-        "windows_agent_url": "",
-    },
+    "tracker": {"cron_time": "06:00", "notification_ttl_days": 30},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
     "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"]},
 }
@@ -54,7 +50,6 @@ class SubtitlesConfig:
 class TrackerConfig:
     cron_time: str = "06:00"
     notification_ttl_days: int = 30
-    windows_agent_url: str = ""
 
 
 @dataclass

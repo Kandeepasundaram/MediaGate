@@ -55,16 +55,6 @@ def test_acknowledge_notification_clears_flag(db):
     assert row["notification_sent_at"] is not None
 
 
-def test_mark_notification_sent_keeps_pending(db):
-    db.upsert_tracker(tmdb_id=6, media_type="movie", title="M2", pending_notification=1)
-    row = db.get_tracker(6, "movie")
-    db.mark_notification_sent(row["id"])
-    row = db.get_tracker(6, "movie")
-    assert row["pending_notification"] == 1
-    assert row["notification_sent_at"] is not None
-    assert db.list_unsent_notifications() == []
-
-
 def test_operation_log(db):
     item_id = db.create_media_item(original_path="a", title="A", media_type="movie")
     db.log_operation("archive", "success", media_id=item_id, details={"a": 1})

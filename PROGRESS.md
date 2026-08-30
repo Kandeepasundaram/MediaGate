@@ -39,15 +39,15 @@ Environment: Windows dev machine, Python 3.13, git repo initialized fresh
   before relying on it.
 - **Phase 6 (Tracker & automation)**: Core logic (`tracker.py`) is
   unit-tested with mocked TMDB responses. `scripts/cron_job.py`,
-  `scripts/windows_toast.py` (+ `notification_agent.py` alias),
-  `scripts/install_service.sh`, `scripts/setup_windows.bat` are written but
-  **not executed** — systemd/cron require the real Ubuntu host, and the
-  Windows toast agent was deliberately not run because triggering a real
-  desktop toast notification felt like an unnecessary side effect to cause
-  unprompted; it depends on the optional `winrt-Windows.UI.Notifications` /
-  `winrt-Windows.Data.Xml.Dom` packages which are not in `requirements.txt`
-  (Linux-side `requirements.txt` can't include Windows-only packages) — install
-  them separately on the Windows agent host per `INSTALL.md`.
+  `scripts/install_service.sh` are written but **not executed** —
+  systemd/cron require the real Ubuntu host. The original plan's Windows
+  `winrt` toast agent (`scripts/windows_toast.py`, `notification_agent.py`,
+  `setup_windows.bat`) was built, then **deleted** in favor of the browser
+  `Notification` API — see "Key deviations" below. Deployment target is now
+  Docker/Arcane on the homelab, not a bare Ubuntu systemd install, so
+  `install_service.sh`/`deploy.sh`/`backup.sh` will likely be superseded by a
+  `Dockerfile` + `docker-compose.yml` (not yet written — pending homelab
+  specifics: media mount paths, reverse proxy, TMDB key).
 - **Phase 7 (Testing)**: 35 tests, all passing
   (`.venv/Scripts/python -m pytest -q`). Covers DB CRUD, filename parsing,
   TMDB client fallback/caching, renamer path-building + collision handling,
@@ -65,14 +65,23 @@ Environment: Windows dev machine, Python 3.13, git repo initialized fresh
 
 ## Key deviations from the plan worth knowing about
 
-- `archive_tracker.notification_sent_at` is set by a new
-  `mark_notification_sent()` DB method, separate from `acknowledge_notification()`.
-  The plan's schema implied one flag pair might do both jobs, but that would
-  make the cron job either spam a toast every run or silently stop tracking
-  once the user dismissed it in the dashboard — split them so "toast sent" and
-  "user acknowledged" are independent.
-- `config.yaml` gained a `tracker.windows_agent_url` key not in the original
-  schema sketch, needed so the Ubuntu cron job knows where to POST.
+- **Notifications are browser-based, not a native Windows agent.** The plan
+  called for a `winrt`-based Windows toast agent (Task Scheduler service,
+  separate HTTP port, Windows Firewall rule). Built it, then replaced it:
+  the dashboard now polls `/api/tracker/notifications` and fires a browser
+  `Notification` for anything not already seen (tracked in `localStorage`).
+  Rationale: the deploy target is a homelab Docker host (Arcane), and the
+  Windows-only agent was the one piece of the whole system that wasn't OS
+  agnostic — removing it means the backend has zero OS-specific code and
+  "notifications" now just means "keep a dashboard tab open in any browser,
+  on any device." Trade-off: no notification once every browser tab is
+  closed (vs. a true always-on OS toast); acceptable for a LAN dashboard
+  that's normally left open. `scripts/windows_toast.py`,
+  `notification_agent.py`, `setup_windows.bat`, and the
+  `tracker.windows_agent_url` config key are all removed. DB methods
+  `mark_notification_sent`/`list_unsent_notifications` (added to let the old
+  agent avoid re-notifying) were removed too — the browser's `localStorage`
+  set now does that job client-side.
 - Archive confirm also copies sibling subtitle files (matching video stem) to
   the destination folder — the plan didn't say this explicitly but archiving a
   video with no subtitles seemed like an obvious gap.
@@ -81,6 +90,6 @@ Environment: Windows dev machine, Python 3.13, git repo initialized fresh
 
 1. Get a real TMDB API key into `.env` and re-verify search/detail calls end to end.
 2. Run this on an actual Ubuntu box against a real sample media folder to validate scanner/renamer against real-world messy filenames.
-3. Manually click through the dashboard in a browser.
-4. Install the `winrt` packages on a real Windows machine and confirm a toast actually appears.
-5. Run `scripts/install_service.sh` and `scripts/backup.sh` on Ubuntu for real.
+3. Manually click through the dashboard in a browser, including granting the notification permission prompt.
+4. Write `Dockerfile` + `docker-compose.yml` and deploy via Arcane — blocked on: media mount paths on the homelab host, whether a reverse proxy (Traefik/Caddy) is in front of Arcane-managed containers, and whether a TMDB key will be supplied.
+5. Once containerized, `scripts/install_service.sh`/`deploy.sh` (systemd-based) are probably dead weight — decide whether to keep them for a non-Docker install path or delete them.

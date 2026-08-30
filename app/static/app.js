@@ -174,10 +174,55 @@ async function loadNotifications() {
   }
 }
 
+// ---- Browser notifications ----
+const NOTIFIED_IDS_KEY = "media-manager:notified-ids";
+
+function loadNotifiedIds() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(NOTIFIED_IDS_KEY) || "[]"));
+  } catch (e) {
+    return new Set();
+  }
+}
+
+function saveNotifiedIds(ids) {
+  try {
+    localStorage.setItem(NOTIFIED_IDS_KEY, JSON.stringify(Array.from(ids)));
+  } catch (e) { /* localStorage unavailable, skip persistence */ }
+}
+
+function requestNotificationPermission() {
+  if (!("Notification" in window)) return;
+  if (Notification.permission === "default") Notification.requestPermission();
+}
+
+function notificationBody(n) {
+  return n.media_type === "tv"
+    ? `Season ${n.latest_known_season} of ${n.title} is out!`
+    : `${n.title}: ${n.movie_release_status || "new release detected"}`;
+}
+
+function firePendingBrowserNotifications(notifications, notifiedIds) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  for (const n of notifications) {
+    if (notifiedIds.has(n.id)) continue;
+    new Notification("New Media Available", { body: notificationBody(n) });
+    notifiedIds.add(n.id);
+  }
+  saveNotifiedIds(notifiedIds);
+}
+
 function pollNotifications() {
-  setInterval(() => {
-    if ($("#tab-notifications").classList.contains("active")) loadNotifications();
-  }, 30000);
+  const notifiedIds = loadNotifiedIds();
+  const tick = async () => {
+    try {
+      const data = await api("/api/tracker/notifications");
+      firePendingBrowserNotifications(data.notifications, notifiedIds);
+      if ($("#tab-notifications").classList.contains("active")) loadNotifications();
+    } catch (e) { /* offline or server restarting, retry on next tick */ }
+  };
+  tick();
+  setInterval(tick, 30000);
 }
 
 // ---- History tab ----
@@ -230,6 +275,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupKeyboardShortcuts();
   loadStatus();
+  requestNotificationPermission();
   pollNotifications();
 
   $("#scan-btn").addEventListener("click", scanAndPreview);

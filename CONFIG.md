@@ -33,7 +33,6 @@ defaults on first run if missing. Secrets should go in `.env` (see
 |---|---|---|
 | `cron_time` | `06:00` | Documented schedule for the tracker cron job (the actual schedule is set in crontab, this is just a record of intent). |
 | `notification_ttl_days` | `30` | Not yet enforced by code — reserved for future notification expiry. |
-| `windows_agent_url` | `""` | URL of the Windows toast agent's `/notify` endpoint, e.g. `http://192.168.1.50:8765/notify`. Leave empty to disable toast pushes (tracker state is still recorded). |
 
 ## `logging`
 | Key | Default | Description |
