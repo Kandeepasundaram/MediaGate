@@ -1,0 +1,13 @@
+{
+  "name": "Media Manager",
+  "short_name": "MediaMgr",
+  "description": "Personal media library dashboard: archive, organize, and track movies and TV.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#2f6fed",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

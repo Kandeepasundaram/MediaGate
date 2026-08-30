@@ -1848,6 +1848,12 @@ function setupKeyboardShortcuts() {
   });
 }
 
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => { /* PWA install just won't be offered; app still works */ });
+  });
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupTheme();

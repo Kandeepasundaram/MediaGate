@@ -425,6 +425,19 @@ def test_api_token_gate_rejects_missing_or_wrong_token(client):
         app.dependency_overrides[get_config]().server.api_token = ""
 
 
+def test_pwa_manifest_and_service_worker_are_served(client):
+    c, _ = client
+    manifest = c.get("/manifest.json")
+    assert manifest.status_code == 200
+    assert manifest.json()["name"] == "Media Manager"
+
+    sw = c.get("/sw.js")
+    assert sw.status_code == 200
+
+    icon = c.get("/icon.svg")
+    assert icon.status_code == 200
+
+
 def test_api_token_gate_leaves_static_assets_open(client):
     c, _ = client
     app.dependency_overrides[get_config]().server.api_token = "secret123"
