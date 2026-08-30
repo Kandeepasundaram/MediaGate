@@ -71,6 +71,20 @@ def parse_filename(filename: str) -> ParsedFilename:
     return ParsedFilename(title=title or stem, media_type="movie")
 
 
+def _iter_api_results(results) -> list:
+    """tmdbv3api 1.9.0's AsObj.__iter__ has a bug: when the wrapped list is
+    genuinely empty, `self._obj_list` (itself an AsObj) is falsy, so it
+    falls back to `iter(self._dict())` -- which yields the *response's own
+    top-level JSON key names* ("page", "results", "total_pages", ...) as
+    plain strings instead of an empty sequence. A real result item is
+    always an AsObj with an `id` attribute; a plain str never is, so this
+    filters the bug's stray keys out rather than crashing on `.id`/`["id"]`
+    a few lines later. Confirmed against tmdbv3api's as_obj.py at the
+    pinned version -- revisit if that dependency is ever upgraded.
+    """
+    return [r for r in results if hasattr(r, "id")]
+
+
 def _scraped_to_result(r: ScrapedResult | None, media_type: str) -> MediaResult | None:
     if r is None:
         return None
@@ -139,7 +153,7 @@ class TMDBClient:
                         source="api",
                         raw=dict(m),
                     )
-                    for m in results
+                    for m in _iter_api_results(results)
                 ]
                 if year:
                     out = [r for r in out if r.year in (None, year)] or out
@@ -170,7 +184,7 @@ class TMDBClient:
                         source="api",
                         raw=dict(t),
                     )
-                    for t in results
+                    for t in _iter_api_results(results)
                 ]
             except Exception as exc:
                 logger.warning("TMDB API search_tv failed, falling back to scraper: %s", exc)
@@ -306,7 +320,7 @@ class TMDBClient:
                         source="api",
                         raw=m,
                     )
-                    for m in c.parts
+                    for m in _iter_api_results(c.parts)
                 ]
             except Exception as exc:
                 logger.warning("TMDB API get_collection_movies failed, falling back to scraper: %s", exc)

@@ -3,9 +3,21 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import tmdbv3api
+from tmdbv3api.as_obj import AsObj
 
 from app.core.tmdb_client import TMDBClient, parse_filename
 from app.core.tmdb_scraper import ScrapedResult
+
+
+def _empty_search_response() -> AsObj:
+    """A real tmdbv3api AsObj built from a genuine zero-results TMDB search
+    payload -- reproduces the library's actual (buggy) __iter__ behavior
+    rather than a mock standing in for it."""
+    return AsObj({"page": 1, "results": [], "total_pages": 1, "total_results": 0}, key="results")
+
+
+def _search_response(movies: list[dict]) -> AsObj:
+    return AsObj({"page": 1, "results": movies, "total_pages": 1, "total_results": len(movies)}, key="results")
 
 
 def test_parse_filename_tv_show():
@@ -146,6 +158,76 @@ def test_get_external_imdb_id_api_falls_back_to_scraper_on_error(monkeypatch):
     monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
 
     assert client.get_external_imdb_id(278, "movie") == "tt0111161"
+
+
+def test_search_movie_handles_zero_results_from_real_api_without_crashing(monkeypatch):
+    """Regression test for tmdbv3api 1.9.0's AsObj.__iter__ bug: a genuine
+    zero-results search response, when iterated, yields the response's own
+    JSON key names ("page", "results", ...) as plain strings instead of
+    nothing -- which used to blow up with 'str' object has no attribute
+    'id' instead of just returning an empty list."""
+    fake_scraper = MagicMock()
+    fake_scraper.search_movie.return_value = []
+    client = TMDBClient(api_key="fake-key", scraper=fake_scraper)
+
+    class FakeMovie:
+        def search(self, title):
+            return _empty_search_response()
+
+    monkeypatch.setattr(tmdbv3api, "Movie", FakeMovie)
+
+    assert client.search_movie("Some Obscure Title Nobody Made") == []
+
+
+def test_search_tv_handles_zero_results_from_real_api_without_crashing(monkeypatch):
+    fake_scraper = MagicMock()
+    fake_scraper.search_tv.return_value = []
+    client = TMDBClient(api_key="fake-key", scraper=fake_scraper)
+
+    class FakeTV:
+        def search(self, title):
+            return _empty_search_response()
+
+    monkeypatch.setattr(tmdbv3api, "TV", FakeTV)
+
+    assert client.search_tv("Some Obscure Show Nobody Made") == []
+
+
+def test_search_movie_still_parses_real_nonempty_api_results(monkeypatch):
+    """Same real-AsObj construction as the empty-results test, but with an
+    actual match -- confirms the empty-results fix didn't break the normal
+    (non-buggy) iteration path."""
+    fake_scraper = MagicMock()
+    client = TMDBClient(api_key="fake-key", scraper=fake_scraper)
+
+    class FakeMovie:
+        def search(self, title):
+            return _search_response(
+                [{"id": 603, "title": "The Matrix", "release_date": "1999-03-30", "overview": "...", "poster_path": "/p.jpg"}]
+            )
+
+    monkeypatch.setattr(tmdbv3api, "Movie", FakeMovie)
+
+    results = client.search_movie("The Matrix")
+    assert len(results) == 1
+    assert results[0].tmdb_id == 603
+    assert results[0].title == "The Matrix"
+    assert results[0].year == 1999
+    fake_scraper.search_movie.assert_not_called()
+
+
+def test_get_collection_movies_handles_empty_parts_without_crashing(monkeypatch):
+    fake_scraper = MagicMock()
+    fake_scraper.get_collection_movies.return_value = []
+    client = TMDBClient(api_key="fake-key", scraper=fake_scraper)
+
+    class FakeCollection:
+        def details(self, collection_id):
+            return AsObj({"id": 1, "name": "Empty Collection", "parts": []}, key="parts")
+
+    monkeypatch.setattr(tmdbv3api, "Collection", FakeCollection)
+
+    assert client.get_collection_movies(1) == []
 
 
 def test_client_falls_back_to_scraper_on_api_failure(monkeypatch):
