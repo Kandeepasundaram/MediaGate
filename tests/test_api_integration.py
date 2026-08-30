@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,6 +10,7 @@ from app.config_loader import (
     AppConfig,
     BackupConfig,
     LoggingConfig,
+    MediaServerConfig,
     NotificationsConfig,
     OMDbConfig,
     PathsConfig,
@@ -48,6 +49,7 @@ def client(tmp_path):
         notifications=NotificationsConfig(),
         omdb=OMDbConfig(),
         backup=BackupConfig(),
+        media_server=MediaServerConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
         config_path=tmp_path / "config.yaml",
@@ -336,6 +338,21 @@ def test_settings_webhook_url_round_trips(client):
     assert resp.json()["webhook_url"] == "https://example.com/hook"
 
 
+def test_confirm_archive_notifies_media_servers_on_success(client):
+    c, incoming_movies = client
+    app.dependency_overrides[get_config]().media_server.plex_url = "http://plex.local:32400"
+    app.dependency_overrides[get_config]().media_server.plex_token = "tok"
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+
+    with patch("app.api.routes.archive.notify_media_servers") as mock_notify:
+        c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    mock_notify.assert_called_once()
+
+
 def test_arr_webhook_adopts_movie_on_radarr_payload(client):
     c, _ = client
     archive_movies = Path(app.dependency_overrides[get_config]().paths.archive_movies)
@@ -398,6 +415,20 @@ def test_settings_auto_track_new_round_trips(client):
     resp = c.post("/api/settings", json={"auto_track_new": True})
     assert resp.status_code == 200
     assert resp.json()["auto_track_new"] is True
+
+
+def test_settings_media_server_fields_round_trip(client):
+    c, _ = client
+    resp = c.post(
+        "/api/settings",
+        json={"plex_url": "http://plex.local:32400", "plex_token": "tok", "jellyfin_url": "http://j.local:8096"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["plex_url"] == "http://plex.local:32400"
+    assert body["plex_token_set"] is True
+    assert body["jellyfin_url"] == "http://j.local:8096"
+    assert body["jellyfin_api_key_set"] is False
 
 
 def test_settings_api_token_round_trips_as_set_flag_only(client):

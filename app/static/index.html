@@ -218,6 +218,27 @@
       <p class="hint">A backup of the previous config.yaml is kept as config.yaml.bak on every save.</p>
     </form>
 
+    <h3>Media Server Refresh (optional)</h3>
+    <form id="media-server-form" class="card">
+      <p class="hint">Best-effort "rescan library" ping after archiving or organizing a file. Leave a section blank to skip it.</p>
+      <label>Plex URL
+        <input type="text" id="setting-plex-url" placeholder="http://plex.local:32400">
+      </label>
+      <label>Plex token
+        <input type="password" id="setting-plex-token" placeholder="leave blank to keep current">
+      </label>
+      <p id="plex-token-note" class="hint"></p>
+      <label>Jellyfin URL
+        <input type="text" id="setting-jellyfin-url" placeholder="http://jellyfin.local:8096">
+      </label>
+      <label>Jellyfin API key
+        <input type="password" id="setting-jellyfin-api-key" placeholder="leave blank to keep current">
+      </label>
+      <p id="jellyfin-key-note" class="hint"></p>
+      <button type="submit" class="primary">Save Media Server Settings</button>
+      <span id="media-server-status"></span>
+    </form>
+
     <h3>Storage Permissions</h3>
     <div class="card">
       <button id="check-permissions-btn">Test Permissions</button>

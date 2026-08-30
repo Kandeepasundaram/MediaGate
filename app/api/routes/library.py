@@ -21,6 +21,7 @@ from app.core.omdb_client import OMDbClient
 from app.core.organizer import OrganizeError, organize_file
 from app.core.renamer import RenamePlan
 from app.core.scanner import scan_directory
+from app.core.media_server import notify_media_servers
 from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, vote_average_for
 from app.core.tracker import maybe_auto_track
 from app.database import Database
@@ -570,6 +571,10 @@ def organize_selected(
             )
         except OrganizeError as exc:
             results.append(ArchiveConfirmResult(source_path=str(source), status="failed", error=str(exc)))
+
+    if any(r.status == "success" for r in results):
+        notify_media_servers(config)
+
     return ArchiveConfirmResponse(results=results)
 
 

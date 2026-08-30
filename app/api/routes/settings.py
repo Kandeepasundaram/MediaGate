@@ -40,6 +40,10 @@ def _to_out(config: AppConfig) -> SettingsOut:
         omdb_api_key_set=bool(config.omdb.api_key),
         auto_track_new=config.tracker.auto_track_new,
         api_token_set=bool(config.server.api_token),
+        plex_url=config.media_server.plex_url,
+        plex_token_set=bool(config.media_server.plex_token),
+        jellyfin_url=config.media_server.jellyfin_url,
+        jellyfin_api_key_set=bool(config.media_server.jellyfin_api_key),
     )
 
 
@@ -50,7 +54,9 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 
 @router.post("", response_model=SettingsOut)
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
-    updates: dict[str, dict] = {"paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tracker": {}}
+    updates: dict[str, dict] = {
+        "paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tracker": {}, "media_server": {},
+    }
 
     if payload.incoming_movies is not None:
         updates["paths"]["incoming_movies"] = payload.incoming_movies
@@ -72,6 +78,14 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["tracker"]["auto_track_new"] = payload.auto_track_new
     if payload.api_token is not None:
         updates["server"]["api_token"] = payload.api_token
+    if payload.plex_url is not None:
+        updates["media_server"]["plex_url"] = payload.plex_url
+    if payload.plex_token is not None:
+        updates["media_server"]["plex_token"] = payload.plex_token
+    if payload.jellyfin_url is not None:
+        updates["media_server"]["jellyfin_url"] = payload.jellyfin_url
+    if payload.jellyfin_api_key is not None:
+        updates["media_server"]["jellyfin_api_key"] = payload.jellyfin_api_key
 
     updates = {k: v for k, v in updates.items() if v}
     new_config = update_settings(config.config_path, updates)

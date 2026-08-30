@@ -385,6 +385,10 @@ class SettingsOut(BaseModel):
     omdb_api_key_set: bool = False
     auto_track_new: bool = False
     api_token_set: bool = False
+    plex_url: str = ""
+    plex_token_set: bool = False
+    jellyfin_url: str = ""
+    jellyfin_api_key_set: bool = False
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -398,6 +402,10 @@ class SettingsUpdateRequest(BaseModel):
     omdb_api_key: str | None = None
     auto_track_new: bool | None = None
     api_token: str | None = None
+    plex_url: str | None = None
+    plex_token: str | None = None
+    jellyfin_url: str | None = None
+    jellyfin_api_key: str | None = None
 
 
 class PathCheck(BaseModel):

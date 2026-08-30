@@ -1636,6 +1636,10 @@ async function loadSettings() {
       ? "A token is currently set and required on every request. Leave blank to keep it."
       : "Disabled -- every request is currently allowed with no token.";
     $("#disable-api-token-btn").classList.toggle("hidden", !s.api_token_set);
+    $("#setting-plex-url").value = s.plex_url || "";
+    $("#plex-token-note").textContent = s.plex_token_set ? "A token is currently set. Leave blank to keep it." : "";
+    $("#setting-jellyfin-url").value = s.jellyfin_url || "";
+    $("#jellyfin-key-note").textContent = s.jellyfin_api_key_set ? "A key is currently set. Leave blank to keep it." : "";
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
   }
@@ -1672,6 +1676,29 @@ async function saveSettings(e) {
     checkPermissions(); // catches a typo'd path immediately instead of waiting for a manual "Test Permissions" click
   } catch (e) {
     $("#settings-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function saveMediaServerSettings(e) {
+  e.preventDefault();
+  const payload = {
+    plex_url: $("#setting-plex-url").value.trim(),
+    jellyfin_url: $("#setting-jellyfin-url").value.trim(),
+  };
+  const plexToken = $("#setting-plex-token").value;
+  if (plexToken) payload.plex_token = plexToken;
+  const jellyfinKey = $("#setting-jellyfin-api-key").value;
+  if (jellyfinKey) payload.jellyfin_api_key = jellyfinKey;
+
+  $("#media-server-status").textContent = "Saving...";
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
+    $("#setting-plex-token").value = "";
+    $("#setting-jellyfin-api-key").value = "";
+    $("#media-server-status").textContent = "Saved.";
+    loadSettings();
+  } catch (e) {
+    $("#media-server-status").textContent = `Error: ${e.message}`;
   }
 }
 
@@ -1850,6 +1877,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
   $("#disable-api-token-btn").addEventListener("click", disableApiToken);
+  $("#media-server-form").addEventListener("submit", saveMediaServerSettings);
   $("#export-library-btn").addEventListener("click", exportLibrary);
   $("#import-library-input").addEventListener("change", (e) => {
     importLibrary(e.target.files[0]);

@@ -26,6 +26,7 @@ _DEFAULT_CONFIG: dict = {
     "notifications": {"webhook_url": ""},
     "omdb": {"api_key": ""},
     "backup": {"enabled": True, "retention_days": 14},
+    "media_server": {"plex_url": "", "plex_token": "", "jellyfin_url": "", "jellyfin_api_key": ""},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
     "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"], "api_token": ""},
 }
@@ -75,6 +76,14 @@ class BackupConfig:
 
 
 @dataclass
+class MediaServerConfig:
+    plex_url: str = ""
+    plex_token: str = ""
+    jellyfin_url: str = ""
+    jellyfin_api_key: str = ""
+
+
+@dataclass
 class LoggingConfig:
     level: str = "INFO"
     file: Path = Path("./logs/media_manager.log")
@@ -98,6 +107,7 @@ class AppConfig:
     notifications: NotificationsConfig
     omdb: OMDbConfig
     backup: BackupConfig
+    media_server: MediaServerConfig
     logging: LoggingConfig
     server: ServerConfig
     config_path: Path = Path("config.yaml")
@@ -142,6 +152,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         notifications=NotificationsConfig(**raw["notifications"]),
         omdb=OMDbConfig(**raw["omdb"]),
         backup=BackupConfig(**raw["backup"]),
+        media_server=MediaServerConfig(**raw["media_server"]),
         logging=LoggingConfig(
             level=raw["logging"]["level"],
             file=Path(raw["logging"]["file"]),
@@ -172,6 +183,7 @@ _EDITABLE_KEYS = {
     "notifications": {"webhook_url"},
     "omdb": {"api_key"},
     "tracker": {"auto_track_new"},
+    "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key"},
 }
 
 

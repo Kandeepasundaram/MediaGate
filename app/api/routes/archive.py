@@ -10,6 +10,7 @@ from app.config_loader import AppConfig
 from app.core.archiver import ArchiveError, archive_file
 from app.core.renamer import RenamePlan, plan_movie_rename, plan_tv_rename
 from app.core.subtitle_purger import SUBTITLE_EXTENSIONS, purge_subtitles
+from app.core.media_server import notify_media_servers
 from app.core.tmdb_client import MediaResult, TMDBClient, parse_filename
 from app.core.tracker import maybe_auto_track
 from app.database import Database
@@ -187,6 +188,9 @@ def confirm_archive(
             )
         except ArchiveError as exc:
             results.append(ArchiveConfirmResult(source_path=str(source), status="failed", error=str(exc)))
+
+    if any(r.status == "success" for r in results):
+        notify_media_servers(config)
 
     return ArchiveConfirmResponse(results=results)
 

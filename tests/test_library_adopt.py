@@ -4,6 +4,7 @@ from app.config_loader import (
     AppConfig,
     BackupConfig,
     LoggingConfig,
+    MediaServerConfig,
     NotificationsConfig,
     OMDbConfig,
     PathsConfig,
@@ -28,6 +29,7 @@ def _config(tmp_path) -> AppConfig:
         notifications=NotificationsConfig(),
         omdb=OMDbConfig(),
         backup=BackupConfig(),
+        media_server=MediaServerConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
     )
