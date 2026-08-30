@@ -15,10 +15,15 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.config_loader import AppConfig
 from app.core.library_adopt import adopt_new_files
+from app.core.organizer import OrganizeError, organize_file
+from app.core.renamer import RenamePlan
 from app.core.scanner import scan_directory
 from app.database import Database
 from app.dependencies import get_config, get_database
 from app.models import (
+    ArchiveConfirmRequest,
+    ArchiveConfirmResponse,
+    ArchiveConfirmResult,
     BrowseItemOut,
     BrowseResponse,
     DeleteFileRequest,
@@ -89,6 +94,42 @@ def set_watched(item_id: int, payload: WatchedUpdateRequest, db: Database = Depe
         raise HTTPException(status_code=404, detail="Media item not found")
     db.update_media_item(item_id, watched=1 if payload.watched else 0)
     return _to_out(db.get_media_item(item_id))
+
+
+@router.post("/organize", response_model=ArchiveConfirmResponse)
+def organize_selected(payload: ArchiveConfirmRequest, db: Database = Depends(get_database)) -> ArchiveConfirmResponse:
+    """Stage 2 of the manual library browser: given TMDB-matched preview
+    items (from the same /api/archive/preview used by "Ready to Archive"),
+    moves each file to its computed destination in place and updates its
+    existing media_items row -- unlike /api/archive/confirm, which always
+    copies to a new location and always inserts a new row. Reuses the
+    archive preview/confirm request-response shapes since the data is
+    identical; only what happens to the filesystem and the DB differs.
+    """
+    results: list[ArchiveConfirmResult] = []
+    for item in payload.items:
+        source = Path(item.source_path)
+        dest = Path(item.dest_path)
+        plan = RenamePlan(
+            source_path=source,
+            dest_path=dest,
+            media_type=item.media_type,
+            tmdb_id=item.tmdb_id,
+            title=item.title,
+            year=item.year,
+            season=item.season,
+            episode=item.episode,
+            poster_path=item.poster_path,
+            overview=item.overview,
+        )
+        try:
+            media_id = organize_file(db, plan)
+            results.append(
+                ArchiveConfirmResult(source_path=str(source), dest_path=str(dest), media_id=media_id, status="success")
+            )
+        except OrganizeError as exc:
+            results.append(ArchiveConfirmResult(source_path=str(source), status="failed", error=str(exc)))
+    return ArchiveConfirmResponse(results=results)
 
 
 @router.get("/browse", response_model=BrowseResponse)

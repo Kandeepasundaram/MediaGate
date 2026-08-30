@@ -15,8 +15,9 @@ job filling in TMDB posters/metadata afterward. A web dashboard (served by
 the same FastAPI app) lets you review and approve archive operations,
 browse your library as movie/TV poster galleries with a watched toggle,
 and hand-pick specific files in the archive folders (tracked or not) to
-re-run through TMDB matching or delete outright — from any machine on the
-LAN, with browser-native notifications when the tracker finds something new.
+organize (re-run TMDB matching and move to the correct name/folder **in
+place**, no duplicate) or delete outright — from any machine on the LAN,
+with browser-native notifications when the tracker finds something new.
 
 ## Architecture
 

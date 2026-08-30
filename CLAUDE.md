@@ -178,21 +178,34 @@ case, though NFO writing could still be worth wiring up separately later for
 Plex/Jellyfin metadata, unrelated to this app's own UI).
 
 **Browse & Clean Up tab** (`GET /api/library/browse`, `POST
-/api/library/delete-file`): a third, distinct view of the library, added for
-manual cleanup of files that predate this app or were imported by
-Radarr/Sonarr directly. Unlike `/api/scan` (excludes anything already
-known) and `/api/library/movies`/`tv` (DB-only), `browse` runs
-`scanner.scan_directory()` straight against `archive_movies`/`archive_tv`
-with **no exclusion filter** — every video file shows up, tracked or not,
-cross-referenced against `media_items` by `final_path`
-(`Database.get_media_item_by_final_path()`) to set `tracked`/`media_id`.
-Selecting rows and clicking "Re-run Archive Match" just feeds those paths
-into the existing `/api/archive/preview` → `/api/archive/confirm` flow
-(`app.js::previewPaths()`, factored out of `scanAndPreview()` for this
-reuse) — there's no special "move" logic for already-organized files, so a
-re-match produces a second, corrected copy and leaves the original in place
-for you to clean up with the Delete button, consistent with the rest of the
-app's "copy, don't move" archiving.
+/api/library/organize`, `POST /api/library/delete-file`): a third, distinct
+view of the library, added for manual cleanup of files that predate this
+app or were imported by Radarr/Sonarr directly. Unlike `/api/scan`
+(excludes anything already known) and `/api/library/movies`/`tv` (DB-only),
+`browse` runs `scanner.scan_directory()` straight against
+`archive_movies`/`archive_tv` with **no exclusion filter** — every video
+file shows up, tracked or not, cross-referenced against `media_items` by
+`final_path` (`Database.get_media_item_by_final_path()`) to set
+`tracked`/`media_id`.
+
+Selecting rows and clicking "Organize Selected" feeds those paths into the
+existing `/api/archive/preview` (`app.js::previewPaths()`, factored out of
+`scanAndPreview()` for this reuse — same TMDB-matched preview table as
+"Ready to Archive") but confirms through `/api/library/organize` instead of
+`/api/archive/confirm`. This is **stage 2** of the manual library browser
+(organize/rename/move already-adopted files), built after stage 1 (gallery
+auto-adoption) shipped: `app/core/organizer.py::organize_file()` moves
+(`shutil.move`, not `copy2`) the file to its computed destination — a no-op
+if it's already there — and **updates the existing `media_items` row in
+place** (looked up by its previous `final_path`) rather than inserting a
+new one, so organizing never leaves a duplicate behind the way copying
+would have. `app.js` tracks which mode a preview batch is in
+(`state.previewMode`, set by whichever entry point triggered it) so the
+shared "Approve" button's label, confirm-dialog text, and which endpoint it
+calls all follow correctly — "Ready to Archive"'s own scan-driven flow is
+unaffected and still copies, which is right for genuinely new incoming
+downloads. Reuses `operation_type='rename'`, defined in the schema from the
+start but unused until this feature — no migration needed for it.
 
 `delete-file` is the one genuinely destructive endpoint in the app: it
 `unlink()`s a file and, if it was tracked, removes its `media_items` row —
@@ -219,7 +232,8 @@ needed. `SCHEMA_VERSION` is now `3`.
 **Frontend** (`app/static/`): single `index.html` with seven tabs (Movies,
 TV, Browse & Clean Up, Archive, Notifications, History, Settings) driven by
 plain `fetch()` calls in `app.js` — no build step, no framework. `Ctrl+S`
-triggers Approve & Archive. The Settings tab's form talks to
-`/api/settings` and its "Test Permissions" button to
+triggers `approveSelected()`, which does whatever the current preview mode
+is (archive-copy or organize-move, see above). The Settings tab's form
+talks to `/api/settings` and its "Test Permissions" button to
 `/api/settings/permissions-check`. Movies/TV tabs are the two gallery views
 described above; Browse & Clean Up is the raw-filesystem view.

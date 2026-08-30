@@ -249,3 +249,72 @@ def test_metadata_status_reports_pending_count(client):
 
     resp_filtered = c.get("/api/library/metadata-status", params={"media_type": "tv"})
     assert resp_filtered.json()["pending"] == 0
+
+
+def _organize_item(source: Path, dest: Path, **overrides) -> dict:
+    defaults = dict(
+        source_path=str(source),
+        dest_path=str(dest),
+        media_type="movie",
+        title="Movie",
+        year=2020,
+        tmdb_id=42,
+        poster_path="/poster.jpg",
+        overview="Plot.",
+    )
+    defaults.update(overrides)
+    return defaults
+
+
+def test_organize_moves_untracked_file_and_creates_one_row(client):
+    c, db = client
+    archive_dir = _archive_movies_dir(c)
+    source = archive_dir / "Movie.2020.720p.mkv"
+    source.write_bytes(b"data")
+    dest = archive_dir / "Movie (2020)" / "Movie (2020).mkv"
+
+    resp = c.post("/api/library/organize", json={"items": [_organize_item(source, dest)]})
+    assert resp.status_code == 200
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+
+    assert not source.exists()
+    assert dest.exists()
+    items = db.list_media_items(media_type="movie")
+    assert len(items) == 1
+    assert items[0]["final_path"] == str(dest)
+
+
+def test_organize_updates_existing_tracked_row_without_duplicating(client):
+    c, db = client
+    archive_dir = _archive_movies_dir(c)
+    source = archive_dir / "Movie.2020.720p.mkv"
+    source.write_bytes(b"data")
+    existing_id = db.create_media_item(
+        original_path=str(source), final_path=str(source), title="Movie", year=2020, media_type="movie"
+    )
+    dest = archive_dir / "Movie (2020)" / "Movie (2020).mkv"
+
+    c.post("/api/library/organize", json={"items": [_organize_item(source, dest)]})
+
+    items = db.list_media_items(media_type="movie")
+    assert len(items) == 1
+    assert items[0]["id"] == existing_id
+    assert items[0]["final_path"] == str(dest)
+
+
+def test_organize_is_reflected_in_browse_and_no_longer_duplicated(client):
+    """After organizing, a rescan via Browse shouldn't show the file twice
+    (once at the old path, once at the new) -- it moved, it didn't copy."""
+    c, _ = client
+    archive_dir = _archive_movies_dir(c)
+    source = archive_dir / "Movie.2020.720p.mkv"
+    source.write_bytes(b"data")
+    dest = archive_dir / "Movie (2020)" / "Movie (2020).mkv"
+
+    c.post("/api/library/organize", json={"items": [_organize_item(source, dest)]})
+
+    browse = c.get("/api/library/browse", params={"media_type": "movie"}).json()
+    assert len(browse["items"]) == 1
+    assert browse["items"][0]["path"] == str(dest)
+    assert browse["items"][0]["tracked"] is True

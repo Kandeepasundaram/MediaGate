@@ -370,10 +370,63 @@ poster, and the "fetching metadata for N more..." progress hint all
 correct) — not yet re-verified against the live Arcane deployment's real
 173-movie library after this specific change lands (see next steps).
 
+Redeployed and verified against the real 173-movie / 236-episode library
+right after this landed: the user had added a real TMDB API key via
+Settings at some point between sessions (`TMDB: api` badge, confirmed via
+`GET /api/settings` — `tmdb_api_key_set: true`, not env-locked), so the
+backfill raced through most of the backlog in seconds instead of minutes
+(API mode has no artificial rate limit; the slow-pacing design was for
+scraper mode specifically) — down to ~21 genuinely hard-to-match junk-named
+files per type, correctly cooling down rather than retry-looping. Real
+canonical titles and posters confirmed rendering for both Movies and the
+TV gallery's show grouping.
+
+## Stage 2: organize/rename/move from the Browse view (third deferred piece, built)
+
+Immediately after stage 1 shipped, "Re-run Archive Match" (the only batch
+action Browse had) turned out to be the wrong tool for its own tab: it's
+copy-based (reuses `/api/archive/preview` → `/api/archive/confirm`), which
+made sense for genuinely new incoming downloads but would duplicate every
+file Browse itself was meant to help clean up, since those files are
+already sitting in the archive folder under a different name. Replaced it
+outright with **Organize Selected**, which reuses the same TMDB-matched
+preview (no new matching logic needed) but confirms through a new
+`app/core/organizer.py::organize_file()` / `POST /api/library/organize`
+instead: `shutil.move()`s the file to its computed destination (a no-op if
+already there) and **updates the existing `media_items` row in place**
+(found by its previous `final_path`) rather than inserting a new one --
+matching exactly what the user asked for: select from Browse, initiate
+organize/rename/move, no duplication.
+
+`app.js` needed a small mode concept (`state.previewMode`, `"archive"` or
+`"organize"`) so the single shared preview table / "Approve" button in
+Ready to Archive does the right thing depending on which tab triggered it
+-- button label, confirm-dialog wording, and which endpoint gets called all
+follow the mode. Ready to Archive's own scan-driven flow is untouched and
+still copies, correctly, since that's for new files that don't exist in the
+archive tree yet.
+
+Reused `operation_log.operation_type = 'rename'` for this -- it was in the
+original schema's CHECK constraint from Phase 1 of the plan but never
+actually implemented until now, so no new migration was needed.
+
+Caught by the test suite again, not by inspection: the first version of
+`organize_file()` built its `fields` dict for `create_media_item()`/
+`update_media_item()` without `media_type`, a NOT NULL column -- every
+"create a new row" test failed with an `IntegrityError` immediately.
+
+8 new tests (`test_organizer.py`, plus organize-route cases in
+`test_library.py`, including one asserting Browse shows exactly one file
+--- not two -- after organizing, to directly guard the duplication bug this
+was built to fix). 100 total, passing. Manually verified end to end on a
+local server: selecting a tracked file in Browse, clicking Organize
+Selected, confirming the move-worded dialog, and checking both the
+filesystem (`find` showed exactly one file, at the new path) and Browse's
+own listing (one row, `tracked: true`, new path) afterward.
+
 ## Recommended next steps (not done here)
 
-1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed) — needed both for real archive-flow matches and to confirm the metadata backfill actually finds matches for the real (Radarr-named) library, not just placeholder-poster behavior.
-2. Redeploy to Arcane and confirm the 173 real movies get auto-adopted into the Movies gallery on next load, and that the backfill progress hint appears and posters fill in over time.
-3. Build the two still-deferred pieces from the scope clarification above: a real reports view, and a TV status view beyond the tracker's pending-only list. Stage 2 of the library browser (organize/rename/move already-adopted files in place) is also still open.
-4. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
-5. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep both the network-specific build issue and the stop/start-to-rebuild gotcha above.
+1. Redeploy this stage-2 commit to Arcane and try Organize Selected against a few of the real 21 hard-to-match (or already-matched-but-messily-named) files in the live library.
+2. Build the two still-deferred pieces from the scope clarification earlier: a real reports view, and a TV status view beyond the tracker's pending-only list.
+3. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
+4. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep both the network-specific build issue and the stop/start-to-rebuild gotcha above.

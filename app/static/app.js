@@ -1,6 +1,7 @@
 const state = {
   previewItems: [],
   sizeByPath: {},
+  previewMode: "archive", // "archive" (copy, from Ready to Archive) or "organize" (move in place, from Browse)
 };
 
 function $(sel) { return document.querySelector(sel); }
@@ -193,6 +194,11 @@ async function loadTvGallery() {
 }
 
 // ---- Archive tab ----
+function setPreviewMode(mode) {
+  state.previewMode = mode;
+  $("#approve-btn").textContent = mode === "organize" ? "Approve & Organize (Move)" : "Approve & Archive";
+}
+
 async function previewPaths(paths, sizeByPath = {}) {
   const tbody = $("#archive-table tbody");
   tbody.innerHTML = "";
@@ -221,6 +227,7 @@ async function previewPaths(paths, sizeByPath = {}) {
 }
 
 async function scanAndPreview() {
+  setPreviewMode("archive");
   $("#scan-status").textContent = "Scanning...";
   try {
     const scan = await api("/api/scan");
@@ -270,24 +277,33 @@ function showConfirm(text) {
   });
 }
 
-async function approveAndArchive() {
+async function approveSelected() {
   const items = selectedItems();
   if (items.length === 0) return;
 
-  const ok = await showConfirm(`Archive ${items.length} file(s)? This copies them to the archive location.`);
+  const isOrganize = state.previewMode === "organize";
+  const confirmMsg = isOrganize
+    ? `Organize ${items.length} file(s)? This moves them to their correct name/folder in place — no duplicate is created.`
+    : `Archive ${items.length} file(s)? This copies them to the archive location.`;
+  const ok = await showConfirm(confirmMsg);
   if (!ok) return;
 
-  $("#scan-status").textContent = "Archiving...";
+  $("#scan-status").textContent = isOrganize ? "Organizing..." : "Archiving...";
   try {
-    const result = await api("/api/archive/confirm", {
-      method: "POST",
-      body: JSON.stringify({ items, purge_subtitles: true }),
-    });
+    const endpoint = isOrganize ? "/api/library/organize" : "/api/archive/confirm";
+    const body = isOrganize ? { items } : { items, purge_subtitles: true };
+    const result = await api(endpoint, { method: "POST", body: JSON.stringify(body) });
     const failures = result.results.filter((r) => r.status === "failed");
     $("#scan-status").textContent = failures.length
       ? `Done with ${failures.length} failure(s)`
-      : "Archived successfully";
-    scanAndPreview();
+      : isOrganize ? "Organized successfully" : "Archived successfully";
+
+    if (isOrganize) {
+      $("#archive-table tbody").innerHTML = "";
+      state.previewItems = [];
+    } else {
+      scanAndPreview();
+    }
   } catch (e) {
     $("#scan-status").textContent = `Error: ${e.message}`;
   }
@@ -344,7 +360,7 @@ async function deleteBrowseItem(index) {
   }
 }
 
-async function rerunArchiveMatch() {
+async function organizeSelected() {
   const selected = $all(".browse-check:checked").map((cb) => state.browseItems[Number(cb.dataset.index)]);
   if (selected.length === 0) return;
 
@@ -353,6 +369,7 @@ async function rerunArchiveMatch() {
   $('.tab-btn[data-tab="archive"]').classList.add("active");
   $("#tab-archive").classList.add("active");
 
+  setPreviewMode("organize");
   const sizeByPath = Object.fromEntries(selected.map((item) => [item.path, item.size_bytes]));
   await previewPaths(selected.map((item) => item.path), sizeByPath);
 }
@@ -548,7 +565,7 @@ function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") {
       e.preventDefault();
-      approveAndArchive();
+      approveSelected();
     }
   });
 }
@@ -567,10 +584,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const allChecked = boxes.every((b) => b.checked);
     boxes.forEach((b) => { b.checked = !allChecked; });
   });
-  $("#approve-btn").addEventListener("click", approveAndArchive);
+  $("#approve-btn").addEventListener("click", approveSelected);
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
   $("#browse-refresh-btn").addEventListener("click", loadBrowse);
   $("#browse-type").addEventListener("change", loadBrowse);
-  $("#browse-rematch-btn").addEventListener("click", rerunArchiveMatch);
+  $("#browse-organize-btn").addEventListener("click", organizeSelected);
 });
