@@ -294,6 +294,12 @@ function renderDetailPane() {
       </label>
       <div id="detail-ratings" class="detail-ratings"></div>
       <p class="detail-overview">${item.overview || "No overview available."}</p>
+      <div class="detail-file-info">
+        <div class="detail-file-row"><span>File</span><span class="detail-file-value" title="${item.file_name || ""}">${item.file_name || "—"}</span></div>
+        <div class="detail-file-row"><span>Size</span><span>${item.size_bytes != null ? formatBytes(item.size_bytes) : "—"}</span></div>
+        <div class="detail-file-row"><span>Path</span><span class="detail-file-value" title="${item.final_path || ""}">${item.final_path || "—"}</span></div>
+        <div id="detail-file-extra" class="hint">Loading file details…</div>
+      </div>
       ${detailFixMarkup()}
     `;
     $("#detail-watched-toggle").addEventListener("change", async (e) => {
@@ -306,6 +312,7 @@ function renderDetailPane() {
       }
     });
     loadRatings(item.id);
+    loadFileInfo(item.id, "#detail-file-extra");
   } else {
     const show = pane.data;
     content.innerHTML = `
@@ -319,11 +326,14 @@ function renderDetailPane() {
         ${show.episodes.map((ep) => `
           <div class="detail-episode-row">
             <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
+            <span class="detail-ep-file hint" title="${ep.file_name || ""}">${ep.file_name || ""}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
             <label class="watched-toggle">
               <input type="checkbox" class="detail-ep-watched" data-id="${ep.id}" ${ep.watched ? "checked" : ""}>
               Watched
             </label>
+            <button class="ep-details-btn" data-id="${ep.id}">Details</button>
           </div>
+          <div class="detail-ep-extra hint" id="detail-ep-extra-${ep.id}" hidden></div>
         `).join("")}
       </div>
       ${detailFixMarkup()}
@@ -337,6 +347,16 @@ function renderDetailPane() {
         } catch (err) {
           input.checked = !input.checked;
         }
+      });
+    });
+    content.querySelectorAll(".ep-details-btn").forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const el = document.getElementById(`detail-ep-extra-${btn.dataset.id}`);
+        if (!el) return;
+        if (!el.hidden) { el.hidden = true; return; }
+        el.hidden = false;
+        loadFileInfo(Number(btn.dataset.id), `#detail-ep-extra-${btn.dataset.id}`);
       });
     });
     loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
@@ -366,6 +386,40 @@ async function loadRatings(itemId) {
     el.innerHTML = parts.map((p) => `<span class="rating-badge">${p}</span>`).join("");
   } catch (e) {
     el.innerHTML = `<span class="hint">Ratings error: ${e.message}</span>`;
+  }
+}
+
+function formatDuration(seconds) {
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+async function loadFileInfo(itemId, selector) {
+  const el = $(selector);
+  if (!el) return;
+  el.textContent = "Loading file details…";
+  try {
+    const info = await api(`/api/library/${itemId}/file-info`);
+    if (!info.probe_available) {
+      el.innerHTML = `<span class="hint">Duration/codec info unavailable — ffprobe not installed on the server.</span>`;
+      return;
+    }
+    const rows = [];
+    if (info.duration_seconds != null) rows.push(["Duration", formatDuration(info.duration_seconds)]);
+    if (info.width && info.height) rows.push(["Resolution", `${info.width}×${info.height}`]);
+    if (info.video_codec) rows.push(["Video codec", info.video_codec]);
+    if (info.audio_codec) rows.push(["Audio codec", info.audio_codec]);
+    if (info.bitrate) rows.push(["Bitrate", `${Math.round(info.bitrate / 1000)} kbps`]);
+    if (info.container) rows.push(["Container", info.container]);
+    el.innerHTML = rows.length
+      ? rows.map(([k, v]) => `<div class="detail-file-row"><span>${k}</span><span>${v}</span></div>`).join("")
+      : `<span class="hint">No additional details available.</span>`;
+  } catch (e) {
+    el.innerHTML = `<span class="hint">File info error: ${e.message}</span>`;
   }
 }
 
@@ -733,6 +787,43 @@ async function approveSelected() {
 
 // ---- Browse & Clean Up tab ----
 state.browseItems = [];
+state.browseFiltered = [];
+
+function renderBrowseTable() {
+  const tbody = $("#browse-table tbody");
+  const filterMode = $("#browse-filter").value;
+  const items = filterMode === "unmatched" ? state.browseItems.filter((i) => i.tmdb_id == null) : state.browseItems;
+  state.browseFiltered = items;
+
+  if (state.browseDirectory) {
+    $("#browse-status").textContent = `${state.browseItems.length} file(s) in ${state.browseDirectory}` +
+      (items.length !== state.browseItems.length ? ` (${items.length} shown)` : "");
+  }
+
+  if (state.browseItems.length === 0) {
+    tbody.innerHTML = `<tr><td colspan=6>No files found.</td></tr>`;
+    return;
+  }
+  if (items.length === 0) {
+    tbody.innerHTML = `<tr><td colspan=6>No files match the unmatched filter.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = items.map((item, i) => `
+    <tr>
+      <td><input type="checkbox" class="browse-check" data-index="${i}"></td>
+      <td title="${item.path}">${item.path.split(/[\\/]/).pop()}</td>
+      <td>${item.parsed_title}${item.year ? ` (${item.year})` : ""}${
+        item.season != null ? ` S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}` : ""
+      }</td>
+      <td>${formatBytes(item.size_bytes)}</td>
+      <td class="${item.tracked ? "tracked-yes" : "tracked-no"}">${item.tracked ? "tracked" : "untracked"}</td>
+      <td><button class="danger browse-delete-btn" data-index="${i}">Delete</button></td>
+    </tr>
+  `).join("");
+  $all(".browse-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", () => deleteBrowseItem(Number(btn.dataset.index)));
+  });
+}
 
 async function loadBrowse() {
   const tbody = $("#browse-table tbody");
@@ -743,33 +834,15 @@ async function loadBrowse() {
   try {
     const data = await api(`/api/library/browse?media_type=${mediaType}`);
     state.browseItems = data.items;
-    if (data.items.length === 0) {
-      tbody.innerHTML = `<tr><td colspan=6>No files found in ${data.directory}</td></tr>`;
-      return;
-    }
-    tbody.innerHTML = data.items.map((item, i) => `
-      <tr>
-        <td><input type="checkbox" class="browse-check" data-index="${i}"></td>
-        <td title="${item.path}">${item.path.split(/[\\/]/).pop()}</td>
-        <td>${item.parsed_title}${item.year ? ` (${item.year})` : ""}${
-          item.season != null ? ` S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}` : ""
-        }</td>
-        <td>${formatBytes(item.size_bytes)}</td>
-        <td class="${item.tracked ? "tracked-yes" : "tracked-no"}">${item.tracked ? "tracked" : "untracked"}</td>
-        <td><button class="danger browse-delete-btn" data-index="${i}">Delete</button></td>
-      </tr>
-    `).join("");
-    $all(".browse-delete-btn").forEach((btn) => {
-      btn.addEventListener("click", () => deleteBrowseItem(Number(btn.dataset.index)));
-    });
-    $("#browse-status").textContent = `${data.items.length} file(s) in ${data.directory}`;
+    state.browseDirectory = data.directory;
+    renderBrowseTable();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan=6>Error: ${e.message}</td></tr>`;
   }
 }
 
 async function deleteBrowseItem(index) {
-  const item = state.browseItems[index];
+  const item = state.browseFiltered[index];
   const ok = await showConfirm(`Permanently delete "${item.path}"? This cannot be undone.`);
   if (!ok) return;
 
@@ -783,7 +856,7 @@ async function deleteBrowseItem(index) {
 }
 
 async function organizeSelected() {
-  const selected = $all(".browse-check:checked").map((cb) => state.browseItems[Number(cb.dataset.index)]);
+  const selected = $all(".browse-check:checked").map((cb) => state.browseFiltered[Number(cb.dataset.index)]);
   if (selected.length === 0) return;
 
   $all(".tab-btn").forEach((b) => b.classList.remove("active"));
@@ -1143,6 +1216,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
   $("#browse-refresh-btn").addEventListener("click", loadBrowse);
   $("#browse-type").addEventListener("change", loadBrowse);
+  $("#browse-filter").addEventListener("change", renderBrowseTable);
   $("#browse-organize-btn").addEventListener("click", organizeSelected);
   $("#browse-select-all-btn").addEventListener("click", () => {
     const boxes = $all(".browse-check");

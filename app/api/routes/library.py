@@ -15,6 +15,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.config_loader import AppConfig
+from app.core import media_probe
 from app.core.library_adopt import adopt_new_files
 from app.core.omdb_client import OMDbClient
 from app.core.organizer import OrganizeError, organize_file
@@ -30,6 +31,7 @@ from app.models import (
     BrowseItemOut,
     BrowseResponse,
     DeleteFileRequest,
+    FileInfoOut,
     LibraryItemOut,
     LibraryResponse,
     MediaType,
@@ -55,6 +57,17 @@ def _to_out(row: dict) -> LibraryItemOut:
         meta = {}
     if not isinstance(meta, dict):
         meta = {}
+
+    file_name = None
+    size_bytes = None
+    if row["final_path"]:
+        final_path = Path(row["final_path"])
+        file_name = final_path.name
+        try:
+            size_bytes = final_path.stat().st_size
+        except OSError:
+            pass  # file moved/deleted since archiving; name still worth showing
+
     return LibraryItemOut(
         id=row["id"],
         title=row["title"],
@@ -68,6 +81,8 @@ def _to_out(row: dict) -> LibraryItemOut:
         watched=bool(row["watched"]),
         final_path=row["final_path"],
         archived_at=row["archived_at"],
+        file_name=file_name,
+        size_bytes=size_bytes,
     )
 
 
@@ -239,6 +254,43 @@ def get_ratings(
     )
 
 
+@router.get("/{item_id}/file-info", response_model=FileInfoOut)
+def get_file_info(item_id: int, db: Database = Depends(get_database)) -> FileInfoOut:
+    """File name/size (cheap, from the filesystem) plus duration/resolution/
+    codec/bitrate via ffprobe (best-effort -- probe_available tells the
+    frontend whether to show "ffprobe not installed" instead of blank
+    fields). Deliberately lazy/on-demand rather than baked into the gallery
+    list response: probing every episode of a show up front would mean one
+    subprocess call per file on every load.
+    """
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if not item["final_path"]:
+        raise HTTPException(status_code=404, detail="This item has no archived file on disk")
+
+    path = Path(item["final_path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"File no longer exists at {path}")
+
+    size_bytes = path.stat().st_size
+    probe = media_probe.probe_file(path)
+
+    return FileInfoOut(
+        file_name=path.name,
+        path=str(path),
+        size_bytes=size_bytes,
+        duration_seconds=probe.duration_seconds if probe else None,
+        width=probe.width if probe else None,
+        height=probe.height if probe else None,
+        video_codec=probe.video_codec if probe else None,
+        audio_codec=probe.audio_codec if probe else None,
+        bitrate=probe.bitrate if probe else None,
+        container=probe.container if probe else None,
+        probe_available=media_probe.ffprobe_available(),
+    )
+
+
 @router.post("/organize", response_model=ArchiveConfirmResponse)
 def organize_selected(payload: ArchiveConfirmRequest, db: Database = Depends(get_database)) -> ArchiveConfirmResponse:
     """Stage 2 of the manual library browser: given TMDB-matched preview
@@ -305,6 +357,7 @@ def browse_archive(
                 episode=f.parsed.episode,
                 tracked=tracked_row is not None,
                 media_id=tracked_row["id"] if tracked_row else None,
+                tmdb_id=tracked_row["tmdb_id"] if tracked_row else None,
                 watched=bool(tracked_row["watched"]) if tracked_row else False,
             )
         )

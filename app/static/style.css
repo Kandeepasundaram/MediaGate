@@ -385,6 +385,54 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   padding: 0.25rem 0.7rem;
   font-size: 0.78rem;
 }
+
+.detail-file-info {
+  margin: 1rem 0;
+  padding: 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.detail-file-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.25rem 0;
+  font-size: 0.8rem;
+}
+
+.detail-file-row span:first-child {
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.detail-file-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.detail-ep-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  margin: 0 0.5rem;
+}
+
+.ep-details-btn {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.72rem;
+  flex-shrink: 0;
+}
+
+.detail-ep-extra {
+  padding: 0.3rem 0.5rem 0.5rem;
+  font-size: 0.75rem;
+}
 .detail-overview { font-size: 0.85rem; line-height: 1.5; margin: 0.8rem 0; }
 
 .detail-episodes {

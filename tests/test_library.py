@@ -83,6 +83,24 @@ def test_list_movies_returns_poster_and_overview(client):
     assert item["poster_path"] == "/poster.jpg"
     assert item["overview"] == "Plot."
     assert item["watched"] is False
+    assert item["file_name"] == "Movie (2020).mkv"
+    assert item["size_bytes"] is None  # final_path doesn't point at a real file in this fixture
+
+
+def test_list_movies_reports_real_file_size(client):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"x" * 1234)
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Movie", year=2020, media_type="movie",
+        metadata={"poster_path": None, "overview": ""},
+    )
+
+    resp = c.get("/api/library/movies")
+    item = resp.json()["items"][0]
+    assert item["file_name"] == "Movie (2020).mkv"
+    assert item["size_bytes"] == 1234
 
 
 def test_list_tv_filters_by_type(client):
@@ -167,6 +185,33 @@ def test_browse_marks_tracked_file(client):
     item = resp.json()["items"][0]
     assert item["tracked"] is True
     assert item["media_id"] == media_id
+    assert item["tmdb_id"] is None  # tracked but not yet TMDB-matched
+
+
+def test_browse_reports_tmdb_id_for_matched_file(client):
+    c, db = client
+    archive_dir = _archive_movies_dir(c)
+    organized = archive_dir / "Movie (2020)"
+    organized.mkdir()
+    video = organized / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Movie", year=2020, media_type="movie", tmdb_id=603
+    )
+
+    resp = c.get("/api/library/browse", params={"media_type": "movie"})
+    item = resp.json()["items"][0]
+    assert item["tmdb_id"] == 603
+
+
+def test_browse_untracked_file_has_no_tmdb_id(client):
+    c, _ = client
+    (_archive_movies_dir(c) / "Random.Movie.2019.mkv").write_bytes(b"data")
+
+    resp = c.get("/api/library/browse", params={"media_type": "movie"})
+    item = resp.json()["items"][0]
+    assert item["tracked"] is False
+    assert item["tmdb_id"] is None
 
 
 def test_browse_filters_by_media_type(client):
@@ -323,3 +368,61 @@ def test_organize_is_reflected_in_browse_and_no_longer_duplicated(client):
     assert len(browse["items"]) == 1
     assert browse["items"][0]["path"] == str(dest)
     assert browse["items"][0]["tracked"] is True
+
+
+def test_file_info_returns_size_and_probe_result(client, monkeypatch):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"x" * 999)
+    media_id = _seed_movie(db, final_path=str(video))
+
+    from app.core import media_probe as mp
+
+    fake_probe = mp.MediaProbeResult(duration_seconds=120.5, width=1920, height=1080, video_codec="h264", audio_codec="aac", bitrate=5000, container="mov,mp4")
+    monkeypatch.setattr(mp, "probe_file", lambda path: fake_probe)
+    monkeypatch.setattr(mp, "ffprobe_available", lambda: True)
+
+    resp = c.get(f"/api/library/{media_id}/file-info")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["file_name"] == "Movie (2020).mkv"
+    assert body["size_bytes"] == 999
+    assert body["duration_seconds"] == 120.5
+    assert body["width"] == 1920
+    assert body["video_codec"] == "h264"
+    assert body["probe_available"] is True
+
+
+def test_file_info_works_without_ffprobe(client, monkeypatch):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"x" * 42)
+    media_id = _seed_movie(db, final_path=str(video))
+
+    from app.core import media_probe as mp
+
+    monkeypatch.setattr(mp, "probe_file", lambda path: None)
+    monkeypatch.setattr(mp, "ffprobe_available", lambda: False)
+
+    resp = c.get(f"/api/library/{media_id}/file-info")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["size_bytes"] == 42
+    assert body["duration_seconds"] is None
+    assert body["probe_available"] is False
+
+
+def test_file_info_404_when_file_missing(client):
+    c, db = client
+    media_id = _seed_movie(db, final_path=str(_archive_movies_dir(c) / "Gone.mkv"))
+
+    resp = c.get(f"/api/library/{media_id}/file-info")
+    assert resp.status_code == 404
+
+
+def test_file_info_404_for_unknown_item(client):
+    c, _ = client
+    resp = c.get("/api/library/999999/file-info")
+    assert resp.status_code == 404

@@ -174,6 +174,22 @@ class LibraryItemOut(BaseModel):
     watched: bool
     final_path: str | None = None
     archived_at: str | None = None
+    file_name: str | None = None
+    size_bytes: int | None = None
+
+
+class FileInfoOut(BaseModel):
+    file_name: str
+    path: str
+    size_bytes: int
+    duration_seconds: float | None = None
+    width: int | None = None
+    height: int | None = None
+    video_codec: str | None = None
+    audio_codec: str | None = None
+    bitrate: int | None = None
+    container: str | None = None
+    probe_available: bool = False
 
 
 class LibraryResponse(BaseModel):
@@ -232,6 +248,7 @@ class BrowseItemOut(BaseModel):
     episode: int | None = None
     tracked: bool
     media_id: int | None = None
+    tmdb_id: int | None = None
     watched: bool = False
 
 
