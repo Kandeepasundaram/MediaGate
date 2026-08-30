@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from app.config_loader import (
     AppConfig,
+    BackupConfig,
     LoggingConfig,
     NotificationsConfig,
     OMDbConfig,
@@ -26,6 +27,7 @@ def _config(tmp_path) -> AppConfig:
         tracker=TrackerConfig(),
         notifications=NotificationsConfig(),
         omdb=OMDbConfig(),
+        backup=BackupConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
     )

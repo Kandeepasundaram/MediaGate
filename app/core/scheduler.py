@@ -11,6 +11,7 @@ import contextlib
 import logging
 from datetime import datetime, timedelta
 
+from app.core import backup
 from app.core.tracker import check_for_updates
 from app.dependencies import get_config, get_database, get_tmdb_client
 
@@ -84,6 +85,40 @@ def start_maintenance() -> asyncio.Task:
 
 
 async def stop_maintenance(task: asyncio.Task) -> None:
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+BACKUP_INTERVAL_SECONDS = 24 * 3600
+
+
+async def run_daily_backup() -> None:
+    """Backs up the DB + config.yaml once every 24h. Skipped entirely, but
+    still looping to notice a later config change, when backup.enabled is
+    off. Same sleep-then-act shape as the tracker check and maintenance
+    loops, for the same reason: re-reads config fresh on every wake so a
+    Settings-tab change to backup.enabled/retention_days takes effect on
+    the very next cycle without a restart."""
+    while True:
+        try:
+            await asyncio.sleep(BACKUP_INTERVAL_SECONDS)
+            config = get_config()
+            if config.backup.enabled:
+                await asyncio.to_thread(backup.run_backup, config)
+                removed = await asyncio.to_thread(backup.prune_old_backups, config, config.backup.retention_days)
+                logger.info("Daily backup complete (pruned %d expired backup(s))", removed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Daily backup failed; retrying next cycle")
+
+
+def start_backup() -> asyncio.Task:
+    return asyncio.ensure_future(run_daily_backup())
+
+
+async def stop_backup(task: asyncio.Task) -> None:
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task

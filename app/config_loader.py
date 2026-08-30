@@ -25,6 +25,7 @@ _DEFAULT_CONFIG: dict = {
     "tracker": {"cron_time": "06:00", "notification_ttl_days": 30, "auto_track_new": False},
     "notifications": {"webhook_url": ""},
     "omdb": {"api_key": ""},
+    "backup": {"enabled": True, "retention_days": 14},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
     "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"], "api_token": ""},
 }
@@ -68,6 +69,12 @@ class OMDbConfig:
 
 
 @dataclass
+class BackupConfig:
+    enabled: bool = True
+    retention_days: int = 14
+
+
+@dataclass
 class LoggingConfig:
     level: str = "INFO"
     file: Path = Path("./logs/media_manager.log")
@@ -90,6 +97,7 @@ class AppConfig:
     tracker: TrackerConfig
     notifications: NotificationsConfig
     omdb: OMDbConfig
+    backup: BackupConfig
     logging: LoggingConfig
     server: ServerConfig
     config_path: Path = Path("config.yaml")
@@ -133,6 +141,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         tracker=TrackerConfig(**raw["tracker"]),
         notifications=NotificationsConfig(**raw["notifications"]),
         omdb=OMDbConfig(**raw["omdb"]),
+        backup=BackupConfig(**raw["backup"]),
         logging=LoggingConfig(
             level=raw["logging"]["level"],
             file=Path(raw["logging"]["file"]),

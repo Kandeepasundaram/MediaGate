@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from app.core.scheduler import _seconds_until, run_weekly_maintenance, start_maintenance, stop_maintenance
+from app.core.scheduler import (
+    _seconds_until,
+    run_daily_backup,
+    run_weekly_maintenance,
+    start_backup,
+    start_maintenance,
+    stop_backup,
+    stop_maintenance,
+)
 
 
 def test_seconds_until_later_today():
@@ -47,6 +55,50 @@ def test_start_stop_maintenance_lifecycle():
         task = start_maintenance()
         await asyncio.sleep(0)
         await stop_maintenance(task)
+        assert task.cancelled() or task.done()
+
+    asyncio.run(_run())
+
+
+def test_run_daily_backup_runs_when_enabled():
+    fake_config = MagicMock()
+    fake_config.backup.enabled = True
+    fake_config.backup.retention_days = 14
+
+    with patch("app.core.scheduler.get_config", return_value=fake_config), patch(
+        "app.core.scheduler.backup.run_backup"
+    ) as mock_run, patch("app.core.scheduler.backup.prune_old_backups") as mock_prune, patch(
+        "app.core.scheduler.asyncio.sleep", side_effect=[None, asyncio.CancelledError()]
+    ):
+        import contextlib
+
+        with contextlib.suppress(asyncio.CancelledError):
+            asyncio.run(run_daily_backup())
+
+    mock_run.assert_called_once_with(fake_config)
+    mock_prune.assert_called_once_with(fake_config, 14)
+
+
+def test_run_daily_backup_skips_when_disabled():
+    fake_config = MagicMock()
+    fake_config.backup.enabled = False
+
+    with patch("app.core.scheduler.get_config", return_value=fake_config), patch(
+        "app.core.scheduler.backup.run_backup"
+    ) as mock_run, patch("app.core.scheduler.asyncio.sleep", side_effect=[None, asyncio.CancelledError()]):
+        import contextlib
+
+        with contextlib.suppress(asyncio.CancelledError):
+            asyncio.run(run_daily_backup())
+
+    mock_run.assert_not_called()
+
+
+def test_start_stop_backup_lifecycle():
+    async def _run():
+        task = start_backup()
+        await asyncio.sleep(0)
+        await stop_backup(task)
         assert task.cancelled() or task.done()
 
     asyncio.run(_run())

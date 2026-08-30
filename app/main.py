@@ -20,11 +20,16 @@ async def lifespan(app: FastAPI):
     get_database().init_db()
     scheduler_task = scheduler.start()
     maintenance_task = scheduler.start_maintenance()
+    backup_task = scheduler.start_backup()
     backfill_task = metadata_backfill.start()
-    logger.info("Media Manager started (daily tracker check + weekly DB maintenance + metadata backfill scheduled in-process)")
+    logger.info(
+        "Media Manager started (daily tracker check + weekly DB maintenance + daily backup + "
+        "metadata backfill scheduled in-process)"
+    )
     yield
     await scheduler.stop(scheduler_task)
     await scheduler.stop_maintenance(maintenance_task)
+    await scheduler.stop_backup(backup_task)
     await metadata_backfill.stop(backfill_task)
 
 

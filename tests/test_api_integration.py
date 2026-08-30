@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.config_loader import (
     AppConfig,
+    BackupConfig,
     LoggingConfig,
     NotificationsConfig,
     OMDbConfig,
@@ -46,6 +47,7 @@ def client(tmp_path):
         tracker=TrackerConfig(),
         notifications=NotificationsConfig(),
         omdb=OMDbConfig(),
+        backup=BackupConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
         config_path=tmp_path / "config.yaml",
