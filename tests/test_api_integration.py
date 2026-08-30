@@ -336,6 +336,36 @@ def test_settings_webhook_url_round_trips(client):
     assert resp.json()["webhook_url"] == "https://example.com/hook"
 
 
+def test_arr_webhook_adopts_movie_on_radarr_payload(client):
+    c, _ = client
+    archive_movies = Path(app.dependency_overrides[get_config]().paths.archive_movies)
+    (archive_movies / "Radarr.Import.2020.mkv").write_bytes(b"data")
+
+    resp = c.post("/api/webhooks/arr", json={"movie": {"title": "Radarr Import"}, "eventType": "Download"})
+    assert resp.status_code == 200
+    assert resp.json()["adopted"] == {"movie": 1}
+
+    movies = c.get("/api/library/movies").json()["items"]
+    assert len(movies) == 1
+
+
+def test_arr_webhook_adopts_tv_on_sonarr_payload(client):
+    c, _ = client
+    archive_tv = Path(app.dependency_overrides[get_config]().paths.archive_tv)
+    (archive_tv / "Show.S01E01.mkv").write_bytes(b"data")
+
+    resp = c.post("/api/webhooks/arr", json={"series": {"title": "Show"}, "eventType": "Download"})
+    assert resp.status_code == 200
+    assert resp.json()["adopted"] == {"tv": 1}
+
+
+def test_arr_webhook_runs_both_scans_for_unrecognized_payload(client):
+    c, _ = client
+    resp = c.post("/api/webhooks/arr", json={"eventType": "Test"})
+    assert resp.status_code == 200
+    assert resp.json()["adopted"] == {"movie": 0, "tv": 0}
+
+
 def test_api_token_disabled_by_default(client):
     c, _ = client
     resp = c.get("/api/status")
