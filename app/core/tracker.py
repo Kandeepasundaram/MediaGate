@@ -156,6 +156,7 @@ def check_for_updates(db: Database, tmdb: TMDBClient, webhook_url: str | None = 
             db.log_operation(operation_type="tracker_check", status="success", details={"tmdb_id": row["tmdb_id"]})
             if newly_pending and not row["muted"]:
                 newly_pending_rows.append(row)
+                db.log_notification(row["id"], row["tmdb_id"], row["media_type"], row["title"], _message_for(row))
         except Exception as exc:  # noqa: BLE001 - one bad title shouldn't abort the whole run
             logger.error("Tracker check failed for tmdb_id=%s: %s", row["tmdb_id"], exc)
             db.log_operation(

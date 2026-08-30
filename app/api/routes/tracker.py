@@ -9,6 +9,8 @@ from app.core.tracker import check_movie_collection, check_tv_show
 from app.database import Database
 from app.dependencies import get_database, get_tmdb_client
 from app.models import (
+    NotificationHistoryEntryOut,
+    NotificationHistoryResponse,
     TrackedListResponse,
     TrackerAcknowledgeRequest,
     TrackerAddRequest,
@@ -128,6 +130,16 @@ def check_tracker_now(
     else:
         check_movie_collection(db, tmdb, row)
     return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
+
+
+@router.get("/history", response_model=NotificationHistoryResponse)
+def get_notification_history(limit: int = 50, db: Database = Depends(get_database)) -> NotificationHistoryResponse:
+    """A permanent record of notifications actually surfaced (unlike
+    pending_notification, which is cleared on acknowledge/snooze) -- for
+    "did I already get told about this" after clearing a notification."""
+    return NotificationHistoryResponse(
+        history=[NotificationHistoryEntryOut(**row) for row in db.list_notification_history(limit)]
+    )
 
 
 @router.get("/status", response_model=TrackerStatusResponse)

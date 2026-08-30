@@ -134,6 +134,34 @@ def test_maybe_auto_track_season_never_regresses(db):
     assert row["current_season_archived"] == 3
 
 
+def test_check_for_updates_logs_notification_history(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+
+    check_for_updates(db, tmdb)
+
+    history = db.list_notification_history()
+    assert len(history) == 1
+    assert history[0]["title"] == "Show"
+
+
+def test_check_for_updates_does_not_log_when_not_newly_pending(db):
+    db.upsert_tracker(tmdb_id=2, media_type="tv", title="Show2", current_season_archived=2)
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=2, title="Show2", media_type="tv", raw={"number_of_seasons": 2}
+    )
+
+    check_for_updates(db, tmdb)
+
+    assert db.list_notification_history() == []
+
+
 def test_check_for_updates_sends_single_digest_for_multiple_titles(db):
     db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show A", current_season_archived=1)
     db.upsert_tracker(tmdb_id=2, media_type="tv", title="Show B", current_season_archived=1)

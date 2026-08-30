@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS operation_log (
     details TEXT,
     status TEXT NOT NULL CHECK (status IN ('success', 'failed', 'pending')),
     error_message TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tracker_id INTEGER REFERENCES archive_tracker(id) ON DELETE SET NULL,
+    tmdb_id INTEGER,
+    media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
 
@@ -327,6 +337,20 @@ class Database:
             ),
         )
 
+    # ---- notification_history CRUD ----
+
+    def log_notification(self, tracker_id: int | None, tmdb_id: int | None, media_type: str, title: str, message: str) -> int:
+        return self.execute_query(
+            "INSERT INTO notification_history (tracker_id, tmdb_id, media_type, title, message, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (tracker_id, tmdb_id, media_type, title, message, _now()),
+        )
+
+    def list_notification_history(self, limit: int = 50) -> list[dict[str, Any]]:
+        return self.fetch_all(
+            "SELECT * FROM notification_history ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
+
     def get_operation(self, operation_id: int) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM operation_log WHERE id = ?", (operation_id,))
 
@@ -444,6 +468,28 @@ def _migration_v7(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE media_items ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0")
 
 
+def _migration_v9(conn: sqlite3.Connection) -> None:
+    """Add notification_history -- a permanent record of tracker
+    notifications actually surfaced to the user (Notifications tab / a
+    webhook digest), independent of archive_tracker.pending_notification
+    (which is transient and gets cleared on acknowledge/snooze). A new
+    table rather than reusing operation_log, whose operation_type CHECK
+    would need a table rebuild (like v2) to add a new allowed value."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS notification_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tracker_id INTEGER REFERENCES archive_tracker(id) ON DELETE SET NULL,
+            tmdb_id INTEGER,
+            media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+            title TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        """
+    )
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -453,4 +499,5 @@ _MIGRATIONS = {
     6: _migration_v6,
     7: _migration_v7,
     8: _migration_v8,
+    9: _migration_v9,
 }

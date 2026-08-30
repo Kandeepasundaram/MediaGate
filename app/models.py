@@ -158,6 +158,20 @@ class TrackerStatusResponse(BaseModel):
     last_checked: str | None = None
 
 
+class NotificationHistoryEntryOut(BaseModel):
+    id: int
+    tracker_id: int | None
+    tmdb_id: int | None
+    media_type: MediaType
+    title: str
+    message: str
+    created_at: str
+
+
+class NotificationHistoryResponse(BaseModel):
+    history: list[NotificationHistoryEntryOut]
+
+
 class StatusResponse(BaseModel):
     status: Literal["ok"] = "ok"
     tmdb_mode: str

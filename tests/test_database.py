@@ -191,6 +191,18 @@ def test_reset_failed_match_attempts_filters_by_media_type(db):
     assert db.get_media_item(tv_failed)["match_attempted_at"] is not None
 
 
+def test_log_notification_and_list_history(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show")
+    tracker_row = db.get_tracker(1, "tv")
+
+    db.log_notification(tracker_row["id"], 1, "tv", "Show", "New season available")
+    db.log_notification(None, None, "movie", "Movie", "Sequel found")
+
+    history = db.list_notification_history()
+    assert len(history) == 2
+    assert history[0]["message"] == "Sequel found"  # most recent first
+
+
 def test_get_operation_returns_row_by_id(db):
     op_id = db.log_operation("archive", "success", details={"a": 1})
     assert db.get_operation(op_id)["operation_type"] == "archive"
@@ -283,7 +295,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 8
+    assert version == 9
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -320,3 +332,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     updated = db.get_tracker(1, "tv")
     assert updated["snoozed_until"] == "2026-01-01T00:00:00+00:00"
     assert updated["check_interval_hours"] == 12.0
+
+    # v9's notification_history table exists and is usable.
+    db.log_notification(tracker_row["id"], 1, "tv", "Show", "New season available")
+    assert len(db.list_notification_history()) == 1

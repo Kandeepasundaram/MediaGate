@@ -44,7 +44,7 @@ function setupTabs() {
       if (btn.dataset.tab === "movies") loadMoviesGallery();
       if (btn.dataset.tab === "tv") loadTvGallery();
       if (btn.dataset.tab === "browse") loadBrowse();
-      if (btn.dataset.tab === "notifications") { loadNotifications(); loadTrackedList(); }
+      if (btn.dataset.tab === "notifications") { loadNotifications(); loadTrackedList(); loadNotificationHistory(); }
       if (btn.dataset.tab === "history") loadHistory();
       if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); }
     });
@@ -1295,6 +1295,25 @@ async function loadTrackedList() {
     });
   } catch (e) {
     container.innerHTML = `<p>Error loading tracked titles: ${e.message}</p>`;
+  }
+}
+
+async function loadNotificationHistory() {
+  const container = $("#notification-history-list");
+  container.innerHTML = "Loading...";
+  try {
+    const data = await api("/api/tracker/history");
+    if (data.history.length === 0) {
+      container.innerHTML = "<p>No notifications yet.</p>";
+      return;
+    }
+    container.innerHTML = data.history.map((h) => `
+      <div class="notification-history-item hint">
+        ${new Date(h.created_at).toLocaleString()} — ${h.message}
+      </div>
+    `).join("");
+  } catch (e) {
+    container.innerHTML = `<p>Error loading notification history: ${e.message}</p>`;
   }
 }
 
