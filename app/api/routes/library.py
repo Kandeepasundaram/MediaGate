@@ -102,6 +102,7 @@ def _to_out(row: dict) -> LibraryItemOut:
         manual_override=bool(row["manual_override"]),
         vote_average=meta.get("vote_average"),
         genres=meta.get("genres") or [],
+        resolution=media_probe.resolution_bucket(meta.get("height")),
     )
 
 
@@ -391,13 +392,21 @@ def rematch_by_tmdb_id(
 def _apply_rematch(db: Database, ids: list[int], media: MediaResult, now: str, imdb_id: str | None) -> int:
     updated = 0
     for item_id in ids:
-        if db.get_media_item(item_id) is None:
+        row = db.get_media_item(item_id)
+        if row is None:
             continue
+        existing_meta = _metadata_dict(row)
         fields = dict(
             tmdb_id=media.tmdb_id,
             title=media.title,
             year=media.year,
             metadata={
+                # width/height/video_codec are ffprobe results cached by
+                # get_file_info, not TMDB data -- a rematch shouldn't wipe
+                # them out, so anything already probed carries forward.
+                "width": existing_meta.get("width"),
+                "height": existing_meta.get("height"),
+                "video_codec": existing_meta.get("video_codec"),
                 "poster_path": media.poster_path,
                 "overview": media.overview,
                 "vote_average": vote_average_for(media),
@@ -497,6 +506,14 @@ def get_file_info(item_id: int, db: Database = Depends(get_database)) -> FileInf
 
     size_bytes = path.stat().st_size
     probe = media_probe.probe_file(path)
+
+    if probe is not None:
+        # Cached on the row so the resolution filter/badge doesn't need to
+        # re-probe the file (a subprocess call) on every gallery load --
+        # only the first detail-pane open (or file-info fetch) pays that cost.
+        meta = _metadata_dict(item)
+        meta.update(width=probe.width, height=probe.height, video_codec=probe.video_codec)
+        db.update_media_item(item_id, metadata=meta)
 
     return FileInfoOut(
         file_name=path.name,

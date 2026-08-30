@@ -455,6 +455,49 @@ def test_file_info_404_for_unknown_item(client):
     assert resp.status_code == 404
 
 
+def test_file_info_caches_probe_result_and_exposes_resolution(client, monkeypatch):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"x" * 100)
+    media_id = _seed_movie(db, final_path=str(video))
+
+    from app.core import media_probe as mp
+
+    fake_probe = mp.MediaProbeResult(width=1920, height=1080, video_codec="h264")
+    monkeypatch.setattr(mp, "probe_file", lambda path: fake_probe)
+    monkeypatch.setattr(mp, "ffprobe_available", lambda: True)
+
+    c.get(f"/api/library/{media_id}/file-info")
+
+    item = db.get_media_item(media_id)
+    assert json.loads(item["metadata"])["height"] == 1080
+
+    gallery_item = c.get("/api/library/movies").json()["items"][0]
+    assert gallery_item["resolution"] == "1080p"
+
+
+def test_rematch_preserves_cached_resolution(client, monkeypatch):
+    c, db = client
+    media_id = _seed_movie(db)
+    db.update_media_item(media_id, metadata={"poster_path": "/p.jpg", "overview": "", "width": 1920, "height": 1080})
+
+    fake_tmdb = MagicMock(mode="scraper")
+    fake_tmdb.get_movie_details.return_value = MagicMock(
+        tmdb_id=42, title="Real Title", year=2020, poster_path="/p2.jpg", overview="Plot", raw={}
+    )
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+    try:
+        c.post("/api/library/rematch-tmdb", json={"ids": [media_id], "tmdb_id": 42, "media_type": "movie"})
+    finally:
+        app.dependency_overrides[get_tmdb_client] = lambda: MagicMock(mode="scraper")
+
+    item = db.get_media_item(media_id)
+    metadata = json.loads(item["metadata"])
+    assert metadata["height"] == 1080
+    assert metadata["poster_path"] == "/p2.jpg"
+
+
 def test_retry_failed_matches_resets_cooldown(client):
     c, db = client
     failed_id = db.create_media_item(original_path="a", title="A", media_type="movie")

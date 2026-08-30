@@ -168,10 +168,18 @@ async function checkBackfillProgress(mediaType, tabKey, reloadFn) {
   } catch (e) { /* next manual reload will retry */ }
 }
 
-function filterAndSort(items, query, sortMode, titleKey, filterMode, genreFilter) {
+function matchesResolution(item, resolutionFilter) {
+  if (!resolutionFilter) return true;
+  const wanted = resolutionFilter === "unknown" ? null : resolutionFilter;
+  if (item.episodes) return item.episodes.some((e) => (e.resolution || null) === wanted);
+  return (item.resolution || null) === wanted;
+}
+
+function filterAndSort(items, query, sortMode, titleKey, filterMode, genreFilter, resolutionFilter) {
   let out = items;
   if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
   if (genreFilter) out = out.filter((i) => (i.genres || []).includes(genreFilter));
+  if (resolutionFilter) out = out.filter((i) => matchesResolution(i, resolutionFilter));
   if (query) {
     const q = query.toLowerCase();
     out = out.filter((i) => i[titleKey].toLowerCase().includes(q));
@@ -204,7 +212,8 @@ function renderMoviesGallery() {
   const sortMode = $("#movies-sort").value;
   const filterMode = $("#movies-filter").value;
   const genreFilter = $("#movies-genre").value;
-  const items = filterAndSort(state.movieItems, query, sortMode, "title", filterMode, genreFilter);
+  const resolutionFilter = $("#movies-resolution").value;
+  const items = filterAndSort(state.movieItems, query, sortMode, "title", filterMode, genreFilter, resolutionFilter);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
     (items.length !== state.movieItems.length ? ` (${items.length} shown)` : "");
@@ -303,8 +312,9 @@ function renderTvGallery() {
   const sortMode = $("#tv-sort").value;
   const filterMode = $("#tv-filter").value;
   const genreFilter = $("#tv-genre").value;
+  const resolutionFilter = $("#tv-resolution").value;
   const allShows = groupEpisodesByShow(state.tvItems);
-  const shows = filterAndSort(allShows, query, sortMode, "title", filterMode, genreFilter);
+  const shows = filterAndSort(allShows, query, sortMode, "title", filterMode, genreFilter, resolutionFilter);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
     (shows.length !== allShows.length ? ` (${shows.length} shown)` : "");
@@ -1661,6 +1671,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-sort").addEventListener("change", renderMoviesGallery);
   $("#movies-filter").addEventListener("change", renderMoviesGallery);
   $("#movies-genre").addEventListener("change", renderMoviesGallery);
+  $("#movies-resolution").addEventListener("change", renderMoviesGallery);
   $("#movies-select-all-btn").addEventListener("click", () => {
     const boxes = $all(".gallery-select");
     const allChecked = boxes.every((b) => b.checked);
@@ -1681,6 +1692,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#tv-sort").addEventListener("change", renderTvGallery);
   $("#tv-filter").addEventListener("change", renderTvGallery);
   $("#tv-genre").addEventListener("change", renderTvGallery);
+  $("#tv-resolution").addEventListener("change", renderTvGallery);
 
   $("#history-type-filter").addEventListener("change", loadHistory);
 

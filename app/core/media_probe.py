@@ -30,6 +30,22 @@ def ffprobe_available() -> bool:
     return shutil.which("ffprobe") is not None
 
 
+def resolution_bucket(height: int | None) -> str | None:
+    """Coarse resolution label for filtering -- exact pixel dimensions
+    aren't useful as a filter facet, but "4K vs 1080p vs 720p vs SD" is.
+    None (never probed, or ffprobe unavailable) is its own bucket in the UI
+    rather than being lumped in with SD."""
+    if height is None:
+        return None
+    if height >= 2000:
+        return "4K"
+    if height >= 1000:
+        return "1080p"
+    if height >= 700:
+        return "720p"
+    return "SD"
+
+
 def probe_file(path: Path) -> MediaProbeResult | None:
     if not ffprobe_available():
         return None

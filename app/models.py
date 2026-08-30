@@ -206,6 +206,7 @@ class LibraryItemOut(BaseModel):
     manual_override: bool = False
     vote_average: float | None = None
     genres: list[str] = Field(default_factory=list)
+    resolution: str | None = None
 
 
 class TvStatusOut(BaseModel):

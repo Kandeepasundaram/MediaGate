@@ -6,6 +6,15 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 from app.core import media_probe
+from app.core.media_probe import resolution_bucket
+
+
+def test_resolution_bucket_classifies_common_heights():
+    assert resolution_bucket(2160) == "4K"
+    assert resolution_bucket(1080) == "1080p"
+    assert resolution_bucket(720) == "720p"
+    assert resolution_bucket(480) == "SD"
+    assert resolution_bucket(None) is None
 
 
 def test_probe_file_returns_none_when_ffprobe_not_on_path(monkeypatch, tmp_path):
