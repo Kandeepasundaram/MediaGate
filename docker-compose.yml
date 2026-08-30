@@ -12,8 +12,10 @@ services:
       - media-manager-config:/config
       # Set MOVIES_HOST_PATH / TV_HOST_PATH in this stack's .env (not this
       # file -- keeps host-specific paths out of git). Whatever's already in
-      # each folder is scanned in place; a separate "incoming" staging
-      # folder isn't required (see paths.active_dir in config.docker.yaml).
+      # each folder is scanned in place by default (config.docker.yaml sets
+      # incoming_movies == archive_movies, same for tv) -- if you do want a
+      # separate staging folder per type instead, add another mount here and
+      # repoint incoming_movies/incoming_tv from the Settings tab.
       - ${MOVIES_HOST_PATH:-/path/on/host/to/movies}:/media/movies
       - ${TV_HOST_PATH:-/path/on/host/to/tv}:/media/tv
     environment:

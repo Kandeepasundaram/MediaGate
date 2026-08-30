@@ -1,5 +1,6 @@
 paths:
-  active_dir: ./sample_media/incoming
+  incoming_movies: ./sample_media/incoming/movies
+  incoming_tv: ./sample_media/incoming/tv
   archive_movies: ./sample_media/archive/movies
   archive_tv: ./sample_media/archive/tv
 database:

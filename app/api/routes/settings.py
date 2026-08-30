@@ -28,7 +28,8 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 def _to_out(config: AppConfig) -> SettingsOut:
     return SettingsOut(
-        active_dir=str(config.paths.active_dir),
+        incoming_movies=str(config.paths.incoming_movies),
+        incoming_tv=str(config.paths.incoming_tv),
         archive_movies=str(config.paths.archive_movies),
         archive_tv=str(config.paths.archive_tv),
         cors_origins=config.server.cors_origins,
@@ -46,8 +47,10 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
     updates: dict[str, dict] = {"paths": {}, "server": {}, "tmdb": {}}
 
-    if payload.active_dir is not None:
-        updates["paths"]["active_dir"] = payload.active_dir
+    if payload.incoming_movies is not None:
+        updates["paths"]["incoming_movies"] = payload.incoming_movies
+    if payload.incoming_tv is not None:
+        updates["paths"]["incoming_tv"] = payload.incoming_tv
     if payload.archive_movies is not None:
         updates["paths"]["archive_movies"] = payload.archive_movies
     if payload.archive_tv is not None:
@@ -65,11 +68,15 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
 
 @router.get("/permissions-check", response_model=PermissionsCheckResponse)
 def check_permissions(config: AppConfig = Depends(get_config)) -> PermissionsCheckResponse:
-    checks = [
-        _check_path(config.paths.active_dir),
-        _check_path(config.paths.archive_movies),
-        _check_path(config.paths.archive_tv),
-    ]
+    unique_paths = dict.fromkeys(
+        (
+            config.paths.incoming_movies,
+            config.paths.incoming_tv,
+            config.paths.archive_movies,
+            config.paths.archive_tv,
+        )
+    )
+    checks = [_check_path(p) for p in unique_paths]
     return PermissionsCheckResponse(
         paths=checks,
         running_uid=os.getuid() if hasattr(os, "getuid") else None,

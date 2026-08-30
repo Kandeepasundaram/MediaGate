@@ -11,9 +11,11 @@ after first boot.
    - `/config` — holds `config.yaml` (your Settings-tab changes), the SQLite
      database, and logs.
    - `/media/movies`, `/media/tv` — bind-mount your actual movie/TV folders
-     here. Whatever's already in them gets scanned in place; you don't need
-     a separate staging folder (see `paths.active_dir` in `CONFIG.md` if you
-     want one anyway).
+     here. Whatever's already in them gets scanned in place by default
+     (`incoming_movies`/`incoming_tv` are set equal to
+     `archive_movies`/`archive_tv` in `config.docker.yaml`) — no separate
+     staging folder needed. Want one anyway? Add another mount and repoint
+     `incoming_movies`/`incoming_tv` from the Settings tab (see `CONFIG.md`).
 2. **Set the real host paths in `.env`, not `docker-compose.yml`** — the
    compose file is git-managed (Arcane treats it read-only once deployed
    from a repo), so host-specific paths live in `.env` instead, which stays
@@ -32,9 +34,10 @@ after first boot.
    with your real `MOVIES_HOST_PATH`/`TV_HOST_PATH`, then start it.
 3. **First boot**: open `http://<host-ip>:26431`. Go to **Settings** and
    optionally set a TMDB API key — leave it blank to run in scraper-fallback
-   mode. The Incoming/Movies/TV path fields default to `/media/incoming`
-   (unmounted, harmless), `/media/movies`, `/media/tv` — leave the last two
-   as-is to match the bind mounts above.
+   mode. The four path fields (movies incoming/archive, TV incoming/archive)
+   default to `/media/movies` (both movie fields) and `/media/tv` (both TV
+   fields), matching the bind mounts above — leave them as-is unless you set
+   up a separate staging folder.
 4. **Test write access**: Settings tab → "Test Permissions". If a path shows
    not writable, either the host directory doesn't exist yet (create it) or
    its ownership doesn't match the container's user. The container runs as

@@ -49,21 +49,30 @@ build time. `docker-compose.yml` needs two bind mounts (`/media/movies`,
 `${TV_HOST_PATH}` substitution, not the compose file itself, since Arcane
 treats a git-synced compose file as read-only) and one named volume
 (`/config`, for `config.yaml` + the SQLite DB + logs). The TMDB key and
-whether to use a separate incoming folder are set from the dashboard's
-Settings tab after first boot (see the "Settings API" section below). This
-was a deliberate pivot mid-build once the deploy target became
+whether to use a separate incoming folder per type are set from the
+dashboard's Settings tab after first boot (see the "Settings API" section
+below). This was a deliberate pivot mid-build once the deploy target became
 "generic container configured post-install," away from the original plan's
 per-host `config.yaml` editing.
 
+Movies and TV always have their **own** incoming and archive path — there is
+no shared/generic incoming bucket for both types (an earlier version of this
+app had one `active_dir` field, which was wrong: it implied movies and TV
+could share a staging folder, which doesn't match how a real library is
+organized). `config.docker.yaml` defaults `incoming_movies == archive_movies`
+and `incoming_tv == archive_tv`, i.e. no separate staging step, since that's
+the common case for a library an *arr stack already organizes in place.
+
 **Request flow for the core feature (archive a file)**: `GET /api/scan`
-calls `scanner.scan_targets()` over the union of `paths.active_dir`,
-`paths.archive_movies`, and `paths.archive_tv` — this supports both a
-separate staging folder *and* a library organized in-place (incoming ==
-archive destination, common on a single-drive homelab setup), deduping
-overlapping roots and excluding anything already recorded in `media_items`
-(`Database.list_known_paths()`, both `original_path` and `final_path`) so a
-rescan doesn't re-surface a file already archived or an already-organized
-copy sitting inside an archive root. Each result is a `ScannedFile` with a
+calls `scanner.scan_targets()` over the union of `paths.incoming_movies`,
+`paths.incoming_tv`, `paths.archive_movies`, and `paths.archive_tv` — this
+supports both a separate staging folder per type *and* a library organized
+in-place (incoming == archive destination per type, common on a
+single-drive homelab setup), deduping overlapping roots and excluding
+anything already recorded in `media_items` (`Database.list_known_paths()`,
+both `original_path` and `final_path`) so a rescan doesn't re-surface a file
+already archived or an already-organized copy sitting inside an archive
+root. Each result is a `ScannedFile` with a
 `parsed` (`tmdb_client.parse_filename()`) guess at
 title/year/season/episode → `POST /api/archive/preview` resolves each parsed
 title against `TMDBClient` and builds a `RenamePlan` via `renamer.py` (movie:
@@ -116,8 +125,8 @@ tab is open somewhere.
 
 **Settings API** (`app/api/routes/settings.py`): `GET`/`POST /api/settings`
 expose a deliberately small editable subset of `AppConfig` —
-`paths.active_dir/archive_movies/archive_tv`, `tmdb.api_key`,
-`server.cors_origins` (the allowlist lives in `_EDITABLE_KEYS` in
+`paths.incoming_movies/incoming_tv/archive_movies/archive_tv`,
+`tmdb.api_key`, `server.cors_origins` (the allowlist lives in `_EDITABLE_KEYS` in
 `config_loader.py`). A POST calls `config_loader.update_settings()`, which
 merges only those keys into `config.yaml` on disk (`create_dirs=False` —
 saving a path does **not** auto-create the directory, unlike the very first

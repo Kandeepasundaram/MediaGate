@@ -128,7 +128,8 @@ class StatsResponse(BaseModel):
 
 
 class SettingsOut(BaseModel):
-    active_dir: str
+    incoming_movies: str
+    incoming_tv: str
     archive_movies: str
     archive_tv: str
     cors_origins: list[str]
@@ -137,7 +138,8 @@ class SettingsOut(BaseModel):
 
 
 class SettingsUpdateRequest(BaseModel):
-    active_dir: str | None = None
+    incoming_movies: str | None = None
+    incoming_tv: str | None = None
     archive_movies: str | None = None
     archive_tv: str | None = None
     cors_origins: list[str] | None = None

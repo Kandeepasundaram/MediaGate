@@ -265,7 +265,8 @@ async function loadStats() {
 async function loadSettings() {
   try {
     const s = await api("/api/settings");
-    $("#setting-active-dir").value = s.active_dir;
+    $("#setting-incoming-movies").value = s.incoming_movies;
+    $("#setting-incoming-tv").value = s.incoming_tv;
     $("#setting-archive-movies").value = s.archive_movies;
     $("#setting-archive-tv").value = s.archive_tv;
     const keyInput = $("#setting-tmdb-key");
@@ -283,7 +284,8 @@ async function loadSettings() {
 async function saveSettings(e) {
   e.preventDefault();
   const payload = {
-    active_dir: $("#setting-active-dir").value.trim(),
+    incoming_movies: $("#setting-incoming-movies").value.trim(),
+    incoming_tv: $("#setting-incoming-tv").value.trim(),
     archive_movies: $("#setting-archive-movies").value.trim(),
     archive_tv: $("#setting-archive-tv").value.trim(),
   };

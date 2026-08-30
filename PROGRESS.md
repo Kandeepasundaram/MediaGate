@@ -182,10 +182,45 @@ copies is a known, disclosed trade-off of "copy, don't move").
 scan → archive → rescan-excludes-both-copies flow). 56 tests total, all
 passing.
 
+## Second config-model correction: no shared incoming bucket at all
+
+The union-scan fix above (single `active_dir` scanned alongside both archive
+roots) was still wrong in a subtler way: it implied movies and TV *could*
+share one generic incoming folder, when in reality the user's setup has (and
+any real *arr-adjacent layout would have) **no shared bucket at all** —
+movies and TV each have their own incoming path, just like they each have
+their own archive path. Corrected by replacing `paths.active_dir` with
+`paths.incoming_movies` and `paths.incoming_tv`, so the schema now has four
+symmetric fields (`incoming_movies`, `incoming_tv`, `archive_movies`,
+`archive_tv`) instead of three asymmetric ones. `config.docker.yaml`
+defaults `incoming_movies == archive_movies` and `incoming_tv == archive_tv`
+(the "organize in place" case, matching this deployment), but a genuinely
+separate staging folder per type is equally well-supported now — it wasn't
+representable at all under the old three-field schema without conflating
+movie and TV incoming files into one directory.
+
+Touched: `config_loader.py` (`PathsConfig`, `_DEFAULT_CONFIG`,
+`_EDITABLE_KEYS`), `models.py`/`settings.py` (Settings API request/response),
+`scan.py` (union now covers 4 paths), `config.docker.yaml`,
+`docker-compose.yml` comments, the Settings tab (now 4 path fields, was 3),
+and all the docs/tests that referenced `active_dir`. 57 tests passing
+(net +1: a new permissions-check dedup test for incoming==archive).
+
+Also discovered mid-walkthrough: this homelab already runs a full Radarr +
+Sonarr + Plex/Jellyfin stack against these exact folders (confirmed via
+Arcane's container Storage tab — Radarr's `/movies` mount and Sonarr's `/tv`
+mount are the identical host paths). Flagged the functional overlap
+directly rather than silently proceeding; the user confirmed they want to
+keep both running (Media Manager for a different, unspecified job) rather
+than reconsider scope. Worth keeping in mind if Media Manager's future
+direction is unclear — it is not filling a gap Radarr/Sonarr leave open for
+the core organize/rename workflow, so whatever unique value it's meant to
+provide here hasn't been articulated yet.
+
 ## Recommended next steps (not done here)
 
 1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed).
-2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts (done so far: API-level checks via `curl`/browser JS console against the live deployment, and a full click-through against a throwaway local Docker demo — not yet a full click-through against the actual production data).
+2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts once they have real files in them (done so far: API-level checks via `curl`/browser JS console against the live deployment, and a full click-through against a throwaway local Docker demo with synthetic files — not yet against real production data, which was empty at deploy time).
 3. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
 4. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep re-triggering any network-specific build issues on future redeploys.
-5. `archive_movies`/`archive_tv` no longer need to be genuinely separate from `active_dir` — CONFIG.md and the Settings tab's field labels ("Incoming directory") could use a clearer hint that this is optional now, if it comes up as confusing in practice.
+5. Clarify what Media Manager is actually *for* given the Radarr/Sonarr overlap discovered above — worth a real conversation before investing further, since right now it duplicates functionality the user already has running.

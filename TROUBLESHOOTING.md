@@ -5,8 +5,9 @@ Another process is bound to the configured port. Change `server.port` in
 `config.yaml` or stop the conflicting process (`sudo lsof -i :8000` on Ubuntu).
 
 ## Dashboard loads but scan finds no files
-- Confirm `paths.active_dir` in `config.yaml` points at the mounted drive, not
-  a stale/unmounted path.
+- Confirm `paths.incoming_movies`/`incoming_tv` (and `archive_movies`/
+  `archive_tv`, all scanned together) in `config.yaml` point at mounted,
+  populated drives, not stale/unmounted or genuinely-empty paths.
 - Confirm the file extensions match `VIDEO_EXTENSIONS` in `app/core/scanner.py`
   (`.mkv, .mp4, .avi, .mov, .wmv, .flv, .webm`).
 - Check the log file (`logging.file`, default `./logs/media_manager.log`) for
@@ -27,7 +28,8 @@ Another process is bound to the configured port. Change `server.port` in
 Check `/api/archive/history` or the `operation_log` table — failed entries
 include an `error_message` (typically a permissions or disk-space issue on the
 archive destination). Archiving copies files (`shutil.copy2`), so the original
-in `active_dir` is left untouched on both success and failure — safe to retry.
+in the incoming folder is left untouched on both success and failure — safe
+to retry.
 
 ## Browser notifications never appear
 - Check the browser's site permission for the dashboard's origin — it must be

@@ -11,7 +11,8 @@ DEFAULT_CONFIG_PATH = Path(os.environ.get("MEDIA_MANAGER_CONFIG", "config.yaml")
 
 _DEFAULT_CONFIG: dict = {
     "paths": {
-        "active_dir": "./sample_media/incoming",
+        "incoming_movies": "./sample_media/incoming/movies",
+        "incoming_tv": "./sample_media/incoming/tv",
         "archive_movies": "./sample_media/archive/movies",
         "archive_tv": "./sample_media/archive/tv",
     },
@@ -29,7 +30,8 @@ _DEFAULT_CONFIG: dict = {
 
 @dataclass
 class PathsConfig:
-    active_dir: Path
+    incoming_movies: Path
+    incoming_tv: Path
     archive_movies: Path
     archive_tv: Path
 
@@ -101,7 +103,8 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
 
     cfg = AppConfig(
         paths=PathsConfig(
-            active_dir=Path(raw["paths"]["active_dir"]),
+            incoming_movies=Path(raw["paths"]["incoming_movies"]),
+            incoming_tv=Path(raw["paths"]["incoming_tv"]),
             archive_movies=Path(raw["paths"]["archive_movies"]),
             archive_tv=Path(raw["paths"]["archive_tv"]),
         ),
@@ -122,7 +125,12 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
     )
 
     if create_dirs:
-        for d in (cfg.paths.active_dir, cfg.paths.archive_movies, cfg.paths.archive_tv):
+        for d in (
+            cfg.paths.incoming_movies,
+            cfg.paths.incoming_tv,
+            cfg.paths.archive_movies,
+            cfg.paths.archive_tv,
+        ):
             d.mkdir(parents=True, exist_ok=True)
         cfg.database_path.parent.mkdir(parents=True, exist_ok=True)
         cfg.logging.file.parent.mkdir(parents=True, exist_ok=True)
@@ -131,14 +139,14 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
 
 
 _EDITABLE_KEYS = {
-    "paths": {"active_dir", "archive_movies", "archive_tv"},
+    "paths": {"incoming_movies", "incoming_tv", "archive_movies", "archive_tv"},
     "tmdb": {"api_key"},
     "server": {"cors_origins"},
 }
 
 
 def update_settings(config_path: Path | str, updates: dict[str, dict]) -> AppConfig:
-    """Merge `updates` (e.g. {"paths": {"active_dir": "/media/incoming"}}) into
+    """Merge `updates` (e.g. {"paths": {"incoming_movies": "/media/movies"}}) into
     config.yaml, restricted to the fields the Settings UI is allowed to touch,
     then reload and return the resulting AppConfig.
     """

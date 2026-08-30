@@ -31,19 +31,27 @@ def _to_out(scanned) -> list[ScannedFileOut]:
 
 
 @router.get("", response_model=ScanResponse)
-def scan_active_directory(
+def scan_library(
     config: AppConfig = Depends(get_config),
     db: Database = Depends(get_database),
 ) -> ScanResponse:
-    """Scans the incoming directory plus both archive roots as one library.
+    """Scans both incoming directories plus both archive roots as one library.
 
-    Supports libraries organized in-place (incoming == archive destination):
-    anything already recorded in the database as a source or an archived
-    copy is excluded, so re-running a scan only surfaces genuinely new files.
+    Movies and TV each get their own incoming + archive path (never a single
+    shared bucket) — but incoming and archive commonly point at the *same*
+    folder per type for a library organized in-place. Either way, anything
+    already recorded in the database as a source or an archived copy is
+    excluded, so re-running a scan only surfaces genuinely new files.
     """
-    roots = [config.paths.active_dir, config.paths.archive_movies, config.paths.archive_tv]
+    roots = [
+        config.paths.incoming_movies,
+        config.paths.incoming_tv,
+        config.paths.archive_movies,
+        config.paths.archive_tv,
+    ]
     scanned = scan_targets(roots, known_paths=db.list_known_paths())
-    return ScanResponse(directories=[str(r) for r in roots], files=_to_out(scanned))
+    unique_dirs = list(dict.fromkeys(str(r) for r in roots))
+    return ScanResponse(directories=unique_dirs, files=_to_out(scanned))
 
 
 @router.post("/directory", response_model=ScanResponse)

@@ -60,15 +60,19 @@
 
     <h3>Media Paths &amp; TMDB Key</h3>
     <form id="settings-form" class="card">
-      <label>Incoming directory
-        <input type="text" id="setting-active-dir" placeholder="/media/incoming">
+      <label>Movies incoming directory
+        <input type="text" id="setting-incoming-movies" placeholder="/media/movies">
       </label>
-      <label>Movie archive directory
+      <label>Movies archive directory
         <input type="text" id="setting-archive-movies" placeholder="/media/movies">
+      </label>
+      <label>TV incoming directory
+        <input type="text" id="setting-incoming-tv" placeholder="/media/tv">
       </label>
       <label>TV archive directory
         <input type="text" id="setting-archive-tv" placeholder="/media/tv">
       </label>
+      <p class="hint">Incoming and archive can be the same folder per type if your library is organized in place (no separate staging step).</p>
       <label>TMDB API key
         <input type="password" id="setting-tmdb-key" placeholder="leave blank to keep current">
       </label>

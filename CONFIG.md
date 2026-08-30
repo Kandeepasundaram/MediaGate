@@ -8,26 +8,32 @@ in `.env` / an env var (see `.env.example`) rather than being committed to
 `config.yaml`.
 
 **Runtime-editable via the Settings tab / `GET`/`POST /api/settings`:**
-`paths.active_dir`, `paths.archive_movies`, `paths.archive_tv`,
-`tmdb.api_key`, `server.cors_origins`. A POST there rewrites `config.yaml`
-in place (comments and formatting are not preserved — the file is
-YAML-serialized fresh each save) and busts the app's cached config/DB/TMDB
-singletons immediately, no restart needed. Everything else below is
-file-only — edit `config.yaml` directly and restart.
+`paths.incoming_movies`, `paths.incoming_tv`, `paths.archive_movies`,
+`paths.archive_tv`, `tmdb.api_key`, `server.cors_origins`. A POST there
+rewrites `config.yaml` in place (comments and formatting are not preserved —
+the file is YAML-serialized fresh each save) and busts the app's cached
+config/DB/TMDB singletons immediately, no restart needed. Everything else
+below is file-only — edit `config.yaml` directly and restart.
 
 ## `paths`
+
+Movies and TV always have their own incoming and archive path — there is no
+shared/generic "incoming" bucket for both types.
+
 | Key | Default | Description |
 |---|---|---|
-| `active_dir` | `./sample_media/incoming` | Staging directory for new/unprocessed media. Scanned alongside both archive roots below (see below) — set it equal to one of them (or anywhere unused) if you don't have a separate staging folder. |
-| `archive_movies` | `./sample_media/archive/movies` | Root folder movies are archived into. Also scanned for new files, so raw downloads can live here directly and get organized in place. |
-| `archive_tv` | `./sample_media/archive/tv` | Root folder TV episodes are archived into. Also scanned for new files, same as above. |
+| `incoming_movies` | `./sample_media/incoming/movies` | Staging directory for new/unprocessed movie files. |
+| `incoming_tv` | `./sample_media/incoming/tv` | Staging directory for new/unprocessed TV files. |
+| `archive_movies` | `./sample_media/archive/movies` | Root folder movies are archived into. |
+| `archive_tv` | `./sample_media/archive/tv` | Root folder TV episodes are archived into. |
 
-`GET /api/scan` scans the union of all three directories above (deduped if
-they overlap) and skips anything already recorded in the database — either
-a previously-archived source file or an already-organized copy — so files
-don't reappear on every rescan. This means `active_dir` doesn't have to be
-distinct from the archive folders: point all three wherever your files
-actually live and the app treats "scan" as "find anything not yet handled."
+Set `incoming_movies` equal to `archive_movies` (and same for TV) if your
+library is organized in-place with no separate staging step — this is the
+Docker image's default (`config.docker.yaml`) and works because
+`GET /api/scan` scans the union of all four directories (deduped if they
+overlap) and skips anything already recorded in the database — either a
+previously-archived source file or an already-organized copy — so files
+don't reappear on every rescan.
 
 Editing these via the Settings API does **not** auto-create the directory if
 it doesn't exist (unlike the very first app boot, which does) — use

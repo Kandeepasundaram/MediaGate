@@ -44,7 +44,7 @@ def test_scan_targets_dedupes_overlapping_roots(tmp_path):
     movies.mkdir()
     (movies / "movie.2020.mkv").write_bytes(b"1")
 
-    # active_dir and archive_movies point at the same folder (organize-in-place setup)
+    # incoming_movies and archive_movies point at the same folder (organize-in-place setup)
     results = scan_targets([movies, movies, tmp_path])
 
     assert len(results) == 1

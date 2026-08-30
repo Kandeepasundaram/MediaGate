@@ -1,8 +1,10 @@
 # Media Manager
 
-Self-hosted media management system: scans an incoming directory, fetches metadata
-from TMDB, renames and archives movies/TV episodes to an external drive, purges
-non-English subtitles, and tracks shows/movies for new-season and sequel releases.
+Self-hosted media management system: scans separate incoming folders for movies
+and TV (which can be the same as the archive folder if your library is organized
+in-place), fetches metadata from TMDB, renames and archives movies/TV episodes,
+purges non-English subtitles, and tracks shows/movies for new-season and sequel
+releases.
 A web dashboard (served by the same FastAPI app) lets you review and approve
 archive operations from any machine on the LAN, with browser-native notifications
 when the tracker finds something new.

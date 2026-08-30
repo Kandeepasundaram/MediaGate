@@ -23,14 +23,20 @@ from app.main import app
 
 @pytest.fixture
 def client(tmp_path):
-    active_dir = tmp_path / "incoming"
+    incoming_movies = tmp_path / "incoming" / "movies"
+    incoming_tv = tmp_path / "incoming" / "tv"
     archive_movies = tmp_path / "archive" / "movies"
     archive_tv = tmp_path / "archive" / "tv"
-    for d in (active_dir, archive_movies, archive_tv):
+    for d in (incoming_movies, incoming_tv, archive_movies, archive_tv):
         d.mkdir(parents=True)
 
     config = AppConfig(
-        paths=PathsConfig(active_dir=active_dir, archive_movies=archive_movies, archive_tv=archive_tv),
+        paths=PathsConfig(
+            incoming_movies=incoming_movies,
+            incoming_tv=incoming_tv,
+            archive_movies=archive_movies,
+            archive_tv=archive_tv,
+        ),
         database_path=tmp_path / "test.db",
         tmdb=TMDBConfig(api_key="", language="en-US"),
         subtitles=SubtitlesConfig(),
@@ -52,7 +58,7 @@ def client(tmp_path):
     app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
 
     with TestClient(app) as c:
-        yield c, active_dir
+        yield c, incoming_movies
 
     app.dependency_overrides.clear()
 
@@ -65,9 +71,9 @@ def test_status_endpoint(client):
 
 
 def test_scan_preview_confirm_flow(client):
-    c, active_dir = client
+    c, incoming_movies = client
 
-    video = active_dir / "Sample.Movie.2020.1080p.mkv"
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
     video.write_bytes(b"fake video data")
 
     scan_resp = c.get("/api/scan")

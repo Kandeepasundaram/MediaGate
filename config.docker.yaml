@@ -1,5 +1,10 @@
 paths:
-  active_dir: /media/incoming
+  # Defaults assume a library organized in-place: incoming == archive per
+  # type, matching a typical *arr-managed folder layout (see CONFIG.md).
+  # If you do have a separate staging folder, repoint incoming_movies/
+  # incoming_tv from the Settings tab (and mount it in docker-compose.yml).
+  incoming_movies: /media/movies
+  incoming_tv: /media/tv
   archive_movies: /media/movies
   archive_tv: /media/tv
 database:
