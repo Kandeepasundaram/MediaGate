@@ -1210,6 +1210,7 @@ async function loadNotifications() {
             : (n.movie_release_status || "New release detected")}</div>
         </div>
         <button data-id="${n.id}" class="ack-btn">Mark Downloaded</button>
+        <button data-id="${n.id}" class="snooze-btn">Remind Me in 7 Days</button>
       </div>
     `).join("");
     $all(".ack-btn").forEach((btn) => {
@@ -1217,6 +1218,15 @@ async function loadNotifications() {
         await api("/api/tracker/acknowledge", {
           method: "POST",
           body: JSON.stringify({ tracker_id: Number(btn.dataset.id) }),
+        });
+        loadNotifications();
+      });
+    });
+    $all(".snooze-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        await api(`/api/tracker/${btn.dataset.id}/snooze`, {
+          method: "POST",
+          body: JSON.stringify({ days: 7 }),
         });
         loadNotifications();
       });

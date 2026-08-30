@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from app.core.tmdb_client import MediaResult
@@ -101,6 +102,75 @@ def test_check_for_updates_does_not_fire_webhook_for_muted_title(db):
         check_for_updates(db, tmdb, webhook_url="https://example.com/hook")
 
     mock_post.assert_not_called()
+
+
+def test_check_for_updates_skips_snoozed_title(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    row = db.get_tracker(1, "tv")
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    db.update_tracker(row["id"], snoozed_until=future)
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+
+    pending = check_for_updates(db, tmdb)
+
+    assert pending == 0
+    tmdb.get_tv_details.assert_not_called()
+    assert db.get_tracker(1, "tv")["pending_notification"] == 0
+
+
+def test_check_for_updates_resumes_after_snooze_expires(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    row = db.get_tracker(1, "tv")
+    past = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    db.update_tracker(row["id"], snoozed_until=past)
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+
+    pending = check_for_updates(db, tmdb)
+
+    assert pending == 1
+    tmdb.get_tv_details.assert_called_once()
+
+
+def test_check_for_updates_respects_per_title_interval(db):
+    now_iso = datetime.now(timezone.utc).isoformat()
+    db.upsert_tracker(
+        tmdb_id=1, media_type="tv", title="Show", current_season_archived=1,
+        last_checked=now_iso, check_interval_hours=24.0,
+    )
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+
+    check_for_updates(db, tmdb)
+
+    tmdb.get_tv_details.assert_not_called()
+
+
+def test_check_for_updates_runs_when_interval_elapsed(db):
+    stale = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+    db.upsert_tracker(
+        tmdb_id=1, media_type="tv", title="Show", current_season_archived=1,
+        last_checked=stale, check_interval_hours=24.0,
+    )
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+
+    check_for_updates(db, tmdb)
+
+    tmdb.get_tv_details.assert_called_once()
 
 
 def test_check_for_updates_handles_per_item_errors(db):

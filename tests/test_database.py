@@ -253,7 +253,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 7
+    assert version == 8
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -283,3 +283,10 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
 
     # v7's media_items.manual_override column exists and defaults to unset.
     assert db.get_media_item(item_id)["manual_override"] == 0
+
+    # v8's archive_tracker.snoozed_until/check_interval_hours columns exist.
+    tracker_row = db.get_tracker(1, "tv")
+    db.update_tracker(tracker_row["id"], snoozed_until="2026-01-01T00:00:00+00:00", check_interval_hours=12.0)
+    updated = db.get_tracker(1, "tv")
+    assert updated["snoozed_until"] == "2026-01-01T00:00:00+00:00"
+    assert updated["check_interval_hours"] == 12.0

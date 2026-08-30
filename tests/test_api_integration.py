@@ -268,6 +268,43 @@ def test_tracker_mute_excludes_from_notifications_but_stays_listed(client):
     assert listed[0]["muted"] is True
 
 
+def test_tracker_snooze_clears_notification_and_sets_snoozed_until(client):
+    c, _ = client
+    add_resp = c.post("/api/tracker/add", json={"tmdb_id": 5, "media_type": "tv", "title": "Show"})
+    tracker_id = add_resp.json()["tracker"]["id"]
+
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=5, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+    c.post(f"/api/tracker/{tracker_id}/check-now")
+    assert len(c.get("/api/tracker/notifications").json()["notifications"]) == 1
+
+    resp = c.post(f"/api/tracker/{tracker_id}/snooze", json={"days": 7})
+    assert resp.status_code == 200
+    assert resp.json()["tracker"]["snoozed_until"] is not None
+    assert c.get("/api/tracker/notifications").json()["notifications"] == []
+
+
+def test_tracker_snooze_404_for_missing_tracker(client):
+    c, _ = client
+    resp = c.post("/api/tracker/9999/snooze", json={"days": 7})
+    assert resp.status_code == 404
+
+
+def test_tracker_set_and_clear_check_interval(client):
+    c, _ = client
+    add_resp = c.post("/api/tracker/add", json={"tmdb_id": 5, "media_type": "tv", "title": "Show"})
+    tracker_id = add_resp.json()["tracker"]["id"]
+
+    resp = c.post(f"/api/tracker/{tracker_id}/interval", json={"hours": 12})
+    assert resp.status_code == 200
+    assert resp.json()["tracker"]["check_interval_hours"] == 12
+
+    resp2 = c.post(f"/api/tracker/{tracker_id}/interval", json={"hours": None})
+    assert resp2.json()["tracker"]["check_interval_hours"] is None
+
+
 def test_watched_batch_update(client):
     c, incoming_movies = client
     video = incoming_movies / "Sample.Movie.2020.1080p.mkv"

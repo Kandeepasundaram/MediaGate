@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -12,9 +12,11 @@ from app.models import (
     TrackedListResponse,
     TrackerAcknowledgeRequest,
     TrackerAddRequest,
+    TrackerIntervalRequest,
     TrackerMuteRequest,
     TrackerNotificationOut,
     TrackerNotificationsResponse,
+    TrackerSnoozeRequest,
     TrackerStatusResponse,
 )
 
@@ -33,6 +35,8 @@ def _to_out(row: dict) -> TrackerNotificationOut:
         pending_notification=bool(row["pending_notification"]),
         muted=bool(row["muted"]),
         last_checked=row["last_checked"],
+        snoozed_until=row["snoozed_until"],
+        check_interval_hours=row["check_interval_hours"],
     )
 
 
@@ -75,6 +79,36 @@ def mute_tracker(tracker_id: int, payload: TrackerMuteRequest, db: Database = De
     if db.get_tracker_by_id(tracker_id) is None:
         raise HTTPException(status_code=404, detail="Tracked title not found")
     db.set_tracker_muted(tracker_id, payload.muted)
+    return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
+
+
+@router.post("/{tracker_id}/snooze")
+def snooze_tracker(tracker_id: int, payload: TrackerSnoozeRequest, db: Database = Depends(get_database)) -> dict:
+    """"Remind me later": clears the current pending notification (like
+    Mark Downloaded) but, unlike muting, only suppresses future checks for
+    `days` -- once snoozed_until passes, the next scheduled check resumes
+    normally and will re-flag pending_notification if the title is still
+    behind."""
+    if db.get_tracker_by_id(tracker_id) is None:
+        raise HTTPException(status_code=404, detail="Tracked title not found")
+    until = (datetime.now(timezone.utc) + timedelta(days=payload.days)).isoformat()
+    db.update_tracker(
+        tracker_id,
+        pending_notification=0,
+        notification_sent_at=datetime.now(timezone.utc).isoformat(),
+        snoozed_until=until,
+    )
+    return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
+
+
+@router.post("/{tracker_id}/interval")
+def set_tracker_interval(tracker_id: int, payload: TrackerIntervalRequest, db: Database = Depends(get_database)) -> dict:
+    """Overrides the global daily tracker.cron_time cadence for a single
+    title; hours=None clears the override and falls back to the global
+    schedule."""
+    if db.get_tracker_by_id(tracker_id) is None:
+        raise HTTPException(status_code=404, detail="Tracked title not found")
+    db.update_tracker(tracker_id, check_interval_hours=payload.hours)
     return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
 
 

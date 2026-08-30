@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS archive_tracker (
     pending_notification INTEGER NOT NULL DEFAULT 0,
     notification_sent_at TEXT,
     muted INTEGER NOT NULL DEFAULT 0,
+    snoozed_until TEXT,
+    check_interval_hours REAL,
     created_at TEXT NOT NULL,
     UNIQUE (tmdb_id, media_type)
 );
@@ -278,6 +280,15 @@ class Database:
     def get_tracker_by_id(self, tracker_id: int) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM archive_tracker WHERE id = ?", (tracker_id,))
 
+    def update_tracker(self, tracker_id: int, **fields: Any) -> None:
+        if not fields:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in fields)
+        self.execute_query(
+            f"UPDATE archive_tracker SET {set_clause} WHERE id = ?",
+            (*fields.values(), tracker_id),
+        )
+
     # ---- operation_log CRUD ----
 
     def log_operation(
@@ -394,6 +405,21 @@ def _migration_v6(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v8(conn: sqlite3.Connection) -> None:
+    """Add archive_tracker.snoozed_until (temporarily suppress a title's
+    checks after "remind me later", distinct from muted's permanent
+    silence) and check_interval_hours (an optional per-title override of the
+    global daily tracker.cron_time, for a title that changes often enough --
+    or rarely enough -- to warrant its own cadence). Both nullable, no
+    rebuild needed."""
+    conn.executescript(
+        """
+        ALTER TABLE archive_tracker ADD COLUMN snoozed_until TEXT;
+        ALTER TABLE archive_tracker ADD COLUMN check_interval_hours REAL;
+        """
+    )
+
+
 def _migration_v7(conn: sqlite3.Connection) -> None:
     """Add media_items.manual_override -- set when the user gives an item a
     custom title/year with no TMDB match (see /api/library/{id}/override).
@@ -411,4 +437,5 @@ _MIGRATIONS = {
     5: _migration_v5,
     6: _migration_v6,
     7: _migration_v7,
+    8: _migration_v8,
 }

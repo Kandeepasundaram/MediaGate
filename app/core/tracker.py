@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -14,6 +14,21 @@ logger = logging.getLogger(__name__)
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _is_due(row: dict, now: datetime) -> bool:
+    """Whether a scheduled check_for_updates run should touch this title --
+    "Check Now" in the UI bypasses this entirely and always checks. A
+    snooze always wins over a custom interval (snoozing is a deliberate,
+    time-boxed "not now" from the user)."""
+    if row["snoozed_until"]:
+        if now < datetime.fromisoformat(row["snoozed_until"]):
+            return False
+    if row["check_interval_hours"] and row["last_checked"]:
+        next_due = datetime.fromisoformat(row["last_checked"]) + timedelta(hours=row["check_interval_hours"])
+        if now < next_due:
+            return False
+    return True
 
 
 def check_tv_show(db: Database, tmdb: TMDBClient, tracker_row: dict) -> bool:
@@ -91,7 +106,10 @@ def _fire_webhook(webhook_url: str, row: dict) -> None:
 def check_for_updates(db: Database, tmdb: TMDBClient, webhook_url: str | None = None) -> int:
     """Main tracker entry point. Returns the number of items now pending notification."""
     tracked = db.list_tracked()
+    now = datetime.now(timezone.utc)
     for row in tracked:
+        if not _is_due(row, now):
+            continue
         try:
             if row["media_type"] == "tv":
                 newly_pending = check_tv_show(db, tmdb, row)

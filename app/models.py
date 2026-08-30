@@ -124,6 +124,16 @@ class TrackerNotificationOut(BaseModel):
     pending_notification: bool
     muted: bool = False
     last_checked: str | None = None
+    snoozed_until: str | None = None
+    check_interval_hours: float | None = None
+
+
+class TrackerSnoozeRequest(BaseModel):
+    days: int = Field(gt=0)
+
+
+class TrackerIntervalRequest(BaseModel):
+    hours: float | None = Field(default=None, gt=0)
 
 
 class TrackerNotificationsResponse(BaseModel):
