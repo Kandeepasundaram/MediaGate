@@ -55,6 +55,29 @@ def test_acknowledge_notification_clears_flag(db):
     assert row["notification_sent_at"] is not None
 
 
+def test_list_known_paths_includes_original_and_final(db, tmp_path):
+    original = tmp_path / "movie.mkv"
+    final = tmp_path / "Movie (2020)" / "Movie (2020).mkv"
+    original.write_bytes(b"1")
+    final.parent.mkdir()
+    final.write_bytes(b"2")
+
+    db.create_media_item(
+        original_path=str(original),
+        final_path=str(final),
+        title="Movie",
+        media_type="movie",
+    )
+
+    known = db.list_known_paths()
+    assert str(original.resolve()) in known
+    assert str(final.resolve()) in known
+
+
+def test_list_known_paths_empty_when_no_items(db):
+    assert db.list_known_paths() == set()
+
+
 def test_operation_log(db):
     item_id = db.create_media_item(original_path="a", title="A", media_type="movie")
     db.log_operation("archive", "success", media_id=item_id, details={"a": 1})

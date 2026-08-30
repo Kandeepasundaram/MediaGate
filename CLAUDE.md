@@ -52,9 +52,16 @@ below). This was a deliberate pivot mid-build once the deploy target became
 "generic container configured post-install," away from the original plan's
 per-host `config.yaml` editing.
 
-**Request flow for the core feature (archive a file)**:
-`scanner.scan_directory()` walks `paths.active_dir` → returns `ScannedFile`
-objects with a `parsed` (`tmdb_client.parse_filename()`) guess at
+**Request flow for the core feature (archive a file)**: `GET /api/scan`
+calls `scanner.scan_targets()` over the union of `paths.active_dir`,
+`paths.archive_movies`, and `paths.archive_tv` — this supports both a
+separate staging folder *and* a library organized in-place (incoming ==
+archive destination, common on a single-drive homelab setup), deduping
+overlapping roots and excluding anything already recorded in `media_items`
+(`Database.list_known_paths()`, both `original_path` and `final_path`) so a
+rescan doesn't re-surface a file already archived or an already-organized
+copy sitting inside an archive root. Each result is a `ScannedFile` with a
+`parsed` (`tmdb_client.parse_filename()`) guess at
 title/year/season/episode → `POST /api/archive/preview` resolves each parsed
 title against `TMDBClient` and builds a `RenamePlan` via `renamer.py` (movie:
 `Name (Year)/Name (Year).ext`; TV: `Show/Season NN/Show - SNNENN - Title.ext`)

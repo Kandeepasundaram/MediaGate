@@ -21,7 +21,7 @@ class ScannedFileOut(BaseModel):
 
 
 class ScanResponse(BaseModel):
-    directory: str
+    directories: list[str]
     files: list[ScannedFileOut]
 
 

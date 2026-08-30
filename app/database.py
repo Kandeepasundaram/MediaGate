@@ -138,6 +138,21 @@ class Database:
     def get_media_item(self, item_id: int) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM media_items WHERE id = ?", (item_id,))
 
+    def list_known_paths(self) -> set[str]:
+        """Every path already tracked as a media item's source or archived
+        copy, used to keep a rescan from re-surfacing already-handled files."""
+        rows = self.fetch_all(
+            "SELECT original_path, final_path FROM media_items "
+            "WHERE original_path IS NOT NULL OR final_path IS NOT NULL"
+        )
+        paths: set[str] = set()
+        for row in rows:
+            if row["original_path"]:
+                paths.add(str(Path(row["original_path"]).resolve()))
+            if row["final_path"]:
+                paths.add(str(Path(row["final_path"]).resolve()))
+        return paths
+
     def list_media_items(self, media_type: str | None = None) -> list[dict[str, Any]]:
         if media_type:
             return self.fetch_all("SELECT * FROM media_items WHERE media_type = ? ORDER BY created_at DESC", (media_type,))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -87,9 +88,6 @@ def test_scan_preview_confirm_flow(client):
     result = confirm_resp.json()["results"][0]
     assert result["status"] == "success"
     assert video.exists()  # source untouched, archive copies rather than moves
-
-    from pathlib import Path
-
     assert Path(item["dest_path"]).exists()
 
     history_resp = c.get("/api/archive/history")
@@ -98,6 +96,29 @@ def test_scan_preview_confirm_flow(client):
 
     stats_resp = c.get("/api/stats")
     assert stats_resp.json()["total_movies"] == 1
+
+
+def test_scan_covers_archive_dirs_and_excludes_already_handled(client):
+    """Organize-in-place setup: a raw file dropped straight into the movie
+    archive root (no separate staging folder) should still be found, and
+    once archived, neither the raw original nor the organized copy should
+    reappear on a rescan."""
+    c, _ = client
+    archive_movies = Path(c.get("/api/settings").json()["archive_movies"])
+
+    raw = archive_movies / "Some.Movie.2021.mkv"
+    raw.write_bytes(b"data")
+
+    scan_resp = c.get("/api/scan")
+    files = scan_resp.json()["files"]
+    assert len(files) == 1
+    assert files[0]["path"] == str(raw)
+
+    preview = c.post("/api/archive/preview", json={"paths": [files[0]["path"]]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    rescan = c.get("/api/scan").json()
+    assert rescan["files"] == []
 
 
 def test_scan_missing_directory_404(client):

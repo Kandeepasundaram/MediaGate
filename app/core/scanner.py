@@ -55,3 +55,23 @@ def scan_directory(root: Path | str) -> list[ScannedFile]:
             )
         )
     return results
+
+
+def scan_targets(roots: list[Path | str], known_paths: set[str] | None = None) -> list[ScannedFile]:
+    """Scan multiple directories (e.g. incoming + both archive roots when a
+    library is organized in-place rather than staged separately), deduping
+    files reachable from more than one root and dropping anything already
+    known (a previously-archived source, or an already-organized copy sitting
+    inside an archive root) per `known_paths` (absolute path strings).
+    """
+    known_paths = known_paths or set()
+    seen: dict[Path, ScannedFile] = {}
+
+    for root in roots:
+        for scanned in scan_directory(root):
+            resolved = scanned.path.resolve()
+            if str(resolved) in known_paths:
+                continue
+            seen.setdefault(resolved, scanned)
+
+    return sorted(seen.values(), key=lambda s: s.path)

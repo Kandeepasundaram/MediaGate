@@ -52,7 +52,7 @@ Environment: Windows dev machine, Python 3.13, git repo initialized fresh
   `scripts/cron_job.py`/`install_service.sh`/`deploy.sh`/`backup.sh`
   (systemd-based) are kept only as an alternative for a non-Docker install;
   unexecuted, since Docker/Arcane is now the primary target.
-- **Phase 7 (Testing)**: 50 tests, all passing
+- **Phase 7 (Testing)**: 56 tests, all passing
   (`.venv/Scripts/python -m pytest -q`). Covers DB CRUD, filename parsing,
   TMDB client fallback/caching, renamer path-building + collision handling,
   subtitle purge rules, tracker update detection, config load/save
@@ -120,10 +120,72 @@ Environment: Windows dev machine, Python 3.13, git repo initialized fresh
   hardcode ports/URLs, so a proxy can be added later with zero app changes,
   which resolved that requirement without building anything for it.
 
+## Live deployment to the real homelab (2026-08-30)
+
+Deployed for real to the user's Arcane instance (`192.168.29.187:3552`),
+not just tested locally. Notes worth keeping:
+
+- Repo visibility: turned out to already be public (checked via `gh api
+  repos/.../MediaGate --jq '.private, .visibility'` — the earlier
+  `--private` flag at repo creation apparently didn't take, or something
+  changed it after; not investigated further since public was the agreed
+  outcome anyway). Arcane's git sync auth type was set to "None".
+- Arcane's git-based Project deploy needs "Sync Files" enabled (not just the
+  compose file) — `build: .` requires the Dockerfile and app source to
+  actually be present next to the synced compose file, which the default
+  (compose-file-only) sync doesn't provide.
+- Hit a real `git push` hang from Windows Git Credential Manager needing
+  interactive re-auth mid-session (invisible popup, no error until
+  `GIT_TERMINAL_PROMPT=0` surfaced it). Fixed with `gh auth setup-git` to
+  make git use the already-authenticated `gh` CLI instead of GCM. Caused a
+  real problem: a commit (port 26431 change) had been made but never
+  pushed, so Arcane's first sync silently deployed the stale version
+  (port 8000) — caught by checking the synced commit hash against `git log`,
+  not by anything failing loudly.
+- **The pypi.org SSL/TLS interception hit repeatedly on the dev machine
+  during local testing did NOT occur on the actual Arcane host** — the real
+  `docker compose`-driven build completed cleanly end to end, confirming
+  that issue was specific to the dev machine's network as suspected, not
+  the `Dockerfile`.
+- Deployed successfully: build succeeded, container reached `Running`,
+  dashboard loaded live at `http://192.168.29.187:26431/`, `/api/status`
+  responded correctly.
+
+## Real-world config gap found during setup, and the fix
+
+The user's actual media layout doesn't have a separate "incoming/staging"
+folder — movies and TV live in two already-separate host folders
+(`/mnt/data1t/movies`, `/mnt/data1t/tv`) and files should be organized
+*in place* within them, not staged elsewhere and copied out. The app as
+originally built assumed one mixed incoming folder distinct from the
+archive destinations, so `GET /api/scan` only ever looked at
+`paths.active_dir` — the two archive folders were write-only as far as
+scanning was concerned.
+
+Fixed by making `GET /api/scan` scan the **union** of `active_dir`,
+`archive_movies`, and `archive_tv` (`scanner.scan_targets()`, deduping
+overlapping roots), and excluding anything already recorded in `media_items`
+as either an `original_path` or a `final_path` (`Database.list_known_paths()`)
+so a rescan doesn't keep re-offering an already-archived raw file or
+re-detecting its own organized copy as "new." This means `active_dir`
+no longer has to be a real, distinct folder — pointing all three path
+settings at wherever the files actually live now works. Chose this over
+the two alternatives that came up: doing nothing (making the user manually
+swap `active_dir` between a movies pass and a TV pass) or changing
+archiver's copy-to-move semantics (bigger, separate decision — see
+Phase 3.4's original checksum-deferred rationale — deliberately not
+touched here since it wasn't asked for and duplicating raw+organized
+copies is a known, disclosed trade-off of "copy, don't move").
+
+6 new tests cover this (`scan_targets` dedup/exclusion in isolation,
+`list_known_paths` in isolation, and a full API-level
+scan → archive → rescan-excludes-both-copies flow). 56 tests total, all
+passing.
+
 ## Recommended next steps (not done here)
 
 1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed).
-2. Run this on the actual Arcane host against a real sample media folder to validate scanner/renamer against real-world messy filenames, and confirm the `/media` bind mount's permissions work with whatever user Arcane runs the container as.
-3. Manually click through the dashboard in a browser, including granting the notification permission prompt and using the new Settings tab (paths form, TMDB key field, Test Permissions button) — only exercised via `curl`/`TestClient` and a real container so far, not a real browser.
-4. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary target.
-5. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy.
+2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts (done so far: API-level checks via `curl`/browser JS console against the live deployment, and a full click-through against a throwaway local Docker demo — not yet a full click-through against the actual production data).
+3. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
+4. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep re-triggering any network-specific build issues on future redeploys.
+5. `archive_movies`/`archive_tv` no longer need to be genuinely separate from `active_dir` — CONFIG.md and the Settings tab's field labels ("Incoming directory") could use a clearer hint that this is optional now, if it comes up as confusing in practice.

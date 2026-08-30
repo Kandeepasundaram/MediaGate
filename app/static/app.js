@@ -64,7 +64,7 @@ async function scanAndPreview() {
     state.sizeByPath = Object.fromEntries(scan.files.map((f) => [f.path, f.size_bytes]));
 
     if (scan.files.length === 0) {
-      $("#scan-status").textContent = `No media files found in ${scan.directory}`;
+      $("#scan-status").textContent = `No new media files found in ${scan.directories.join(", ")}`;
       return;
     }
 
