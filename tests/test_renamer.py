@@ -16,10 +16,15 @@ def test_plan_movie_rename_builds_expected_structure(tmp_path):
     source.write_text("data")
     archive_root = tmp_path / "archive"
 
-    media = MediaResult(tmdb_id=1, title="Some Movie", media_type="movie", year=2021)
+    media = MediaResult(
+        tmdb_id=1, title="Some Movie", media_type="movie", year=2021,
+        poster_path="/poster.jpg", overview="A movie.",
+    )
     plan = plan_movie_rename(source, archive_root, media)
 
     assert plan.dest_path == archive_root / "Some Movie (2021)" / "Some Movie (2021).mkv"
+    assert plan.poster_path == "/poster.jpg"
+    assert plan.overview == "A movie."
 
 
 def test_plan_tv_rename_builds_expected_structure(tmp_path):

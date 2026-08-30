@@ -245,10 +245,51 @@ change and only had `archive_movies`/`archive_tv` populated) and confirmed
 library — first real signal the deployed app can see production data, not
 just empty test mounts.
 
+## Scope clarified: manual control + watch tracking, not competing with *arr
+
+Answer to the "what's this actually for" question raised above: manual
+watch-state tracking (independent of the `watchstate` container this
+homelab already runs — a deliberately separate, simpler mechanism scoped to
+this app), a TV status view, hand-picking specific titles for
+rename/clean/reorganize outside the Radarr/Sonarr automated pipeline, and
+reports on what's archived/watched. First piece built: **Movies and TV
+gallery tabs** with a manual watched toggle — the other three (a real
+reports view, TV status UI beyond the tracker's pending-only list, and a
+"browse everything, not just newly-scanned files" cleanup workflow) were
+explicitly deferred by the user in favor of the gallery first.
+
+Implementation:
+- `RenamePlan` gained `poster_path`/`overview` (was computed by
+  `plan_movie_rename`/`plan_tv_rename` already, via the `MediaResult`
+  they're given, but previously discarded — `archiver.archive_file()` now
+  persists them into `media_items.metadata` as JSON). This closes a
+  pre-existing gap: `renamer.download_artwork()`/`write_nfo()` were written
+  per the original plan but never actually called from anywhere; storing
+  `poster_path` in the DB and rendering it client-side from the TMDB CDN
+  turned out to be all the gallery needed, so those two functions are still
+  unwired (fine for now — NFO writing is a separate, unrelated concern for
+  Plex/Jellyfin metadata, not blocking this feature).
+- New `app/api/routes/library.py`: `GET /api/library/movies`/`tv` (reads
+  `media_items`, not a filesystem scan — deliberately distinct from
+  `/api/scan`) and `POST /api/library/{id}/watched`.
+- Dashboard: two new tabs (Movies, TV) as the default-active views, ahead of
+  "Ready to Archive" in the nav. Movies render as a flat poster grid; TV
+  episodes come back flat from the API and get grouped into one card per
+  show **client-side**, by title, with an expandable episode list each with
+  its own watched checkbox. Posters load directly from
+  `image.tmdb.org` — no backend image proxy needed.
+- 9 new tests (`test_archiver.py`, `test_library.py`, plus poster/overview
+  assertions added to existing `test_renamer.py` cases). 66 total, passing.
+- Manually verified against a live local server with seeded fake data
+  (couldn't use real TMDB data — no API key, and scraper mode's live network
+  access is unreliable in this dev environment): real poster image rendered
+  from the TMDB CDN, watched checkbox persisted through a full API
+  round-trip, TV grouping and per-episode expand/collapse worked correctly.
+
 ## Recommended next steps (not done here)
 
-1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed).
-2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts now that `GET /api/scan` finds the 409 real files there — not yet tried an actual preview/confirm against real (not synthetic) media.
-3. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
-4. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep both the network-specific build issue and the stop/start-to-rebuild gotcha above.
-5. Clarify what Media Manager is actually *for* given the Radarr/Sonarr overlap discovered above — worth a real conversation before investing further, since right now it duplicates functionality the user already has running.
+1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed) — also needed to verify the gallery's poster rendering against real (not manually seeded) archived data.
+2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts now that `GET /api/scan` finds the 409 real files there — not yet tried an actual preview/confirm against real (not synthetic) media, so the gallery is still empty on the live deployment (it only reflects what *this app* has archived, and nothing has been archived through it yet).
+3. Build the three deferred pieces from the scope clarification above: a real reports view, a TV status view beyond the tracker's pending-only list, and a manual library browser for cleanup (not just newly-scanned files).
+4. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
+5. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep both the network-specific build issue and the stop/start-to-rebuild gotcha above.

@@ -100,7 +100,10 @@ life of the Python process.
 **Data model** (`app/database.py`, SQLite, WAL mode, no connection pool — a
 short-lived connection is opened per call via `Database.connect()`):
 - `media_items` — one row per archived file: paths, tmdb_id, media_type,
-  season/episode, `watched`, `metadata` (JSON).
+  season/episode, `watched`, `metadata` (JSON — holds `poster_path`,
+  `overview`, `episode_title` set by `archiver.archive_file()` from the
+  `RenamePlan` at archive time; this is what backs the Movies/TV gallery
+  tabs, not a general-purpose bag for anything else).
 - `archive_tracker` — one row per `(tmdb_id, media_type)` being watched for
   new seasons/sequels; `pending_notification` drives the dashboard's
   Notifications tab and browser notifications, cleared by
@@ -141,8 +144,26 @@ compose/host-level decision (`user:` + matching ownership), not an in-app one.
 If `TMDB_API_KEY` is set as an env var it always wins over the stored value
 and the Settings UI reports the field as locked.
 
-**Frontend** (`app/static/`): single `index.html` with four tabs (Archive,
-Notifications, History, Settings) driven by plain `fetch()` calls in
-`app.js` — no build step, no framework. `Ctrl+S` triggers Approve & Archive.
-The Settings tab's form talks to `/api/settings` and its "Test Permissions"
-button to `/api/settings/permissions-check`.
+**Library API / gallery tabs** (`app/api/routes/library.py`): this is Media
+Manager's actual reason to exist alongside Radarr/Sonarr, which already
+handle automated import — `GET /api/library/movies`/`tv` list what *this
+app* has archived (not a live filesystem scan; that's `/api/scan`), and
+`POST /api/library/{id}/watched` is manual watch-state tracking, independent
+of the `watchstate` container this homelab also runs. TV episodes come back
+as a flat list (one row per episode) — grouping into one card per show
+happens client-side in `app.js::groupEpisodesByShow()`, keyed by `title`
+(not `tmdb_id`, since that's simpler and title collisions are rare in a
+personal library). Posters render straight from the TMDB CDN
+(`https://image.tmdb.org/t/p/w342{poster_path}`) client-side — the backend
+never proxies or downloads images (the written-but-unwired
+`renamer.download_artwork()`/`write_nfo()` from the original plan still
+aren't called anywhere; the gallery made them unnecessary for the poster use
+case, though NFO writing could still be worth wiring up separately later for
+Plex/Jellyfin metadata, unrelated to this app's own UI).
+
+**Frontend** (`app/static/`): single `index.html` with six tabs (Movies, TV,
+Archive, Notifications, History, Settings) driven by plain `fetch()` calls
+in `app.js` — no build step, no framework. `Ctrl+S` triggers Approve &
+Archive. The Settings tab's form talks to `/api/settings` and its "Test
+Permissions" button to `/api/settings/permissions-check`. Movies/TV tabs are
+the two gallery views described above.

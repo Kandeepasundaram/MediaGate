@@ -35,6 +35,8 @@ function setupTabs() {
       $all(".tab-panel").forEach((p) => p.classList.remove("active"));
       btn.classList.add("active");
       $(`#tab-${btn.dataset.tab}`).classList.add("active");
+      if (btn.dataset.tab === "movies") loadMoviesGallery();
+      if (btn.dataset.tab === "tv") loadTvGallery();
       if (btn.dataset.tab === "notifications") loadNotifications();
       if (btn.dataset.tab === "history") loadHistory();
       if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); }
@@ -49,6 +51,129 @@ async function loadStatus() {
     $("#tmdb-mode").textContent = `TMDB: ${status.tmdb_mode}`;
   } catch (e) {
     $("#tmdb-mode").textContent = "TMDB: offline";
+  }
+}
+
+// ---- Movies / TV galleries ----
+const TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/w342";
+
+function posterUrl(posterPath) {
+  if (!posterPath) return null;
+  return posterPath.startsWith("http") ? posterPath : `${TMDB_IMAGE_BASE}${posterPath}`;
+}
+
+function posterMarkup(title, posterPath) {
+  const url = posterUrl(posterPath);
+  return url
+    ? `<img class="gallery-poster" src="${url}" alt="${title}" loading="lazy">`
+    : `<div class="gallery-poster-placeholder">${title}</div>`;
+}
+
+async function toggleWatched(itemId, watched) {
+  return api(`/api/library/${itemId}/watched`, {
+    method: "POST",
+    body: JSON.stringify({ watched }),
+  });
+}
+
+function wireWatchedToggles(container) {
+  container.querySelectorAll(".watched-toggle input").forEach((input) => {
+    input.addEventListener("click", (e) => e.stopPropagation());
+    input.addEventListener("change", async () => {
+      try {
+        await toggleWatched(Number(input.dataset.id), input.checked);
+      } catch (e) {
+        input.checked = !input.checked;
+      }
+    });
+  });
+}
+
+async function loadMoviesGallery() {
+  const gallery = $("#movies-gallery");
+  gallery.innerHTML = "Loading...";
+  try {
+    const data = await api("/api/library/movies");
+    $("#movies-count").textContent = `${data.items.length} movie(s) archived`;
+    if (data.items.length === 0) {
+      gallery.innerHTML = `<p class="gallery-empty">No movies archived yet — approve some from "Ready to Archive".</p>`;
+      return;
+    }
+    gallery.innerHTML = data.items.map((item) => `
+      <div class="gallery-card">
+        ${posterMarkup(item.title, item.poster_path)}
+        <div class="gallery-info">
+          <div class="gallery-title" title="${item.title}">${item.title}</div>
+          <div class="gallery-meta">
+            <span>${item.year || ""}</span>
+            <label class="watched-toggle">
+              <input type="checkbox" data-id="${item.id}" ${item.watched ? "checked" : ""}>
+              Watched
+            </label>
+          </div>
+        </div>
+      </div>
+    `).join("");
+    wireWatchedToggles(gallery);
+  } catch (e) {
+    gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
+  }
+}
+
+function groupEpisodesByShow(items) {
+  const shows = new Map();
+  for (const item of items) {
+    const key = item.title;
+    if (!shows.has(key)) shows.set(key, { title: item.title, poster_path: item.poster_path, episodes: [] });
+    shows.get(key).episodes.push(item);
+  }
+  for (const show of shows.values()) {
+    show.episodes.sort((a, b) => (a.season_number - b.season_number) || (a.episode_number - b.episode_number));
+  }
+  return Array.from(shows.values());
+}
+
+async function loadTvGallery() {
+  const gallery = $("#tv-gallery");
+  gallery.innerHTML = "Loading...";
+  try {
+    const data = await api("/api/library/tv");
+    $("#tv-count").textContent = `${data.items.length} episode(s) across ${new Set(data.items.map((i) => i.title)).size} show(s)`;
+    if (data.items.length === 0) {
+      gallery.innerHTML = `<p class="gallery-empty">No TV episodes archived yet — approve some from "Ready to Archive".</p>`;
+      return;
+    }
+    const shows = groupEpisodesByShow(data.items);
+    gallery.innerHTML = shows.map((show, i) => `
+      <div class="gallery-card" data-show-index="${i}">
+        ${posterMarkup(show.title, show.poster_path)}
+        <div class="gallery-info">
+          <div class="gallery-title" title="${show.title}">${show.title}</div>
+          <div class="gallery-meta">
+            <span>${show.episodes.length} episode(s)</span>
+          </div>
+        </div>
+        <div class="tv-episodes">
+          ${show.episodes.map((ep) => `
+            <div class="tv-episode-row">
+              <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
+              <label class="watched-toggle">
+                <input type="checkbox" data-id="${ep.id}" ${ep.watched ? "checked" : ""}>
+                Watched
+              </label>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `).join("");
+    wireWatchedToggles(gallery);
+    gallery.querySelectorAll(".gallery-card").forEach((card) => {
+      card.addEventListener("click", () => {
+        card.querySelector(".tv-episodes").classList.toggle("expanded");
+      });
+    });
+  } catch (e) {
+    gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
   }
 }
 
@@ -339,6 +464,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupKeyboardShortcuts();
   loadStatus();
+  loadMoviesGallery();
   requestNotificationPermission();
   pollNotifications();
 

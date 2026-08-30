@@ -193,3 +193,99 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   padding: 1.5rem;
   max-width: 400px;
 }
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1rem;
+}
+
+.gallery-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+}
+
+.gallery-poster {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  background: var(--bg);
+  display: block;
+}
+
+.gallery-poster-placeholder {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.gallery-info {
+  padding: 0.55rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.gallery-title {
+  font-size: 0.83rem;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gallery-meta {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.watched-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.watched-toggle input { cursor: pointer; }
+
+.tv-episodes {
+  border-top: 1px solid var(--border);
+  padding: 0.4rem 0.6rem;
+  display: none;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.tv-episodes.expanded { display: flex; }
+
+.tv-episode-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.gallery-empty {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  grid-column: 1 / -1;
+}

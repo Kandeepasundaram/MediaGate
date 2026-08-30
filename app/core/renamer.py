@@ -32,6 +32,8 @@ class RenamePlan:
     season: int | None = None
     episode: int | None = None
     episode_title: str | None = None
+    poster_path: str | None = None
+    overview: str = ""
 
 
 def plan_movie_rename(source: Path, archive_root: Path, media: MediaResult, ext: str | None = None) -> RenamePlan:
@@ -49,6 +51,8 @@ def plan_movie_rename(source: Path, archive_root: Path, media: MediaResult, ext:
         tmdb_id=media.tmdb_id,
         title=media.title,
         year=year,
+        poster_path=media.poster_path,
+        overview=media.overview,
     )
 
 
@@ -80,6 +84,8 @@ def plan_tv_rename(
         season=season,
         episode=episode,
         episode_title=episode_title,
+        poster_path=media.poster_path,
+        overview=media.overview,
     )
 
 

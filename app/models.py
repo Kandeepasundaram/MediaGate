@@ -127,6 +127,28 @@ class StatsResponse(BaseModel):
     total_size_bytes: int
 
 
+class LibraryItemOut(BaseModel):
+    id: int
+    title: str
+    media_type: MediaType
+    year: int | None = None
+    season_number: int | None = None
+    episode_number: int | None = None
+    poster_path: str | None = None
+    overview: str = ""
+    watched: bool
+    final_path: str | None = None
+    archived_at: str | None = None
+
+
+class LibraryResponse(BaseModel):
+    items: list[LibraryItemOut]
+
+
+class WatchedUpdateRequest(BaseModel):
+    watched: bool
+
+
 class SettingsOut(BaseModel):
     incoming_movies: str
     incoming_tv: str

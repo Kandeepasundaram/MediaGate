@@ -110,6 +110,8 @@ def confirm_archive(
             year=item.year,
             season=item.season,
             episode=item.episode,
+            poster_path=item.poster_path,
+            overview=item.overview,
         )
         try:
             media_id = archive_file(db, plan)

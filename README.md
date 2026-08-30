@@ -1,18 +1,22 @@
 # Media Manager
 
-Self-hosted media management system: scans separate incoming folders for movies
-and TV (which can be the same as the archive folder if your library is organized
-in-place), fetches metadata from TMDB, renames and archives movies/TV episodes,
-purges non-English subtitles, and tracks shows/movies for new-season and sequel
-releases.
-A web dashboard (served by the same FastAPI app) lets you review and approve
-archive operations from any machine on the LAN, with browser-native notifications
-when the tracker finds something new.
+Self-hosted, manual-control complement to an automated *arr stack (Radarr/Sonarr):
+where those handle the automated download-to-library pipeline, Media Manager is
+for picking specific titles to rename/clean/re-organize by hand, tracking your
+own watch state, and browsing what's archived — not for competing with the
+automated import. It scans separate incoming folders for movies and TV (which
+can be the same as the archive folder if your library is organized in-place),
+fetches metadata from TMDB, renames and archives movies/TV episodes, purges
+non-English subtitles, and tracks shows/movies for new-season and sequel
+releases. A web dashboard (served by the same FastAPI app) lets you review and
+approve archive operations, browse your library as movie/TV poster galleries
+with a watched toggle, from any machine on the LAN, with browser-native
+notifications when the tracker finds something new.
 
 ## Architecture
 
 - **Backend**: FastAPI + SQLite, one Docker container (see `docker-compose.yml`) with the media library and app state bind-mounted/volumed in.
-- **Dashboard**: vanilla HTML/CSS/JS single-page app served from `app/static/`.
+- **Dashboard**: vanilla HTML/CSS/JS single-page app served from `app/static/`, with Movies/TV gallery tabs (`GET /api/library/movies`/`tv`) showing TMDB posters and a manual watched toggle (`POST /api/library/{id}/watched`) — independent of automated *arr imports.
 - **TMDB integration**: hybrid client (`app/core/tmdb_client.py`) — uses the official
   API when `TMDB_API_KEY` is set, otherwise falls back to scraping themoviedb.org.
 - **Notifications**: browser `Notification` API in the dashboard (`app/static/app.js`)

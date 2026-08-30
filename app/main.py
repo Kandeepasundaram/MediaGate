@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import archive, scan, settings, status, tracker
+from app.api.routes import archive, library, scan, settings, status, tracker
 from app.core import scheduler
 from app.dependencies import get_config, get_database
 
@@ -51,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(tracker.router)
     app.include_router(status.router)
     app.include_router(settings.router)
+    app.include_router(library.router)
 
     app.mount("/", StaticFiles(directory="app/static", html=True), name="static")
 

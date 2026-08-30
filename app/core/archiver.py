@@ -44,6 +44,11 @@ def archive_file(db: Database, plan: RenamePlan) -> int:
         episode_number=plan.episode,
         final_path=str(plan.dest_path),
         archived_at=now,
+        metadata={
+            "poster_path": plan.poster_path,
+            "overview": plan.overview,
+            "episode_title": plan.episode_title,
+        },
     )
 
     db.log_operation(
