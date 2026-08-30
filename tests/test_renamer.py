@@ -19,12 +19,15 @@ def test_plan_movie_rename_builds_expected_structure(tmp_path):
     media = MediaResult(
         tmdb_id=1, title="Some Movie", media_type="movie", year=2021,
         poster_path="/poster.jpg", overview="A movie.",
+        raw={"vote_average": 7.5, "genres": [{"id": 18, "name": "Drama"}]},
     )
     plan = plan_movie_rename(source, archive_root, media)
 
     assert plan.dest_path == archive_root / "Some Movie (2021)" / "Some Movie (2021).mkv"
     assert plan.poster_path == "/poster.jpg"
     assert plan.overview == "A movie."
+    assert plan.vote_average == 7.5
+    assert plan.genres == ["Drama"]
 
 
 def test_plan_tv_rename_builds_expected_structure(tmp_path):

@@ -21,7 +21,7 @@ from app.core.omdb_client import OMDbClient
 from app.core.organizer import OrganizeError, organize_file
 from app.core.renamer import RenamePlan
 from app.core.scanner import scan_directory
-from app.core.tmdb_client import MediaResult, TMDBClient
+from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, vote_average_for
 from app.core.tracker import maybe_auto_track
 from app.database import Database
 from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client
@@ -100,6 +100,8 @@ def _to_out(row: dict) -> LibraryItemOut:
         size_bytes=size_bytes,
         episode_title=meta.get("episode_title"),
         manual_override=bool(row["manual_override"]),
+        vote_average=meta.get("vote_average"),
+        genres=meta.get("genres") or [],
     )
 
 
@@ -395,7 +397,12 @@ def _apply_rematch(db: Database, ids: list[int], media: MediaResult, now: str, i
             tmdb_id=media.tmdb_id,
             title=media.title,
             year=media.year,
-            metadata={"poster_path": media.poster_path, "overview": media.overview},
+            metadata={
+                "poster_path": media.poster_path,
+                "overview": media.overview,
+                "vote_average": vote_average_for(media),
+                "genres": genres_for(media),
+            },
             match_attempted_at=now,
             manual_override=0,
         )
@@ -533,6 +540,8 @@ def organize_selected(
             episode=item.episode,
             poster_path=item.poster_path,
             overview=item.overview,
+            vote_average=item.vote_average,
+            genres=item.genres,
         )
         try:
             media_id = organize_file(db, plan)

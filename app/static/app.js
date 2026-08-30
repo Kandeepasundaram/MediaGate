@@ -168,9 +168,10 @@ async function checkBackfillProgress(mediaType, tabKey, reloadFn) {
   } catch (e) { /* next manual reload will retry */ }
 }
 
-function filterAndSort(items, query, sortMode, titleKey, filterMode) {
+function filterAndSort(items, query, sortMode, titleKey, filterMode, genreFilter) {
   let out = items;
   if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
+  if (genreFilter) out = out.filter((i) => (i.genres || []).includes(genreFilter));
   if (query) {
     const q = query.toLowerCase();
     out = out.filter((i) => i[titleKey].toLowerCase().includes(q));
@@ -178,7 +179,18 @@ function filterAndSort(items, query, sortMode, titleKey, filterMode) {
   out = out.slice();
   if (sortMode === "title") out.sort((a, b) => a[titleKey].localeCompare(b[titleKey]));
   else if (sortMode === "year") out.sort((a, b) => (b.year || 0) - (a.year || 0));
+  else if (sortMode === "rating") out.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
   return out;
+}
+
+function distinctGenres(items) {
+  return Array.from(new Set(items.flatMap((i) => i.genres || []))).sort();
+}
+
+function populateGenreOptions(selectEl, items, previousValue) {
+  const genres = distinctGenres(items);
+  selectEl.innerHTML = `<option value="">All genres</option>` + genres.map((g) => `<option value="${g}">${g}</option>`).join("");
+  if (previousValue && genres.includes(previousValue)) selectEl.value = previousValue;
 }
 
 async function markWatchedBatch(ids, watched) {
@@ -191,7 +203,8 @@ function renderMoviesGallery() {
   const query = $("#movies-search").value.trim();
   const sortMode = $("#movies-sort").value;
   const filterMode = $("#movies-filter").value;
-  const items = filterAndSort(state.movieItems, query, sortMode, "title", filterMode);
+  const genreFilter = $("#movies-genre").value;
+  const items = filterAndSort(state.movieItems, query, sortMode, "title", filterMode, genreFilter);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
     (items.length !== state.movieItems.length ? ` (${items.length} shown)` : "");
@@ -215,7 +228,7 @@ function renderMoviesGallery() {
       <div class="gallery-info">
         <div class="gallery-title" title="${item.title}">${item.title}</div>
         <div class="gallery-meta">
-          <span>${item.year || ""}</span>
+          <span>${item.year || ""}${item.vote_average ? ` · ★ ${item.vote_average.toFixed(1)}` : ""}</span>
           <label class="watched-toggle">
             <input type="checkbox" data-id="${item.id}" ${item.watched ? "checked" : ""}>
             Watched
@@ -258,6 +271,7 @@ async function loadMoviesGallery() {
   try {
     const data = await api("/api/library/movies");
     state.movieItems = data.items;
+    populateGenreOptions($("#movies-genre"), state.movieItems, $("#movies-genre").value);
     checkBackfillProgress("movie", "movies", loadMoviesGallery);
     renderMoviesGallery();
   } catch (e) {
@@ -270,7 +284,10 @@ function groupEpisodesByShow(items) {
   for (const item of items) {
     const key = item.title;
     if (!shows.has(key)) {
-      shows.set(key, { title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview, manual_override: item.manual_override, episodes: [] });
+      shows.set(key, {
+        title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview,
+        manual_override: item.manual_override, vote_average: item.vote_average, genres: item.genres, episodes: [],
+      });
     }
     shows.get(key).episodes.push(item);
   }
@@ -285,8 +302,9 @@ function renderTvGallery() {
   const query = $("#tv-search").value.trim();
   const sortMode = $("#tv-sort").value;
   const filterMode = $("#tv-filter").value;
+  const genreFilter = $("#tv-genre").value;
   const allShows = groupEpisodesByShow(state.tvItems);
-  const shows = filterAndSort(allShows, query, sortMode, "title", filterMode);
+  const shows = filterAndSort(allShows, query, sortMode, "title", filterMode, genreFilter);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
     (shows.length !== allShows.length ? ` (${shows.length} shown)` : "");
@@ -342,6 +360,7 @@ async function loadTvGallery() {
   try {
     const data = await api("/api/library/tv");
     state.tvItems = data.items;
+    populateGenreOptions($("#tv-genre"), state.tvItems, $("#tv-genre").value);
     checkBackfillProgress("tv", "tv", loadTvGallery);
     renderTvGallery();
   } catch (e) {
@@ -1641,6 +1660,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-search").addEventListener("input", renderMoviesGallery);
   $("#movies-sort").addEventListener("change", renderMoviesGallery);
   $("#movies-filter").addEventListener("change", renderMoviesGallery);
+  $("#movies-genre").addEventListener("change", renderMoviesGallery);
   $("#movies-select-all-btn").addEventListener("click", () => {
     const boxes = $all(".gallery-select");
     const allChecked = boxes.every((b) => b.checked);
@@ -1660,6 +1680,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#tv-search").addEventListener("input", renderTvGallery);
   $("#tv-sort").addEventListener("change", renderTvGallery);
   $("#tv-filter").addEventListener("change", renderTvGallery);
+  $("#tv-genre").addEventListener("change", renderTvGallery);
 
   $("#history-type-filter").addEventListener("change", loadHistory);
 

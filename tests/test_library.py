@@ -83,6 +83,17 @@ def test_list_movies_returns_poster_and_overview(client):
     assert item["title"] == "Movie"
     assert item["poster_path"] == "/poster.jpg"
     assert item["overview"] == "Plot."
+    assert item["vote_average"] is None
+    assert item["genres"] == []
+
+
+def test_list_movies_returns_vote_average_and_genres(client):
+    c, db = client
+    _seed_movie(db, metadata={"poster_path": "/p.jpg", "overview": "", "vote_average": 8.1, "genres": ["Action"]})
+
+    item = c.get("/api/library/movies").json()["items"][0]
+    assert item["vote_average"] == 8.1
+    assert item["genres"] == ["Action"]
     assert item["watched"] is False
     assert item["file_name"] == "Movie (2020).mkv"
     assert item["size_bytes"] is None  # final_path doesn't point at a real file in this fixture

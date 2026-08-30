@@ -15,7 +15,7 @@ import contextlib
 import logging
 from datetime import datetime, timezone
 
-from app.core.tmdb_client import TMDBClient
+from app.core.tmdb_client import TMDBClient, genres_for, vote_average_for
 from app.database import Database
 from app.dependencies import get_database, get_tmdb_client
 
@@ -46,7 +46,12 @@ def match_one(db: Database, tmdb: TMDBClient) -> bool:
             tmdb_id=m.tmdb_id,
             title=m.title,
             year=m.year if m.year is not None else row["year"],
-            metadata={"poster_path": m.poster_path, "overview": m.overview},
+            metadata={
+                "poster_path": m.poster_path,
+                "overview": m.overview,
+                "vote_average": vote_average_for(m),
+                "genres": genres_for(m),
+            },
             match_attempted_at=now,
         )
         logger.info("Matched adopted item %r -> tmdb_id=%s", row["title"], m.tmdb_id)

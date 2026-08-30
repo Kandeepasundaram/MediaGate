@@ -59,7 +59,13 @@ def organize_file(db: Database, plan: RenamePlan) -> int:
         final_path=str(plan.dest_path),
         season_number=plan.season,
         episode_number=plan.episode,
-        metadata={"poster_path": plan.poster_path, "overview": plan.overview, "episode_title": plan.episode_title},
+        metadata={
+            "poster_path": plan.poster_path,
+            "overview": plan.overview,
+            "episode_title": plan.episode_title,
+            "vote_average": plan.vote_average,
+            "genres": plan.genres,
+        },
     )
 
     if existing:

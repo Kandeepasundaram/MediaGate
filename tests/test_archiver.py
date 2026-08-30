@@ -35,13 +35,15 @@ def _plan(tmp_path, **overrides) -> RenamePlan:
 
 
 def test_archive_file_persists_poster_and_overview_in_metadata(db, tmp_path):
-    plan = _plan(tmp_path)
+    plan = _plan(tmp_path, vote_average=7.5, genres=["Drama"])
     media_id = archive_file(db, plan)
 
     item = db.get_media_item(media_id)
     metadata = json.loads(item["metadata"])
     assert metadata["poster_path"] == "/poster.jpg"
     assert metadata["overview"] == "Plot summary."
+    assert metadata["vote_average"] == 7.5
+    assert metadata["genres"] == ["Drama"]
     assert item["final_path"] == str(plan.dest_path)
     assert item["original_path"] == str(plan.source_path)
 

@@ -47,6 +47,8 @@ class ArchivePreviewItem(BaseModel):
     tmdb_id: int | None = None
     poster_path: str | None = None
     overview: str = ""
+    vote_average: float | None = None
+    genres: list[str] = Field(default_factory=list)
     # True when a media_items row already matches this title (movie: same
     # title+year; TV: same show+season+episode) -- surfaced as a warning in
     # the preview table, not a hard block.
@@ -202,6 +204,8 @@ class LibraryItemOut(BaseModel):
     size_bytes: int | None = None
     episode_title: str | None = None
     manual_override: bool = False
+    vote_average: float | None = None
+    genres: list[str] = Field(default_factory=list)
 
 
 class TvStatusOut(BaseModel):

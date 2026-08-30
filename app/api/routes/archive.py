@@ -94,6 +94,8 @@ def preview_archive(
                     tmdb_id=plan.tmdb_id,
                     poster_path=media.poster_path,
                     overview=media.overview,
+                    vote_average=plan.vote_average,
+                    genres=plan.genres,
                     duplicate=_is_duplicate(db, plan),
                 )
             )
@@ -171,6 +173,8 @@ def confirm_archive(
             episode=item.episode,
             poster_path=item.poster_path,
             overview=item.overview,
+            vote_average=item.vote_average,
+            genres=item.genres,
         )
         try:
             media_id = archive_file(db, plan)

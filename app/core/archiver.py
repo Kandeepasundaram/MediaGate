@@ -96,6 +96,8 @@ def archive_file(db: Database, plan: RenamePlan) -> int:
             "poster_path": plan.poster_path,
             "overview": plan.overview,
             "episode_title": plan.episode_title,
+            "vote_average": plan.vote_average,
+            "genres": plan.genres,
         },
     )
 

@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
 
-from app.core.tmdb_client import MediaResult, TMDBClient
+from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, vote_average_for
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,8 @@ class RenamePlan:
     episode_title: str | None = None
     poster_path: str | None = None
     overview: str = ""
+    vote_average: float | None = None
+    genres: list[str] = field(default_factory=list)
 
 
 def plan_movie_rename(source: Path, archive_root: Path, media: MediaResult, ext: str | None = None) -> RenamePlan:
@@ -53,6 +55,8 @@ def plan_movie_rename(source: Path, archive_root: Path, media: MediaResult, ext:
         year=year,
         poster_path=media.poster_path,
         overview=media.overview,
+        vote_average=vote_average_for(media),
+        genres=genres_for(media),
     )
 
 
@@ -86,6 +90,8 @@ def plan_tv_rename(
         episode_title=episode_title,
         poster_path=media.poster_path,
         overview=media.overview,
+        vote_average=vote_average_for(media),
+        genres=genres_for(media),
     )
 
 

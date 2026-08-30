@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import tmdbv3api
 from tmdbv3api.as_obj import AsObj
 
-from app.core.tmdb_client import TMDBClient, parse_filename
+from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, parse_filename, vote_average_for
 from app.core.tmdb_scraper import ScrapedResult
 
 
@@ -18,6 +18,41 @@ def _empty_search_response() -> AsObj:
 
 def _search_response(movies: list[dict]) -> AsObj:
     return AsObj({"page": 1, "results": movies, "total_pages": 1, "total_results": len(movies)}, key="results")
+
+
+def test_genres_for_uses_named_genres_from_details_response():
+    media = MediaResult(tmdb_id=1, title="X", media_type="movie", raw={"genres": [{"id": 18, "name": "Drama"}]})
+    assert genres_for(media) == ["Drama"]
+
+
+def test_genres_for_maps_genre_ids_from_search_response():
+    media = MediaResult(tmdb_id=1, title="X", media_type="movie", raw={"genre_ids": [28, 12]})
+    assert genres_for(media) == ["Action", "Adventure"]
+
+
+def test_genres_for_uses_tv_genre_map_for_tv_media_type():
+    media = MediaResult(tmdb_id=1, title="X", media_type="tv", raw={"genre_ids": [10759]})
+    assert genres_for(media) == ["Action & Adventure"]
+
+
+def test_genres_for_empty_when_no_raw_data():
+    media = MediaResult(tmdb_id=1, title="X", media_type="movie", raw={})
+    assert genres_for(media) == []
+
+
+def test_genres_for_ignores_unknown_genre_ids():
+    media = MediaResult(tmdb_id=1, title="X", media_type="movie", raw={"genre_ids": [999999]})
+    assert genres_for(media) == []
+
+
+def test_vote_average_for_returns_value():
+    media = MediaResult(tmdb_id=1, title="X", media_type="movie", raw={"vote_average": 8.4})
+    assert vote_average_for(media) == 8.4
+
+
+def test_vote_average_for_none_when_zero_or_missing():
+    assert vote_average_for(MediaResult(tmdb_id=1, title="X", media_type="movie", raw={"vote_average": 0})) is None
+    assert vote_average_for(MediaResult(tmdb_id=1, title="X", media_type="movie", raw={})) is None
 
 
 def test_parse_filename_tv_show():

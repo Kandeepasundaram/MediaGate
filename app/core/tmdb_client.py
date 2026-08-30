@@ -36,6 +36,41 @@ class MediaResult:
     raw: dict = field(default_factory=dict)
 
 
+_MOVIE_GENRE_NAMES = {
+    28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+    99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
+    27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance",
+    878: "Science Fiction", 10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
+}
+_TV_GENRE_NAMES = {
+    10759: "Action & Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+    99: "Documentary", 18: "Drama", 10751: "Family", 10762: "Kids", 9648: "Mystery",
+    10763: "News", 10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap",
+    10767: "Talk", 10768: "War & Politics", 37: "Western",
+}
+
+
+def genres_for(media: "MediaResult") -> list[str]:
+    """Genre names for a match, straight from whatever TMDB API response is
+    already sitting in media.raw -- no extra network call. The details
+    endpoint (get_movie_details/get_tv_details) returns full {id, name}
+    objects; the search endpoint only returns genre_ids, mapped here via
+    TMDB's own (effectively static) genre id list. Empty in scraper mode,
+    where raw is {}."""
+    named = media.raw.get("genres")
+    if named:
+        return [g["name"] for g in named if isinstance(g, dict) and g.get("name")]
+    genre_map = _TV_GENRE_NAMES if media.media_type == "tv" else _MOVIE_GENRE_NAMES
+    return [genre_map[gid] for gid in media.raw.get("genre_ids", []) if gid in genre_map]
+
+
+def vote_average_for(media: "MediaResult") -> float | None:
+    """TMDB's 0-10 average user rating, straight from media.raw. None in
+    scraper mode or if TMDB hasn't got enough votes to publish one yet."""
+    value = media.raw.get("vote_average")
+    return float(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
 @dataclass
 class ParsedFilename:
     title: str
