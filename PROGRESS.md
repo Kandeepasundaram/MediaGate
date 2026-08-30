@@ -217,10 +217,38 @@ direction is unclear — it is not filling a gap Radarr/Sonarr leave open for
 the core organize/rename workflow, so whatever unique value it's meant to
 provide here hasn't been articulated yet.
 
+## Redeploy gotcha: restart/force-recreate do NOT rebuild the image
+
+Discovered while pushing the `active_dir` → `incoming_movies`/`incoming_tv`
+fix to the already-running Arcane deployment. After `Sync from Git` pulled
+the new commit, neither the project's "restart" icon (does exactly that —
+restarts the existing container on its existing image) nor "Force recreate
+containers" (recreates the container, still from the existing image) picked
+up the new `app/` source. The build log for a recreate showed
+`#12 [6/10] COPY app ./app` as `CACHED` even though the workspace files had
+genuinely changed. **The only thing that actually rebuilds the image for a
+git-synced `build: .` project is stopping the project fully and starting it
+again** (Stop → Start/Deploy) — that path's Activity Center log shows real
+`docker build` steps for a from-scratch or content-changed build. Verified
+the fix actually landed by checking `GET /api/settings`'s response shape
+directly (new fields present) rather than trusting the build log alone —
+worth doing that verification every time, since "the deploy succeeded" and
+"the new code is running" turned out to be separable claims here.
+
+**For any future redeploy of this project in Arcane: Sync from Git, then
+Stop, then Start/Deploy — never just restart or force-recreate.**
+
+After that, set `incoming_movies`/`incoming_tv` to `/media/movies`/`/media/tv`
+via `POST /api/settings` (the persisted `config.yaml` predates the schema
+change and only had `archive_movies`/`archive_tv` populated) and confirmed
+`GET /api/scan` found **409 real files** in the actual Radarr/Sonarr-managed
+library — first real signal the deployed app can see production data, not
+just empty test mounts.
+
 ## Recommended next steps (not done here)
 
 1. Get a real TMDB API key and re-verify search/detail calls end to end (can now be set via the Settings tab, no `.env` needed).
-2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts once they have real files in them (done so far: API-level checks via `curl`/browser JS console against the live deployment, and a full click-through against a throwaway local Docker demo with synthetic files — not yet against real production data, which was empty at deploy time).
+2. Manually click through the dashboard in a real browser doing a real archive against the live `/mnt/data1t/movies` and `/mnt/data1t/tv` mounts now that `GET /api/scan` finds the 409 real files there — not yet tried an actual preview/confirm against real (not synthetic) media.
 3. Decide whether to keep `scripts/install_service.sh`/`deploy.sh`/`backup.sh` (systemd-based, Ubuntu-only) around for a non-Docker install path or delete them now that Docker/Arcane is the primary, proven target.
-4. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep re-triggering any network-specific build issues on future redeploys.
+4. Consider publishing a prebuilt image (GHCR) so Arcane can pull instead of building from source each deploy — would also sidestep both the network-specific build issue and the stop/start-to-rebuild gotcha above.
 5. Clarify what Media Manager is actually *for* given the Radarr/Sonarr overlap discovered above — worth a real conversation before investing further, since right now it duplicates functionality the user already has running.
