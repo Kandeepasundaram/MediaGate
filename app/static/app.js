@@ -136,8 +136,9 @@ async function checkBackfillProgress(mediaType, tabKey, reloadFn) {
   } catch (e) { /* next manual reload will retry */ }
 }
 
-function filterAndSort(items, query, sortMode, titleKey) {
+function filterAndSort(items, query, sortMode, titleKey, filterMode) {
   let out = items;
+  if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
   if (query) {
     const q = query.toLowerCase();
     out = out.filter((i) => i[titleKey].toLowerCase().includes(q));
@@ -157,7 +158,8 @@ function renderMoviesGallery() {
   const gallery = $("#movies-gallery");
   const query = $("#movies-search").value.trim();
   const sortMode = $("#movies-sort").value;
-  const items = filterAndSort(state.movieItems, query, sortMode, "title");
+  const filterMode = $("#movies-filter").value;
+  const items = filterAndSort(state.movieItems, query, sortMode, "title", filterMode);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
     (items.length !== state.movieItems.length ? ` (${items.length} shown)` : "");
@@ -167,7 +169,7 @@ function renderMoviesGallery() {
     return;
   }
   if (items.length === 0) {
-    gallery.innerHTML = `<p class="gallery-empty">No movies match "${query}".</p>`;
+    gallery.innerHTML = `<p class="gallery-empty">No movies match${query ? ` "${query}"` : ""}${filterMode === "unmatched" ? " (unmatched filter)" : ""}.</p>`;
     return;
   }
   gallery.innerHTML = items.map((item, i) => `
@@ -227,8 +229,9 @@ function renderTvGallery() {
   const gallery = $("#tv-gallery");
   const query = $("#tv-search").value.trim();
   const sortMode = $("#tv-sort").value;
+  const filterMode = $("#tv-filter").value;
   const allShows = groupEpisodesByShow(state.tvItems);
-  const shows = filterAndSort(allShows, query, sortMode, "title");
+  const shows = filterAndSort(allShows, query, sortMode, "title", filterMode);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
     (shows.length !== allShows.length ? ` (${shows.length} shown)` : "");
@@ -238,7 +241,7 @@ function renderTvGallery() {
     return;
   }
   if (shows.length === 0) {
-    gallery.innerHTML = `<p class="gallery-empty">No shows match "${query}".</p>`;
+    gallery.innerHTML = `<p class="gallery-empty">No shows match${query ? ` "${query}"` : ""}${filterMode === "unmatched" ? " (unmatched filter)" : ""}.</p>`;
     return;
   }
   gallery.innerHTML = shows.map((show, i) => `
@@ -1149,6 +1152,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#movies-search").addEventListener("input", renderMoviesGallery);
   $("#movies-sort").addEventListener("change", renderMoviesGallery);
+  $("#movies-filter").addEventListener("change", renderMoviesGallery);
   $("#movies-select-all-btn").addEventListener("click", () => {
     const boxes = $all(".gallery-select");
     const allChecked = boxes.every((b) => b.checked);
@@ -1167,6 +1171,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("#tv-search").addEventListener("input", renderTvGallery);
   $("#tv-sort").addEventListener("change", renderTvGallery);
+  $("#tv-filter").addEventListener("change", renderTvGallery);
 
   $("#history-type-filter").addEventListener("change", loadHistory);
 
