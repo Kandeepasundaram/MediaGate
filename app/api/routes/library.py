@@ -36,6 +36,8 @@ from app.models import (
     LibraryResponse,
     MediaType,
     MetadataStatusResponse,
+    MovieRelatedTitleOut,
+    MovieStatusOut,
     RatingsOut,
     RematchImdbRequest,
     RematchResponse,
@@ -140,6 +142,35 @@ def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvSt
         latest_known_season=media.raw.get("number_of_seasons"),
         latest_season_episode_count=media.raw.get("latest_season_episode_count"),
         total_episodes=media.raw.get("number_of_episodes"),
+        data_available=media.source == "api",
+    )
+
+
+@router.get("/movie-status", response_model=MovieStatusOut)
+def movie_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> MovieStatusOut:
+    """Movie counterpart of /tv-status: same "new content available" badge
+    concept, but for movies that's a collection (sequel/prequel), not a
+    season. Returns every other movie in the same TMDB collection; the
+    frontend cross-references against the already-archived library to
+    decide which of those are actually missing, since this endpoint has no
+    DB access of its own -- same self-contained, tracker-independent design
+    as tv_status above.
+    """
+    media = tmdb.get_movie_details(tmdb_id)
+    if media is None:
+        raise HTTPException(status_code=404, detail=f"No TMDB details found for tmdb_id {tmdb_id}")
+    collection_id = (media.raw.get("belongs_to_collection") or {}).get("id")
+    related = []
+    if collection_id:
+        related = [
+            MovieRelatedTitleOut(tmdb_id=m.tmdb_id, title=m.title, year=m.year)
+            for m in tmdb.get_collection_movies(collection_id)
+            if m.tmdb_id != tmdb_id
+        ]
+    return MovieStatusOut(
+        tmdb_id=tmdb_id,
+        collection_id=collection_id,
+        related=related,
         data_available=media.source == "api",
     )
 

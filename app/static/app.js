@@ -6,6 +6,7 @@ const state = {
   tvItems: [],
   matchPicker: null, // { mediaType, onApply } for the current match-modal search
   tvStatusCache: {}, // tmdb_id -> TvStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
+  movieStatusCache: {}, // tmdb_id -> MovieStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
 };
 
 function $(sel) { return document.querySelector(sel); }
@@ -193,7 +194,7 @@ function renderMoviesGallery() {
   gallery.innerHTML = items.map((item, i) => `
     <div class="gallery-card" data-item-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
-      <div class="gallery-badges">
+      <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
         ${item.tmdb_id == null ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${item.watched ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
       </div>
@@ -216,6 +217,25 @@ function renderMoviesGallery() {
   });
   gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
     card.addEventListener("click", () => openDetailPane("movie", items[i]));
+  });
+  loadMovieGalleryBadges(items);
+}
+
+// Best-effort "related title available" badge per movie card (sequel/prequel
+// in the same TMDB collection that isn't in the library yet) -- mirrors
+// loadTvGalleryBadges. One TMDB lookup per movie, cached in
+// state.movieStatusCache so repeat renders (search/sort/filter) don't refetch.
+function loadMovieGalleryBadges(items) {
+  const archivedTmdbIds = new Set(state.movieItems.map((i) => i.tmdb_id).filter((id) => id != null));
+  items.forEach((item) => {
+    if (item.tmdb_id == null) return;
+    getMovieStatus(item.tmdb_id).then((status) => {
+      const info = computeMovieStatusInfo(status, archivedTmdbIds);
+      if (!info || !info.hasGap) return;
+      const container = $(`.gallery-badges[data-movie-badges="${item.tmdb_id}"]`);
+      if (!container || container.querySelector(".badge-new")) return;
+      container.insertAdjacentHTML("beforeend", `<span class="badge badge-new" title="${info.gapMessage}">🆕</span>`);
+    });
   });
 }
 
@@ -327,6 +347,7 @@ function renderDetailPane() {
   if (pane.kind === "movie") {
     const item = pane.data;
     content.innerHTML = `
+      <div id="detail-movie-status"></div>
       ${item.tmdb_id == null ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
       ${posterMarkupLarge(item.title, item.poster_path)}
       <div class="detail-title">${item.title}</div>
@@ -356,6 +377,7 @@ function renderDetailPane() {
     });
     loadRatings(item.id);
     loadFileInfo(item.id, "#detail-file-extra");
+    if (item.tmdb_id != null) loadMovieStatus(item.tmdb_id);
   } else {
     const show = pane.data;
     content.innerHTML = `
@@ -541,9 +563,60 @@ async function loadTvStatus(tmdbId, episodes) {
     ? `${info.totalArchived} of ${info.totalEpisodes} episodes archived`
     : `${info.totalArchived} episode(s) archived`;
   const parts = info.hasGap ? [info.gapMessage, fraction] : [fraction];
-  const cls = info.hasGap ? "tv-status-banner" : "tv-status-banner tv-status-ok";
+  const cls = info.hasGap ? "status-banner" : "status-banner status-banner-ok";
   const icon = info.hasGap ? "📺" : "✅";
   el.innerHTML = `<div class="${cls}">${icon} ${parts.join(" · ")}${info.statusLabel ? ` <span class="hint">(${info.statusLabel})</span>` : ""}</div>`;
+}
+
+// GET /api/library/movie-status, memoized like getTvStatus.
+async function getMovieStatus(tmdbId) {
+  if (tmdbId in state.movieStatusCache) return state.movieStatusCache[tmdbId];
+  try {
+    const status = await api(`/api/library/movie-status?tmdb_id=${tmdbId}`);
+    state.movieStatusCache[tmdbId] = status;
+    return status;
+  } catch (e) {
+    state.movieStatusCache[tmdbId] = null;
+    return null;
+  }
+}
+
+// Movie counterpart of computeTvStatusInfo: "gap" here means another movie
+// in the same TMDB collection that isn't archived yet. No collection at all
+// (the common case) returns null, same as a TV show with no TMDB match --
+// no banner rather than a misleadingly empty one.
+function computeMovieStatusInfo(status, archivedTmdbIds) {
+  if (!status || !status.data_available || status.collection_id == null) return null;
+  const missing = status.related.filter((r) => r.tmdb_id != null && !archivedTmdbIds.has(r.tmdb_id));
+  const hasGap = missing.length > 0;
+  const gapMessage = hasGap
+    ? (missing.length === 1
+        ? `Related title available: ${missing[0].title}${missing[0].year ? ` (${missing[0].year})` : ""}.`
+        : `${missing.length} related titles available: ${missing.map((m) => m.title).join(", ")}.`)
+    : null;
+  return {
+    hasGap,
+    gapMessage,
+    collectionSize: status.related.length + 1, // + the movie itself
+    archivedInCollection: status.related.length + 1 - missing.length,
+  };
+}
+
+async function loadMovieStatus(tmdbId) {
+  const el = $("#detail-movie-status");
+  if (!el) return;
+  const archivedTmdbIds = new Set(state.movieItems.map((i) => i.tmdb_id).filter((id) => id != null));
+  const status = await getMovieStatus(tmdbId);
+  const info = computeMovieStatusInfo(status, archivedTmdbIds);
+  if (!info) {
+    el.innerHTML = "";
+    return;
+  }
+  const fraction = `${info.archivedInCollection} of ${info.collectionSize} collection titles archived`;
+  const parts = info.hasGap ? [info.gapMessage, fraction] : [fraction];
+  const cls = info.hasGap ? "status-banner" : "status-banner status-banner-ok";
+  const icon = info.hasGap ? "🎬" : "✅";
+  el.innerHTML = `<div class="${cls}">${icon} ${parts.join(" · ")}</div>`;
 }
 
 async function loadRatings(itemId) {

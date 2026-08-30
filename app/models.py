@@ -188,6 +188,19 @@ class TvStatusOut(BaseModel):
     data_available: bool = False
 
 
+class MovieRelatedTitleOut(BaseModel):
+    tmdb_id: int | None = None
+    title: str
+    year: int | None = None
+
+
+class MovieStatusOut(BaseModel):
+    tmdb_id: int
+    collection_id: int | None = None
+    related: list[MovieRelatedTitleOut] = []
+    data_available: bool = False
+
+
 class FileInfoOut(BaseModel):
     file_name: str
     path: str

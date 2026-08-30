@@ -514,3 +514,65 @@ def test_tv_status_404_when_tmdb_has_no_match(client):
 
     resp = c.get("/api/library/tv-status", params={"tmdb_id": 999999})
     assert resp.status_code == 404
+
+
+def test_movie_status_reports_related_collection_titles(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=603, title="The Matrix", media_type="movie", source="api",
+        raw={"belongs_to_collection": {"id": 2344, "name": "The Matrix Collection"}},
+    )
+    fake_tmdb.get_collection_movies.return_value = [
+        MediaResult(tmdb_id=603, title="The Matrix", media_type="movie", year=1999),
+        MediaResult(tmdb_id=604, title="The Matrix Reloaded", media_type="movie", year=2003),
+        MediaResult(tmdb_id=605, title="The Matrix Revolutions", media_type="movie", year=2003),
+    ]
+
+    resp = c.get("/api/library/movie-status", params={"tmdb_id": 603})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["collection_id"] == 2344
+    assert body["data_available"] is True
+    related_ids = {r["tmdb_id"] for r in body["related"]}
+    assert related_ids == {604, 605}  # excludes the queried movie itself
+    fake_tmdb.get_collection_movies.assert_called_once_with(2344)
+
+
+def test_movie_status_no_collection_returns_empty_related(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=100, title="Standalone Movie", media_type="movie", source="api",
+        raw={"belongs_to_collection": None},
+    )
+
+    resp = c.get("/api/library/movie-status", params={"tmdb_id": 100})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["collection_id"] is None
+    assert body["related"] == []
+    fake_tmdb.get_collection_movies.assert_not_called()
+
+
+def test_movie_status_scraper_mode_reports_data_unavailable(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=603, title="The Matrix", media_type="movie", source="scraper", raw={}
+    )
+
+    resp = c.get("/api/library/movie-status", params={"tmdb_id": 603})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data_available"] is False
+    assert body["collection_id"] is None
+
+
+def test_movie_status_404_when_tmdb_has_no_match(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = None
+
+    resp = c.get("/api/library/movie-status", params={"tmdb_id": 999999})
+    assert resp.status_code == 404

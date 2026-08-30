@@ -461,7 +461,7 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   border-bottom: 1px solid var(--border);
 }
 
-.tv-status-banner {
+.status-banner {
   background: color-mix(in srgb, var(--warning) 15%, var(--bg-elevated));
   border: 1px solid var(--warning);
   border-radius: 8px;
@@ -470,7 +470,7 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   margin-bottom: 0.9rem;
 }
 
-.tv-status-banner.tv-status-ok {
+.status-banner.status-banner-ok {
   background: color-mix(in srgb, var(--success) 15%, var(--bg-elevated));
   border-color: var(--success);
 }
