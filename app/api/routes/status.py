@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import time
+from pathlib import Path
+
 from fastapi import APIRouter, Depends
 
 from app.config_loader import AppConfig
+from app.core import media_probe
+from app.core.scheduler import _seconds_until
 from app.database import Database
-from app.dependencies import get_config, get_database, get_tmdb_client
+from app.dependencies import START_TIME, get_config, get_database, get_tmdb_client
 from app.core.tmdb_client import TMDBClient
 from app.models import LogEntryOut, StatsResponse, StatusResponse
 
@@ -16,7 +21,15 @@ def get_status(
     config: AppConfig = Depends(get_config),
     tmdb: TMDBClient = Depends(get_tmdb_client),
 ) -> StatusResponse:
-    return StatusResponse(tmdb_mode=tmdb.mode, database_path=str(config.database_path))
+    db_path = Path(config.database_path)
+    return StatusResponse(
+        tmdb_mode=tmdb.mode,
+        database_path=str(config.database_path),
+        ffprobe_available=media_probe.ffprobe_available(),
+        database_size_bytes=db_path.stat().st_size if db_path.exists() else 0,
+        uptime_seconds=time.monotonic() - START_TIME,
+        next_tracker_check_in_seconds=_seconds_until(config.tracker.cron_time),
+    )
 
 
 @router.get("/stats", response_model=StatsResponse)

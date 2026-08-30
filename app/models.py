@@ -178,6 +178,10 @@ class StatusResponse(BaseModel):
     status: Literal["ok"] = "ok"
     tmdb_mode: str
     database_path: str
+    ffprobe_available: bool = False
+    database_size_bytes: int = 0
+    uptime_seconds: float = 0
+    next_tracker_check_in_seconds: float | None = None
 
 
 class StatsResponse(BaseModel):

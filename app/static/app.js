@@ -1561,17 +1561,30 @@ async function undoOperation(opId) {
 }
 
 // ---- Settings/stats tab ----
+function formatDuration(seconds) {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+}
+
 async function loadStats() {
   const card = $("#stats-card");
   card.textContent = "Loading...";
   try {
-    const stats = await api("/api/stats");
+    const [stats, health] = await Promise.all([api("/api/stats"), api("/api/status")]);
     card.innerHTML = `
       <p>Total media items: <strong>${stats.total_media_items}</strong></p>
       <p>Movies: <strong>${stats.total_movies}</strong></p>
       <p>TV episodes: <strong>${stats.total_tv_episodes}</strong></p>
       <p>Total archived size: <strong>${formatBytes(stats.total_size_bytes)}</strong>
         (movies: ${formatBytes(stats.movies_size_bytes)}, TV: ${formatBytes(stats.tv_size_bytes)})</p>
+      <p class="hint">
+        Server uptime: ${formatDuration(health.uptime_seconds)}
+        · Database: ${formatBytes(health.database_size_bytes)}
+        · ffprobe: ${health.ffprobe_available ? "available" : "not installed"}
+        ${health.next_tracker_check_in_seconds != null ? `· Next tracker check in ${formatDuration(health.next_tracker_check_in_seconds)}` : ""}
+      </p>
     `;
   } catch (e) {
     card.textContent = `Error: ${e.message}`;
@@ -1626,6 +1639,7 @@ async function saveSettings(e) {
     $("#settings-status").textContent = "Saved.";
     loadSettings();
     loadStatus();
+    checkPermissions(); // catches a typo'd path immediately instead of waiting for a manual "Test Permissions" click
   } catch (e) {
     $("#settings-status").textContent = `Error: ${e.message}`;
   }

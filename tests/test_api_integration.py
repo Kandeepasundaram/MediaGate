@@ -75,7 +75,11 @@ def test_status_endpoint(client):
     c, _ = client
     resp = c.get("/api/status")
     assert resp.status_code == 200
-    assert resp.json()["tmdb_mode"] == "scraper"
+    body = resp.json()
+    assert body["tmdb_mode"] == "scraper"
+    assert isinstance(body["ffprobe_available"], bool)
+    assert body["uptime_seconds"] >= 0
+    assert body["next_tracker_check_in_seconds"] > 0
 
 
 def test_scan_preview_confirm_flow(client):

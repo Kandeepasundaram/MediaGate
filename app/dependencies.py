@@ -1,12 +1,15 @@
 """Shared singletons (config, DB, TMDB client) wired up as FastAPI dependencies."""
 from __future__ import annotations
 
+import time
 from functools import lru_cache
 
 from app.config_loader import AppConfig, load_config
 from app.core.omdb_client import OMDbClient
 from app.core.tmdb_client import TMDBClient
 from app.database import Database
+
+START_TIME = time.monotonic()
 
 
 @lru_cache
