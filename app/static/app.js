@@ -7,6 +7,7 @@ const state = {
   matchPicker: null, // { mediaType, onApply } for the current match-modal search
   tvStatusCache: {}, // tmdb_id -> TvStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
   movieStatusCache: {}, // tmdb_id -> MovieStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
+  pendingGenreRestore: { movies: null, tv: null }, // saved genre filter value applied on the first gallery load only
 };
 
 function $(sel) { return document.querySelector(sel); }
@@ -191,6 +192,53 @@ function filterAndSort(items, query, sortMode, titleKey, filterMode, genreFilter
   return out;
 }
 
+// ---- Saved filter/sort presets (per-viewer, localStorage) ----
+const FILTER_STATE_KEY_PREFIX = "media-manager:filters:";
+
+function saveFilterState(prefix, controlIds) {
+  const values = {};
+  controlIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) values[id] = el.value;
+  });
+  try {
+    localStorage.setItem(FILTER_STATE_KEY_PREFIX + prefix, JSON.stringify(values));
+  } catch (e) { /* private browsing / storage disabled -- filters just won't persist */ }
+}
+
+function restoreFilterState(prefix, controlIds) {
+  let values = {};
+  try {
+    values = JSON.parse(localStorage.getItem(FILTER_STATE_KEY_PREFIX + prefix) || "{}");
+  } catch (e) { /* corrupt or inaccessible storage -- fall back to defaults */ }
+  controlIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && values[id] !== undefined) el.value = values[id];
+  });
+  return values;
+}
+
+const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution"];
+const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution"];
+
+function setupFilterPersistence() {
+  const savedMovies = restoreFilterState("movies", MOVIE_FILTER_IDS);
+  state.pendingGenreRestore.movies = savedMovies["movies-genre"] || null;
+  const savedTv = restoreFilterState("tv", TV_FILTER_IDS);
+  state.pendingGenreRestore.tv = savedTv["tv-genre"] || null;
+
+  const movieIds = [...MOVIE_FILTER_IDS, "movies-genre"];
+  movieIds.forEach((id) => {
+    const el = document.getElementById(id);
+    el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("movies", movieIds));
+  });
+  const tvIds = [...TV_FILTER_IDS, "tv-genre"];
+  tvIds.forEach((id) => {
+    const el = document.getElementById(id);
+    el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("tv", tvIds));
+  });
+}
+
 function distinctGenres(items) {
   return Array.from(new Set(items.flatMap((i) => i.genres || []))).sort();
 }
@@ -280,7 +328,9 @@ async function loadMoviesGallery() {
   try {
     const data = await api("/api/library/movies");
     state.movieItems = data.items;
-    populateGenreOptions($("#movies-genre"), state.movieItems, $("#movies-genre").value);
+    const previousGenre = state.pendingGenreRestore.movies ?? $("#movies-genre").value;
+    state.pendingGenreRestore.movies = null;
+    populateGenreOptions($("#movies-genre"), state.movieItems, previousGenre);
     checkBackfillProgress("movie", "movies", loadMoviesGallery);
     renderMoviesGallery();
   } catch (e) {
@@ -370,7 +420,9 @@ async function loadTvGallery() {
   try {
     const data = await api("/api/library/tv");
     state.tvItems = data.items;
-    populateGenreOptions($("#tv-genre"), state.tvItems, $("#tv-genre").value);
+    const previousGenre = state.pendingGenreRestore.tv ?? $("#tv-genre").value;
+    state.pendingGenreRestore.tv = null;
+    populateGenreOptions($("#tv-genre"), state.tvItems, previousGenre);
     checkBackfillProgress("tv", "tv", loadTvGallery);
     renderTvGallery();
   } catch (e) {
@@ -1628,6 +1680,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupTheme();
   setupKeyboardShortcuts();
+  setupFilterPersistence();
   loadStatus();
   loadMoviesGallery();
   requestNotificationPermission();
