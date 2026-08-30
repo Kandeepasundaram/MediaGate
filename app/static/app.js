@@ -141,7 +141,20 @@ async function checkBackfillProgress(mediaType, tabKey, reloadFn) {
     let msg = "";
     if (stillTrying > 0) msg += ` — fetching metadata for ${stillTrying} more...`;
     if (status.failed > 0) msg += ` (${status.failed} could not be matched automatically, retrying periodically)`;
-    if (msg) $(`#${tabKey}-count`).textContent += msg;
+    if (msg) {
+      const countEl = $(`#${tabKey}-count`);
+      countEl.textContent += msg;
+      if (status.failed > 0) {
+        const btn = document.createElement("button");
+        btn.textContent = "Retry Now";
+        btn.className = "retry-failed-matches-btn";
+        btn.addEventListener("click", async () => {
+          await api(`/api/library/retry-failed-matches?media_type=${mediaType}`, { method: "POST" });
+          reloadFn();
+        });
+        countEl.appendChild(btn);
+      }
+    }
 
     // Only keep auto-reloading while something is actively in flight --
     // items stuck in the failed-match retry cooldown would otherwise keep

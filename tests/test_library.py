@@ -444,6 +444,17 @@ def test_file_info_404_for_unknown_item(client):
     assert resp.status_code == 404
 
 
+def test_retry_failed_matches_resets_cooldown(client):
+    c, db = client
+    failed_id = db.create_media_item(original_path="a", title="A", media_type="movie")
+    db.update_media_item(failed_id, match_attempted_at="2026-01-01T00:00:00+00:00")
+
+    resp = c.post("/api/library/retry-failed-matches")
+    assert resp.status_code == 200
+    assert resp.json()["reset"] == 1
+    assert db.get_media_item(failed_id)["match_attempted_at"] is None
+
+
 def test_export_returns_all_media_items(client):
     c, db = client
     _seed_movie(db)

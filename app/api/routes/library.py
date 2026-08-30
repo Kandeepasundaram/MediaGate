@@ -46,6 +46,7 @@ from app.models import (
     MovieStatusOut,
     OrphanCleanupResponse,
     RatingsOut,
+    RetryFailedMatchesResponse,
     RematchImdbRequest,
     RematchResponse,
     RematchTmdbRequest,
@@ -241,6 +242,16 @@ def cleanup_orphans(db: Database = Depends(get_database)) -> OrphanCleanupRespon
             db.delete_media_item(row["id"])
             removed += 1
     return OrphanCleanupResponse(removed=removed)
+
+
+@router.post("/retry-failed-matches", response_model=RetryFailedMatchesResponse)
+def retry_failed_matches(media_type: MediaType | None = None, db: Database = Depends(get_database)) -> RetryFailedMatchesResponse:
+    """Clears the retry cooldown on every previously-failed match so the
+    background backfill re-searches them on its very next cycle, instead of
+    waiting out list_unmatched_media_items' cooldown -- for after fixing a
+    file name or when a title just wasn't on TMDB yet at the time.
+    """
+    return RetryFailedMatchesResponse(reset=db.reset_failed_match_attempts(media_type))
 
 
 @router.get("/tv-status", response_model=TvStatusOut)

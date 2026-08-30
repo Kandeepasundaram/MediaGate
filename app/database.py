@@ -230,6 +230,21 @@ class Database:
             )
         return row["n"]
 
+    def reset_failed_match_attempts(self, media_type: str | None = None) -> int:
+        """Clears match_attempted_at for every previously-failed (searched,
+        no TMDB match found) item so the next backfill cycle retries them
+        immediately instead of waiting out the retry cooldown -- for "TMDB
+        was down when this last ran" or "I just fixed the file name".
+        Returns the number of rows reset."""
+        query = "UPDATE media_items SET match_attempted_at = NULL WHERE tmdb_id IS NULL AND manual_override = 0 AND match_attempted_at IS NOT NULL"
+        params: tuple = ()
+        if media_type:
+            query += " AND media_type = ?"
+            params = (media_type,)
+        with self.connect() as conn:
+            cur = conn.execute(query, params)
+            return cur.rowcount
+
     # ---- archive_tracker CRUD ----
 
     def upsert_tracker(self, tmdb_id: int, media_type: str, title: str, **fields: Any) -> None:

@@ -161,6 +161,36 @@ def test_set_tracker_muted_excludes_from_pending_notifications(db):
     assert len(db.list_pending_notifications()) == 1
 
 
+def test_reset_failed_match_attempts_clears_only_failed_items(db):
+    never_attempted = db.create_media_item(original_path="a", title="A", media_type="movie")
+    failed = db.create_media_item(original_path="b", title="B", media_type="movie")
+    db.update_media_item(failed, match_attempted_at="2026-01-01T00:00:00+00:00")
+    matched = db.create_media_item(original_path="c", title="C", media_type="movie", tmdb_id=1)
+    overridden = db.create_media_item(original_path="d", title="D", media_type="movie", manual_override=1)
+    db.update_media_item(overridden, match_attempted_at="2026-01-01T00:00:00+00:00")
+
+    reset_count = db.reset_failed_match_attempts()
+
+    assert reset_count == 1
+    assert db.get_media_item(never_attempted)["match_attempted_at"] is None
+    assert db.get_media_item(failed)["match_attempted_at"] is None
+    assert db.get_media_item(matched)["tmdb_id"] == 1
+    assert db.get_media_item(overridden)["match_attempted_at"] is not None
+
+
+def test_reset_failed_match_attempts_filters_by_media_type(db):
+    movie_failed = db.create_media_item(original_path="a", title="A", media_type="movie")
+    db.update_media_item(movie_failed, match_attempted_at="2026-01-01T00:00:00+00:00")
+    tv_failed = db.create_media_item(original_path="b", title="B", media_type="tv")
+    db.update_media_item(tv_failed, match_attempted_at="2026-01-01T00:00:00+00:00")
+
+    reset_count = db.reset_failed_match_attempts("movie")
+
+    assert reset_count == 1
+    assert db.get_media_item(movie_failed)["match_attempted_at"] is None
+    assert db.get_media_item(tv_failed)["match_attempted_at"] is not None
+
+
 def test_get_operation_returns_row_by_id(db):
     op_id = db.log_operation("archive", "success", details={"a": 1})
     assert db.get_operation(op_id)["operation_type"] == "archive"

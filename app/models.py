@@ -309,6 +309,10 @@ class OrphanCleanupResponse(BaseModel):
     removed: int
 
 
+class RetryFailedMatchesResponse(BaseModel):
+    reset: int
+
+
 class ManualOverrideRequest(BaseModel):
     title: str
     year: int | None = None
