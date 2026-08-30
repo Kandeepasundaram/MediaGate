@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS archive_tracker (
     last_checked TEXT,
     pending_notification INTEGER NOT NULL DEFAULT 0,
     notification_sent_at TEXT,
+    muted INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL,
     UNIQUE (tmdb_id, media_type)
 );
@@ -200,6 +201,21 @@ class Database:
             row = self.fetch_one("SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL")
         return row["n"]
 
+    def count_failed_match_items(self, media_type: str | None = None) -> int:
+        """Auto-adopted items that have been searched at least once with no
+        TMDB match found (as opposed to ones still waiting their first try)."""
+        if media_type:
+            row = self.fetch_one(
+                "SELECT COUNT(*) AS n FROM media_items "
+                "WHERE tmdb_id IS NULL AND match_attempted_at IS NOT NULL AND media_type = ?",
+                (media_type,),
+            )
+        else:
+            row = self.fetch_one(
+                "SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL AND match_attempted_at IS NOT NULL"
+            )
+        return row["n"]
+
     # ---- archive_tracker CRUD ----
 
     def upsert_tracker(self, tmdb_id: int, media_type: str, title: str, **fields: Any) -> None:
@@ -231,7 +247,9 @@ class Database:
         )
 
     def list_pending_notifications(self) -> list[dict[str, Any]]:
-        return self.fetch_all("SELECT * FROM archive_tracker WHERE pending_notification = 1")
+        """Muted titles are excluded -- they still get checked/tracked, just
+        never surface in the Notifications tab or fire a browser notification."""
+        return self.fetch_all("SELECT * FROM archive_tracker WHERE pending_notification = 1 AND muted = 0")
 
     def list_tracked(self) -> list[dict[str, Any]]:
         return self.fetch_all("SELECT * FROM archive_tracker ORDER BY created_at DESC")
@@ -241,6 +259,12 @@ class Database:
             "UPDATE archive_tracker SET pending_notification = 0, notification_sent_at = ? WHERE id = ?",
             (_now(), tracker_id),
         )
+
+    def set_tracker_muted(self, tracker_id: int, muted: bool) -> None:
+        self.execute_query("UPDATE archive_tracker SET muted = ? WHERE id = ?", (1 if muted else 0, tracker_id))
+
+    def get_tracker_by_id(self, tracker_id: int) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM archive_tracker WHERE id = ?", (tracker_id,))
 
     # ---- operation_log CRUD ----
 
@@ -264,6 +288,9 @@ class Database:
                 _now(),
             ),
         )
+
+    def get_operation(self, operation_id: int) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM operation_log WHERE id = ?", (operation_id,))
 
     def list_operations(self, operation_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
         if operation_type:
@@ -314,8 +341,15 @@ def _migration_v3(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE media_items ADD COLUMN match_attempted_at TEXT")
 
 
+def _migration_v4(conn: sqlite3.Connection) -> None:
+    """Add archive_tracker.muted, for per-title notification snoozing.
+    Plain nullable-with-default column add, no rebuild needed."""
+    conn.execute("ALTER TABLE archive_tracker ADD COLUMN muted INTEGER NOT NULL DEFAULT 0")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
     3: _migration_v3,
+    4: _migration_v4,
 }

@@ -23,6 +23,7 @@ _DEFAULT_CONFIG: dict = {
         "delete_extensions": [".srt", ".ass", ".ssa"],
     },
     "tracker": {"cron_time": "06:00", "notification_ttl_days": 30},
+    "notifications": {"webhook_url": ""},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
     "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"]},
 }
@@ -55,6 +56,11 @@ class TrackerConfig:
 
 
 @dataclass
+class NotificationsConfig:
+    webhook_url: str = ""
+
+
+@dataclass
 class LoggingConfig:
     level: str = "INFO"
     file: Path = Path("./logs/media_manager.log")
@@ -74,6 +80,7 @@ class AppConfig:
     tmdb: TMDBConfig
     subtitles: SubtitlesConfig
     tracker: TrackerConfig
+    notifications: NotificationsConfig
     logging: LoggingConfig
     server: ServerConfig
     config_path: Path = Path("config.yaml")
@@ -115,6 +122,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
             delete_extensions=raw["subtitles"]["delete_extensions"],
         ),
         tracker=TrackerConfig(**raw["tracker"]),
+        notifications=NotificationsConfig(**raw["notifications"]),
         logging=LoggingConfig(
             level=raw["logging"]["level"],
             file=Path(raw["logging"]["file"]),
@@ -142,6 +150,7 @@ _EDITABLE_KEYS = {
     "paths": {"incoming_movies", "incoming_tv", "archive_movies", "archive_tv"},
     "tmdb": {"api_key"},
     "server": {"cors_origins"},
+    "notifications": {"webhook_url"},
 }
 
 
@@ -160,6 +169,12 @@ def update_settings(config_path: Path | str, updates: dict[str, dict]) -> AppCon
         for key, value in fields.items():
             if key in _EDITABLE_KEYS[section]:
                 raw[section][key] = value
+
+    if config_path.exists():
+        # Single rolling backup of the pre-change file -- not a versioned
+        # history, just a way back from a settings save gone wrong (e.g. a
+        # path typo that then fails the permissions check).
+        config_path.with_suffix(config_path.suffix + ".bak").write_bytes(config_path.read_bytes())
 
     config_path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
     # create_dirs=False: don't silently mkdir a path the user just typed —

@@ -35,7 +35,7 @@ def main() -> int:
     db.init_db()
     tmdb = TMDBClient(api_key=config.tmdb.api_key, language=config.tmdb.language)
 
-    pending_count = check_for_updates(db, tmdb)
+    pending_count = check_for_updates(db, tmdb, config.notifications.webhook_url or None)
     logger.info("Tracker check complete: %d item(s) pending notification", pending_count)
     return 0
 

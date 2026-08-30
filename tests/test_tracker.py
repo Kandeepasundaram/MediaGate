@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from app.core.tmdb_client import MediaResult
 from app.core.tracker import check_for_updates
@@ -55,6 +55,52 @@ def test_check_for_updates_flags_movie_collection_addition(db):
     row = db.get_tracker(10, "movie")
     assert row["pending_notification"] == 1
     assert "1 related" in row["movie_release_status"]
+
+
+def test_check_for_updates_fires_webhook_on_newly_pending(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(db, tmdb, webhook_url="https://example.com/hook")
+
+    mock_post.assert_called_once()
+    assert mock_post.call_args.args[0] == "https://example.com/hook"
+    assert mock_post.call_args.kwargs["json"]["title"] == "Show"
+
+
+def test_check_for_updates_does_not_refire_webhook_when_already_pending(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1, pending_notification=1)
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(db, tmdb, webhook_url="https://example.com/hook")
+
+    mock_post.assert_not_called()
+
+
+def test_check_for_updates_does_not_fire_webhook_for_muted_title(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    row = db.get_tracker(1, "tv")
+    db.set_tracker_muted(row["id"], True)
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(db, tmdb, webhook_url="https://example.com/hook")
+
+    mock_post.assert_not_called()
 
 
 def test_check_for_updates_handles_per_item_errors(db):

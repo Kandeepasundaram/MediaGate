@@ -65,6 +65,27 @@ def test_update_settings_tmdb_key_round_trips(tmp_path):
     assert cfg.tmdb_api_key_from_env is False
 
 
+def test_update_settings_webhook_url_round_trips(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    load_config(config_path)
+
+    cfg = update_settings(config_path, {"notifications": {"webhook_url": "https://example.com/hook"}})
+
+    assert cfg.notifications.webhook_url == "https://example.com/hook"
+
+
+def test_update_settings_backs_up_previous_file(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    load_config(config_path)
+    original_contents = config_path.read_bytes()
+
+    update_settings(config_path, {"tmdb": {"api_key": "abc123"}})
+
+    backup_path = config_path.with_suffix(".yaml.bak")
+    assert backup_path.exists()
+    assert backup_path.read_bytes() == original_contents
+
+
 def test_load_config_no_create_dirs(tmp_path):
     config_path = tmp_path / "config.yaml"
     target_dir = tmp_path / "would_be_created" / "incoming_movies"

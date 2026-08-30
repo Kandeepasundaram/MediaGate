@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.config_loader import (
     AppConfig,
     LoggingConfig,
+    NotificationsConfig,
     PathsConfig,
     ServerConfig,
     SubtitlesConfig,
@@ -22,6 +23,7 @@ def _config(tmp_path) -> AppConfig:
         tmdb=TMDBConfig(api_key="", language="en-US"),
         subtitles=SubtitlesConfig(),
         tracker=TrackerConfig(),
+        notifications=NotificationsConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
     )

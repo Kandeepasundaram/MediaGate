@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 
 import pytest
 
@@ -51,5 +52,34 @@ def test_archive_file_raises_on_copy_failure(db, tmp_path):
     with pytest.raises(ArchiveError):
         archive_file(db, plan)
 
+    ops = db.list_operations(operation_type="archive")
+    assert ops[0]["status"] == "failed"
+
+
+def test_archive_file_writes_nfo_alongside_dest(db, tmp_path):
+    plan = _plan(tmp_path)
+    archive_file(db, plan)
+
+    nfo = plan.dest_path.parent / "movie.nfo"
+    assert nfo.exists()
+    assert "Movie" in nfo.read_text(encoding="utf-8")
+
+
+def test_archive_file_raises_on_checksum_mismatch(db, tmp_path, monkeypatch):
+    plan = _plan(tmp_path)
+
+    real_copy2 = shutil.copy2
+
+    def corrupting_copy(src, dst, *args, **kwargs):
+        real_copy2(src, dst, *args, **kwargs)
+        with open(dst, "ab") as f:
+            f.write(b"corruption")
+
+    monkeypatch.setattr("app.core.archiver.shutil.copy2", corrupting_copy)
+
+    with pytest.raises(ArchiveError, match="Checksum mismatch"):
+        archive_file(db, plan)
+
+    assert not plan.dest_path.exists()  # bad copy is cleaned up
     ops = db.list_operations(operation_type="archive")
     assert ops[0]["status"] == "failed"

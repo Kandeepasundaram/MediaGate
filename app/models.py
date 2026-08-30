@@ -31,6 +31,9 @@ class ScanDirectoryRequest(BaseModel):
 
 class ArchivePreviewRequest(BaseModel):
     paths: list[str] = Field(default_factory=list)
+    # Manual TMDB match override/disambiguation: path -> chosen tmdb_id,
+    # used instead of the automatic top search result for that file.
+    tmdb_overrides: dict[str, int] = Field(default_factory=dict)
 
 
 class ArchivePreviewItem(BaseModel):
@@ -44,6 +47,22 @@ class ArchivePreviewItem(BaseModel):
     tmdb_id: int | None = None
     poster_path: str | None = None
     overview: str = ""
+    # True when a media_items row already matches this title (movie: same
+    # title+year; TV: same show+season+episode) -- surfaced as a warning in
+    # the preview table, not a hard block.
+    duplicate: bool = False
+
+
+class TMDBSearchResultOut(BaseModel):
+    tmdb_id: int | None
+    title: str
+    year: int | None = None
+    overview: str = ""
+    poster_path: str | None = None
+
+
+class TMDBSearchResponse(BaseModel):
+    results: list[TMDBSearchResultOut]
 
 
 class ArchivePreviewResponse(BaseModel):
@@ -82,6 +101,11 @@ class ArchiveHistoryResponse(BaseModel):
     operations: list[OperationLogOut]
 
 
+class UndoResponse(BaseModel):
+    undone: bool
+    detail: str = ""
+
+
 class TrackerAddRequest(BaseModel):
     tmdb_id: int
     media_type: MediaType
@@ -98,10 +122,20 @@ class TrackerNotificationOut(BaseModel):
     latest_known_season: int | None
     movie_release_status: str | None
     pending_notification: bool
+    muted: bool = False
+    last_checked: str | None = None
 
 
 class TrackerNotificationsResponse(BaseModel):
     notifications: list[TrackerNotificationOut]
+
+
+class TrackedListResponse(BaseModel):
+    tracked: list[TrackerNotificationOut]
+
+
+class TrackerMuteRequest(BaseModel):
+    muted: bool
 
 
 class TrackerAcknowledgeRequest(BaseModel):
@@ -149,6 +183,15 @@ class WatchedUpdateRequest(BaseModel):
     watched: bool
 
 
+class WatchedBatchRequest(BaseModel):
+    ids: list[int]
+    watched: bool
+
+
+class WatchedBatchResponse(BaseModel):
+    updated: int
+
+
 class BrowseItemOut(BaseModel):
     path: str
     size_bytes: int
@@ -172,6 +215,7 @@ class DeleteFileRequest(BaseModel):
 
 class MetadataStatusResponse(BaseModel):
     pending: int
+    failed: int = 0
 
 
 class SettingsOut(BaseModel):
@@ -182,6 +226,7 @@ class SettingsOut(BaseModel):
     cors_origins: list[str]
     tmdb_api_key_set: bool
     tmdb_api_key_locked_by_env: bool
+    webhook_url: str = ""
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -191,6 +236,7 @@ class SettingsUpdateRequest(BaseModel):
     archive_tv: str | None = None
     cors_origins: list[str] | None = None
     tmdb_api_key: str | None = None
+    webhook_url: str | None = None
 
 
 class PathCheck(BaseModel):
@@ -198,6 +244,9 @@ class PathCheck(BaseModel):
     exists: bool
     writable: bool
     error: str | None = None
+    free_bytes: int | None = None
+    low_space: bool = False
+    chown_hint: str | None = None
 
 
 class PermissionsCheckResponse(BaseModel):

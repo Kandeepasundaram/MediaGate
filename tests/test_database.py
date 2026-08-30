@@ -123,6 +123,35 @@ def test_count_unmatched_media_items_filters_by_type(db):
     assert db.count_unmatched_media_items("tv") == 1
 
 
+def test_set_tracker_muted_excludes_from_pending_notifications(db):
+    db.upsert_tracker(tmdb_id=7, media_type="tv", title="Show", pending_notification=1)
+    row = db.get_tracker(7, "tv")
+    assert len(db.list_pending_notifications()) == 1
+
+    db.set_tracker_muted(row["id"], True)
+    assert db.list_pending_notifications() == []
+    assert db.get_tracker_by_id(row["id"])["muted"] == 1
+
+    db.set_tracker_muted(row["id"], False)
+    assert len(db.list_pending_notifications()) == 1
+
+
+def test_get_operation_returns_row_by_id(db):
+    op_id = db.log_operation("archive", "success", details={"a": 1})
+    assert db.get_operation(op_id)["operation_type"] == "archive"
+    assert db.get_operation(999999) is None
+
+
+def test_count_failed_match_items_requires_attempt(db):
+    db.create_media_item(original_path="a", title="A", media_type="movie")  # never attempted
+    failed_id = db.create_media_item(original_path="b", title="B", media_type="movie")
+    db.update_media_item(failed_id, match_attempted_at="2026-01-01T00:00:00+00:00")
+
+    assert db.count_failed_match_items() == 1
+    assert db.count_failed_match_items("movie") == 1
+    assert db.count_failed_match_items("tv") == 0
+
+
 def test_log_operation_accepts_delete_type(db):
     db.log_operation("delete", "success", details={"path": "/some/file.mkv"})
     ops = db.list_operations(operation_type="delete")
@@ -175,6 +204,20 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
                 error_message TEXT,
                 created_at TEXT NOT NULL
             );
+            CREATE TABLE archive_tracker (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tmdb_id INTEGER NOT NULL,
+                media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+                title TEXT NOT NULL,
+                current_season_archived INTEGER,
+                latest_known_season INTEGER,
+                movie_release_status TEXT,
+                last_checked TEXT,
+                pending_notification INTEGER NOT NULL DEFAULT 0,
+                notification_sent_at TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE (tmdb_id, media_type)
+            );
             """
         )
         conn.execute(
@@ -185,7 +228,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 3
+    assert version == 4
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -199,3 +242,8 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     item_id = db.create_media_item(original_path="x", title="T", media_type="movie")
     db.update_media_item(item_id, match_attempted_at="2026-01-01T00:00:00+00:00")
     assert db.get_media_item(item_id)["match_attempted_at"] == "2026-01-01T00:00:00+00:00"
+
+    # v4's archive_tracker.muted column exists and defaults to unmuted.
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show")
+    row = db.get_tracker(1, "tv")
+    assert row["muted"] == 0

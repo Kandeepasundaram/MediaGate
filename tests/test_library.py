@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.config_loader import (
     AppConfig,
     LoggingConfig,
+    NotificationsConfig,
     PathsConfig,
     ServerConfig,
     SubtitlesConfig,
@@ -32,8 +33,10 @@ def client(tmp_path):
         tmdb=TMDBConfig(api_key="", language="en-US"),
         subtitles=SubtitlesConfig(),
         tracker=TrackerConfig(),
+        notifications=NotificationsConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
+        config_path=tmp_path / "config.yaml",
     )
     db = Database(config.database_path)
     db.init_db()

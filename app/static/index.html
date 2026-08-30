@@ -9,7 +9,10 @@
 <body>
 <header class="topbar">
   <h1>Media Manager</h1>
-  <span id="tmdb-mode" class="badge">…</span>
+  <div class="topbar-right">
+    <span id="tmdb-mode" class="badge">…</span>
+    <button id="theme-toggle-btn" title="Toggle light/dark theme">🌙</button>
+  </div>
 </header>
 
 <nav class="tabs">
@@ -25,6 +28,15 @@
 <main>
   <section id="tab-movies" class="tab-panel active">
     <div class="toolbar">
+      <input type="text" id="movies-search" placeholder="Search movies…" class="search-input">
+      <select id="movies-sort">
+        <option value="added">Recently added</option>
+        <option value="title">Title (A-Z)</option>
+        <option value="year">Year (newest)</option>
+      </select>
+      <button id="movies-select-all-btn">Select All</button>
+      <button id="movies-mark-watched-btn">Mark Watched</button>
+      <button id="movies-mark-unwatched-btn">Mark Unwatched</button>
       <span id="movies-count" class="hint"></span>
     </div>
     <div id="movies-gallery" class="gallery"></div>
@@ -32,6 +44,13 @@
 
   <section id="tab-tv" class="tab-panel">
     <div class="toolbar">
+      <input type="text" id="tv-search" placeholder="Search shows…" class="search-input">
+      <select id="tv-sort">
+        <option value="added">Recently added</option>
+        <option value="title">Title (A-Z)</option>
+      </select>
+      <button id="tv-mark-watched-btn">Mark Selected Watched</button>
+      <button id="tv-mark-unwatched-btn">Mark Selected Unwatched</button>
       <span id="tv-count" class="hint"></span>
     </div>
     <div id="tv-gallery" class="gallery"></div>
@@ -44,6 +63,7 @@
         <option value="tv">TV</option>
       </select>
       <button id="browse-refresh-btn">Refresh</button>
+      <button id="browse-select-all-btn">Select All</button>
       <button id="browse-organize-btn">Organize Selected</button>
       <span id="browse-status" class="hint"></span>
     </div>
@@ -74,11 +94,13 @@
       <thead>
         <tr>
           <th></th>
+          <th></th>
           <th>Original</th>
           <th>Suggested Name</th>
           <th>Type</th>
           <th>Size</th>
           <th>Overview</th>
+          <th></th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -86,13 +108,27 @@
   </section>
 
   <section id="tab-notifications" class="tab-panel">
+    <h3>Pending</h3>
     <div id="notifications-list"></div>
+    <h3>Tracked Titles</h3>
+    <div id="tracked-list"></div>
   </section>
 
   <section id="tab-history" class="tab-panel">
+    <div class="toolbar">
+      <select id="history-type-filter">
+        <option value="">All types</option>
+        <option value="archive">Archive</option>
+        <option value="rename">Rename / Organize</option>
+        <option value="purge">Purge</option>
+        <option value="tracker_check">Tracker Check</option>
+        <option value="delete">Delete</option>
+      </select>
+      <span id="history-status" class="hint"></span>
+    </div>
     <table id="history-table">
       <thead>
-        <tr><th>Time</th><th>Type</th><th>Status</th><th>Details</th></tr>
+        <tr><th>Time</th><th>Type</th><th>Status</th><th>Details</th><th></th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -120,8 +156,13 @@
         <input type="password" id="setting-tmdb-key" placeholder="leave blank to keep current">
       </label>
       <p id="tmdb-key-note" class="hint"></p>
+      <label>Notification webhook URL (optional)
+        <input type="text" id="setting-webhook-url" placeholder="https://example.com/hook">
+      </label>
+      <p class="hint">POSTed to when a tracked title newly has a season/sequel available (muted titles are skipped).</p>
       <button type="submit" class="primary">Save Settings</button>
       <span id="settings-status"></span>
+      <p class="hint">A backup of the previous config.yaml is kept as config.yaml.bak on every save.</p>
     </form>
 
     <h3>Storage Permissions</h3>
@@ -137,6 +178,14 @@
     <p id="confirm-text"></p>
     <button id="confirm-yes" class="primary">Confirm</button>
     <button id="confirm-no">Cancel</button>
+  </div>
+</div>
+
+<div id="match-modal" class="modal hidden">
+  <div class="modal-content match-modal-content">
+    <p>Choose the correct match:</p>
+    <div id="match-results"></div>
+    <button id="match-cancel-btn">Cancel</button>
   </div>
 </div>
 

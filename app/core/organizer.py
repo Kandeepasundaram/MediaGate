@@ -14,8 +14,9 @@ import logging
 import shutil
 from datetime import datetime, timezone
 
-from app.core.renamer import RenamePlan
+from app.core.renamer import RenamePlan, write_nfo
 from app.core.subtitle_purger import SUBTITLE_EXTENSIONS
+from app.core.tmdb_client import MediaResult
 from app.database import Database
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,8 @@ def organize_file(db: Database, plan: RenamePlan) -> int:
                 details={"from": str(plan.source_path), "to": str(plan.dest_path)},
             )
             raise OrganizeError(f"Failed to move {plan.source_path} -> {plan.dest_path}: {exc}") from exc
+
+    _write_nfo_best_effort(plan)
 
     fields = dict(
         title=plan.title,
@@ -83,3 +86,19 @@ def _move_sibling_subtitles(source, dest_folder) -> None:
     for sub in source.parent.glob(f"{source.stem}*"):
         if sub.suffix.lower() in SUBTITLE_EXTENSIONS:
             shutil.move(str(sub), str(dest_folder / sub.name))
+
+
+def _write_nfo_best_effort(plan: RenamePlan) -> None:
+    try:
+        write_nfo(
+            plan.dest_path.parent,
+            MediaResult(
+                tmdb_id=plan.tmdb_id,
+                title=plan.title,
+                media_type=plan.media_type,
+                year=plan.year,
+                overview=plan.overview,
+            ),
+        )
+    except OSError as exc:
+        logger.warning("NFO write failed for %s: %s", plan.dest_path, exc)

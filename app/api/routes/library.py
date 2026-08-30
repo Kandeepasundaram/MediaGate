@@ -31,6 +31,8 @@ from app.models import (
     LibraryResponse,
     MediaType,
     MetadataStatusResponse,
+    WatchedBatchRequest,
+    WatchedBatchResponse,
     WatchedUpdateRequest,
 )
 
@@ -83,9 +85,14 @@ def list_tv(config: AppConfig = Depends(get_config), db: Database = Depends(get_
 @router.get("/metadata-status", response_model=MetadataStatusResponse)
 def metadata_status(media_type: MediaType | None = None, db: Database = Depends(get_database)) -> MetadataStatusResponse:
     """Pending count for the background TMDB metadata backfill, so the
-    dashboard can show progress and know when to stop polling for updates.
+    dashboard can show progress and know when to stop polling for updates --
+    plus a separate failed count (searched at least once, no match found),
+    so a permanently-unmatched title doesn't look like it's "still loading".
     """
-    return MetadataStatusResponse(pending=db.count_unmatched_media_items(media_type))
+    return MetadataStatusResponse(
+        pending=db.count_unmatched_media_items(media_type),
+        failed=db.count_failed_match_items(media_type),
+    )
 
 
 @router.post("/{item_id}/watched", response_model=LibraryItemOut)
@@ -94,6 +101,17 @@ def set_watched(item_id: int, payload: WatchedUpdateRequest, db: Database = Depe
         raise HTTPException(status_code=404, detail="Media item not found")
     db.update_media_item(item_id, watched=1 if payload.watched else 0)
     return _to_out(db.get_media_item(item_id))
+
+
+@router.post("/watched-batch", response_model=WatchedBatchResponse)
+def set_watched_batch(payload: WatchedBatchRequest, db: Database = Depends(get_database)) -> WatchedBatchResponse:
+    updated = 0
+    for item_id in payload.ids:
+        if db.get_media_item(item_id) is None:
+            continue
+        db.update_media_item(item_id, watched=1 if payload.watched else 0)
+        updated += 1
+    return WatchedBatchResponse(updated=updated)
 
 
 @router.post("/organize", response_model=ArchiveConfirmResponse)

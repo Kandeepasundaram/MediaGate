@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.config_loader import (
     AppConfig,
     LoggingConfig,
+    NotificationsConfig,
     PathsConfig,
     ServerConfig,
     SubtitlesConfig,
@@ -41,9 +42,12 @@ def client(tmp_path):
         tmdb=TMDBConfig(api_key="", language="en-US"),
         subtitles=SubtitlesConfig(),
         tracker=TrackerConfig(),
+        notifications=NotificationsConfig(),
         logging=LoggingConfig(file=tmp_path / "test.log"),
         server=ServerConfig(),
+        config_path=tmp_path / "config.yaml",
     )
+    config.config_path.write_text("", encoding="utf-8")
     db = Database(config.database_path)
     db.init_db()
 
@@ -140,3 +144,149 @@ def test_tracker_add_and_notifications(client):
 
     status_resp = c.get("/api/tracker/status")
     assert status_resp.json()["total_tracked"] == 1
+
+
+def test_preview_flags_duplicate_against_existing_media_item(client):
+    c, incoming_movies = client
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    video2 = incoming_movies / "Sample.Movie.2020.720p.mkv"
+    video2.write_bytes(b"other copy")
+    preview2 = c.post("/api/archive/preview", json={"paths": [str(video2)]}).json()
+
+    assert preview2["items"][0]["duplicate"] is True
+
+
+def test_preview_not_duplicate_for_different_year(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    assert preview["items"][0]["duplicate"] is False
+
+
+def test_preview_honors_tmdb_override(client):
+    c, incoming_movies = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=777, title="Override Title", media_type="movie", year=1999, overview="different match"
+    )
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    preview = c.post(
+        "/api/archive/preview",
+        json={"paths": [str(video)], "tmdb_overrides": {str(video): 777}},
+    ).json()
+
+    item = preview["items"][0]
+    assert item["tmdb_id"] == 777
+    assert item["title"] == "Override Title"
+
+
+def test_search_tmdb_endpoint_returns_candidates(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = [
+        MediaResult(tmdb_id=1, title="A", media_type="movie", year=2000),
+        MediaResult(tmdb_id=2, title="B", media_type="movie", year=2001),
+    ]
+
+    resp = c.get("/api/archive/search", params={"title": "A", "media_type": "movie"})
+    assert resp.status_code == 200
+    assert len(resp.json()["results"]) == 2
+
+
+def test_undo_archive_deletes_copy_and_media_item(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    op_id = c.get("/api/archive/history").json()["operations"][0]["id"]
+    dest_path = Path(preview["items"][0]["dest_path"])
+    assert dest_path.exists()
+
+    undo_resp = c.post(f"/api/archive/history/{op_id}/undo")
+    assert undo_resp.status_code == 200
+    assert not dest_path.exists()
+    assert c.get("/api/stats").json()["total_movies"] == 0
+
+
+def test_undo_twice_fails_second_time(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    op_id = c.get("/api/archive/history").json()["operations"][0]["id"]
+
+    assert c.post(f"/api/archive/history/{op_id}/undo").status_code == 200
+    assert c.post(f"/api/archive/history/{op_id}/undo").status_code == 400
+
+
+def test_history_filters_by_operation_type(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    all_ops = c.get("/api/archive/history").json()["operations"]
+    archive_ops = c.get("/api/archive/history", params={"operation_type": "archive"}).json()["operations"]
+    rename_ops = c.get("/api/archive/history", params={"operation_type": "rename"}).json()["operations"]
+    assert len(all_ops) == 1
+    assert len(archive_ops) == 1
+    assert rename_ops == []
+
+
+def test_tracker_mute_excludes_from_notifications_but_stays_listed(client):
+    c, _ = client
+    add_resp = c.post("/api/tracker/add", json={"tmdb_id": 5, "media_type": "tv", "title": "Show"})
+    tracker_id = add_resp.json()["tracker"]["id"]
+
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=5, title="Show", media_type="tv", raw={"number_of_seasons": 3}
+    )
+    c.post(f"/api/tracker/{tracker_id}/check-now")
+    assert len(c.get("/api/tracker/notifications").json()["notifications"]) == 1
+
+    c.post(f"/api/tracker/{tracker_id}/mute", json={"muted": True})
+    assert c.get("/api/tracker/notifications").json()["notifications"] == []
+    listed = c.get("/api/tracker/list").json()["tracked"]
+    assert len(listed) == 1
+    assert listed[0]["muted"] is True
+
+
+def test_watched_batch_update(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    resp = c.post("/api/library/watched-batch", json={"ids": [item_id], "watched": True})
+    assert resp.status_code == 200
+    assert resp.json()["updated"] == 1
+    assert c.get("/api/library/movies").json()["items"][0]["watched"] is True
+
+
+def test_settings_webhook_url_round_trips(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"webhook_url": "https://example.com/hook"})
+    assert resp.status_code == 200
+    assert resp.json()["webhook_url"] == "https://example.com/hook"
+
+
+def test_permissions_check_reports_free_space(client):
+    c, _ = client
+    resp = c.get("/api/settings/permissions-check")
+    body = resp.json()
+    assert all(p["free_bytes"] is not None and p["free_bytes"] > 0 for p in body["paths"])
