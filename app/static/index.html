@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Media Manager</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>Media Manager</h1>
+  <span id="tmdb-mode" class="badge">…</span>
+</header>
+
+<nav class="tabs">
+  <button class="tab-btn active" data-tab="archive">Ready to Archive</button>
+  <button class="tab-btn" data-tab="notifications">Notifications</button>
+  <button class="tab-btn" data-tab="history">History</button>
+  <button class="tab-btn" data-tab="settings">Settings</button>
+</nav>
+
+<main>
+  <section id="tab-archive" class="tab-panel active">
+    <div class="toolbar">
+      <button id="scan-btn">Scan Active Directory</button>
+      <button id="select-all-btn">Select All</button>
+      <button id="approve-btn" class="primary">Approve &amp; Archive</button>
+      <span id="scan-status"></span>
+    </div>
+    <table id="archive-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Original</th>
+          <th>Suggested Name</th>
+          <th>Type</th>
+          <th>Size</th>
+          <th>Overview</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="tab-notifications" class="tab-panel">
+    <div id="notifications-list"></div>
+  </section>
+
+  <section id="tab-history" class="tab-panel">
+    <table id="history-table">
+      <thead>
+        <tr><th>Time</th><th>Type</th><th>Status</th><th>Details</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="tab-settings" class="tab-panel">
+    <div id="stats-card" class="card"></div>
+  </section>
+</main>
+
+<div id="confirm-modal" class="modal hidden">
+  <div class="modal-content">
+    <p id="confirm-text"></p>
+    <button id="confirm-yes" class="primary">Confirm</button>
+    <button id="confirm-no">Cancel</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

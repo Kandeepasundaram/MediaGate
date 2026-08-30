@@ -1,0 +1,653 @@
+# Media Manager - Detailed Phased Implementation Plan
+
+## Project Overview
+A self-hosted media management system running on Ubuntu that organizes, archives, and tracks movies/TV shows with a web dashboard accessible from Windows machines.
+
+**Architecture**: Ubuntu Backend (FastAPI + Python) + Web Dashboard (HTML/CSS/JS) + Windows Toast Notifications
+
+---
+
+## 🗺️ Phase 0: Environment Setup & Planning
+*Estimated Effort: 2-3 hours*
+
+### 0.1 Hardware Requirements
+- [ ] Ubuntu server (bare metal or VM) with:
+  - Minimum 2GB RAM
+  - 10GB free disk space for application/logs
+  - Access to external HDD (mounted)
+  - Static IP address on local network
+
+### 0.2 Software Prerequisites
+- [ ] Install Python 3.8+ and pip
+- [ ] Install git for version control
+- [ ] Install nginx (optional, for reverse proxy)
+- [ ] Install sqlite3
+- [ ] Install build-essential for compiling dependencies
+
+### 0.3 Python Environment Setup
+- [ ] Create project directory: `~/media-manager`
+- [ ] Create Python virtual environment
+- [ ] Activate virtual environment
+- [ ] Create project folder structure:
+  - `app/` - Main application code
+  - `app/core/` - Core business logic
+  - `app/api/` - API routes
+  - `app/api/routes/` - Individual route modules
+  - `app/static/` - Web dashboard files
+  - `scripts/` - Utility and automation scripts
+  - `logs/` - Application logs
+  - `config/` - Configuration files
+
+### 0.4 Configuration Files
+- [ ] Create `config.yaml` with all paths and settings
+- [ ] Create `.env` file for sensitive data (API keys)
+- [ ] Set up proper file permissions (read/write for media directories)
+- [ ] Create symlinks or mount points for media directories
+
+### 0.5 External Dependencies
+- [ ] Register for free TMDB API key (recommended but not mandatory)
+- [ ] Test network connectivity between Ubuntu and Windows machines
+- [ ] Verify external HDD is properly mounted with read/write permissions
+
+---
+
+## 📦 Phase 1: Core Database & Foundation
+*Estimated Effort: 3-4 hours*
+
+### 1.1 Database Schema Design
+
+**Table: `media_items`**
+- Store all archived media metadata
+- Fields: id (primary key), original_path, title, year, tmdb_id, media_type (movie/tv), season_number, episode_number, final_path, archived_at (timestamp), watched (boolean), metadata (JSON), created_at (timestamp)
+
+**Table: `archive_tracker`**
+- Track shows/movies for future release notifications
+- Fields: id (primary key), tmdb_id, media_type (movie/tv), title, current_season_archived (integer), latest_known_season (integer), movie_release_status (text), last_checked (timestamp), pending_notification (boolean), notification_sent_at (timestamp), created_at (timestamp)
+- Unique constraint on (tmdb_id, media_type)
+
+**Table: `operation_log`**
+- Audit trail of all operations
+- Fields: id (primary key), operation_type (archive/rename/purge/tracker_check), media_id (foreign key), details (JSON), status (success/failed/pending), error_message (text), created_at (timestamp)
+
+### 1.2 Database Layer Implementation
+
+**File: `app/database.py`**
+- [ ] Implement connection management using sqlite3 with context managers
+- [ ] Create CRUD operations for each table (create, read, update, delete)
+- [ ] Add migration system for future schema changes
+- [ ] Implement helper functions: `execute_query()`, `fetch_all()`, `fetch_one()`
+- [ ] Add database initialization script that creates all tables
+- [ ] Implement database connection pooling for concurrent access
+
+### 1.3 Configuration Management
+
+**File: `config.yaml`**
+- [ ] Define paths: active_dir, archive_movies, archive_tv
+- [ ] Define TMDB settings: api_key, language
+- [ ] Define subtitle settings: keep_languages, delete_extensions
+- [ ] Define tracker settings: cron_time, notification_ttl_days
+- [ ] Define database path
+- [ ] Define logging level and file path
+
+### 1.4 Configuration Loader
+
+**File: `app/config_loader.py`**
+- [ ] Parse YAML configuration file
+- [ ] Validate all required paths exist
+- [ ] Create default configuration if file is missing
+- [ ] Support environment variable overrides (for sensitive data)
+- [ ] Provide typed access to configuration values
+
+---
+
+## 🎬 Phase 2: TMDB Integration (Hybrid Mode)
+*Estimated Effort: 4-5 hours*
+
+### 2.1 Primary API Client
+
+**File: `app/core/tmdb_client.py`** (Part 1)
+- [ ] Install `tmdbv3api` package
+- [ ] Implement `TMDBClient` class with API mode
+- [ ] Methods to implement:
+  - `search_movie(title, year)` → returns metadata
+  - `search_tv(title)` → returns metadata
+  - `get_movie_details(tmdb_id)` → detailed movie info
+  - `get_tv_details(tmdb_id)` → detailed TV show info
+  - `get_collection_movies(collection_id)` → sequel/prequel tracking
+  - `parse_filename(filename)` → extract title/season/episode
+
+### 2.2 Web Scraper Fallback
+
+**File: `app/core/tmdb_scraper.py`**
+- [ ] Install required packages: `beautifulsoup4`, `requests`, `fake-useragent`, `lxml`
+- [ ] Implement `TMDBScraper` class
+- [ ] Features to implement:
+  - Rate limiting (2-second delay between requests)
+  - Rotating user agents (random browser fingerprints)
+  - Session reuse (maintain cookies and headers)
+  - Error handling with automatic retries
+- [ ] Methods mirroring API client:
+  - `search_movie(title, year)` → scrape search results
+  - `search_tv(title)` → scrape search results
+  - `get_movie_details(tmdb_id)` → scrape movie page
+  - `get_tv_details(tmdb_id)` → scrape TV show page
+  - `get_collection_movies(collection_id)` → scrape collection page
+
+### 2.3 Unified Client
+
+**File: `app/core/tmdb_client.py`** (Part 2)
+- [ ] Combine API + Scraper into single unified class
+- [ ] Auto-detect API key presence (use API if valid, else scraper)
+- [ ] Implement API → Scraper fallback on failure
+- [ ] Ensure consistent response format regardless of source
+- [ ] Add logging to indicate which mode is being used
+- [ ] Cache results to minimize external calls
+
+### 2.4 Testing & Validation
+- [ ] Test with valid API key
+- [ ] Test without API key (scraper mode only)
+- [ ] Test API failure → scraper fallback
+- [ ] Validate response format consistency between modes
+- [ ] Test with edge cases (empty results, special characters)
+
+---
+
+## 📂 Phase 3: Core File Processing Logic
+*Estimated Effort: 6-8 hours*
+
+### 3.1 Media Scanner
+
+**File: `app/core/scanner.py`**
+- [ ] Implement recursive directory traversal
+- [ ] Identify video files by extension (.mkv, .mp4, .avi, .mov, .wmv, .flv, .webm)
+- [ ] Group files by directory (for multi-file movies)
+- [ ] Parse filenames using regex patterns
+- [ ] Collect subtitle file information (.srt, .ass, .ssa)
+- [ ] Generate file size and modification timestamps
+- [ ] Return structured file information
+
+### 3.2 Renamer Engine
+
+**File: `app/core/renamer.py`**
+- [ ] Generate movie folder structure:
+  - Format: `Movie Name (Year)/Movie Name (Year).ext`
+- [ ] Generate TV show structure:
+  - Format: `Show Name/Season XX/Show Name - SXXEYY - Episode Title.ext`
+- [ ] Fetch episode titles from TMDB API/scraper
+- [ ] Sanitize filenames (remove invalid characters for file system)
+- [ ] Implement artwork handling:
+  - Download posters (poster.jpg)
+  - Download fanart/backdrops (fanart.jpg)
+  - Create NFO files for media center compatibility (optional)
+- [ ] Handle file renaming conflicts (add suffixes if needed)
+
+### 3.3 Subtitle Purger
+
+**File: `app/core/subtitle_purger.py`**
+- [ ] Recursively find all subtitle files (.srt, .ass, .ssa)
+- [ ] Implement pattern matching for language codes:
+  - Keep: .en., .eng., .english.
+  - Delete: All other language codes
+- [ ] Implement dry-run mode (preview without deletion)
+- [ ] Add empty folder cleanup after purging
+- [ ] Provide detailed logging of kept/deleted files
+- [ ] Handle edge cases (no subtitle files, non-standard naming)
+
+### 3.4 Archiver
+
+**File: `app/core/archiver.py`**
+- [ ] Copy files using shutil.copy2 (preserve metadata)
+- [ ] Create destination directories automatically
+- [ ] Log operations to database (operation_log table)
+- [ ] Update `media_items` table with final paths
+- [ ] Handle errors gracefully (permissions, space issues)
+- [ ] **Note**: Checksum verification deferred per initial requirements
+
+---
+
+## 🌐 Phase 4: FastAPI Backend Server
+*Estimated Effort: 5-6 hours*
+
+### 4.1 Server Setup
+
+**File: `app/main.py`**
+- [ ] Initialize FastAPI application
+- [ ] Configure CORS middleware for Windows client access
+- [ ] Set up static file serving (HTML, CSS, JS)
+- [ ] Implement global error handling middleware
+- [ ] Configure application logging
+- [ ] Add startup/shutdown event handlers
+
+### 4.2 API Endpoints
+
+**File: `app/api/routes/scan.py`**
+- [ ] GET `/api/scan` - Scan and preview media in active directory
+- [ ] POST `/api/scan/directory` - Scan a specific directory
+
+**File: `app/api/routes/archive.py`**
+- [ ] POST `/api/archive/preview` - Generate rename previews without executing
+- [ ] POST `/api/archive/confirm` - Execute archival operation
+- [ ] GET `/api/archive/history` - Get operation history with filters
+
+**File: `app/api/routes/tracker.py`**
+- [ ] GET `/api/tracker/notifications` - Get all pending notifications
+- [ ] POST `/api/tracker/acknowledge` - Mark notification as seen
+- [ ] POST `/api/tracker/add` - Add item to tracker
+- [ ] GET `/api/tracker/status` - Get tracker statistics
+
+**File: `app/api/routes/status.py`**
+- [ ] GET `/api/status` - System health check
+- [ ] GET `/api/stats` - Library statistics (total files, size, etc.)
+- [ ] GET `/api/logs` - Fetch recent log entries
+
+### 4.3 Response Models
+
+**File: `app/models.py`**
+- [ ] Create Pydantic schemas for all request/response objects
+- [ ] Implement validation for incoming data
+- [ ] Add type hints throughout
+- [ ] Document all models for auto-generated API docs
+
+### 4.4 Background Tasks
+- [ ] Implement long-running archive operations in background threads
+- [ ] Support processing multiple files concurrently
+- [ ] Add progress tracking for long operations
+- [ ] Create task status endpoints for polling
+- [ ] Handle task cancellation gracefully
+
+---
+
+## 📱 Phase 5: Web Dashboard UI
+*Estimated Effort: 6-8 hours*
+
+### 5.1 Single Page Application
+
+**File: `app/static/index.html`**
+- [ ] Create mobile-responsive HTML5 layout
+- [ ] Implement dark theme (suitable for media management)
+- [ ] Create tab-based navigation structure:
+  - "Ready to Archive" tab
+  - "Notifications" tab
+  - "History" tab
+  - "Settings" tab
+
+### 5.2 UI Components
+
+**File: `app/static/style.css`**
+- [ ] Define consistent color scheme
+- [ ] Create card-based media preview designs
+- [ ] Style progress indicators and loading states
+- [ ] Design toast notification styling
+- [ ] Make all tables responsive
+- [ ] Add hover effects and transitions
+
+**File: `app/static/app.js`**
+- [ ] Implement tab switching logic
+- [ ] Create AJAX/fetch calls to all backend APIs
+- [ ] Build file preview table with:
+  - Original filename display
+  - Suggested new name display
+  - TMDB metadata (poster, overview)
+  - File size display
+  - Approve checkbox for each file
+- [ ] Implement "Approve & Archive" button with confirmation dialog
+- [ ] Create notifications panel with [Mark Downloaded] buttons
+- [ ] Build history viewer with filters and pagination
+- [ ] Add auto-refresh for notifications (polling)
+- [ ] Implement search functionality for media
+- [ ] Add keyboard shortcuts (Ctrl+S for save, etc.)
+
+### 5.3 Windows Toast Integration
+
+**File: `scripts/notification_agent.py`** (runs on Windows)
+- [ ] Create Python script using `winrt` library
+- [ ] Register with Windows Notification Center
+- [ ] Create HTTP endpoint to trigger notifications from Ubuntu
+- [ ] Set up as Windows scheduled task
+- [ ] Enable auto-start on Windows boot
+
+### 5.4 Progressive Enhancements
+- [ ] Show thumbnail previews from TMDB posters
+- [ ] Add loading spinners during scans
+- [ ] Implement batch selection with "Select All" button
+- [ ] Add confirmation modals for destructive actions
+- [ ] Create keyboard shortcuts for common actions
+- [ ] Add tooltips for UI elements
+
+---
+
+## ⏰ Phase 6: Tracker & Automation System
+*Estimated Effort: 4-5 hours*
+
+### 6.1 Tracker Core Logic
+
+**File: `app/core/tracker.py`**
+- [ ] Implement `check_for_updates()` - main entry point
+- [ ] TV show update detection:
+  - Query TMDB for total seasons
+  - Compare with archived seasons in database
+  - Set pending_notification flag if new seasons found
+- [ ] Movie sequel detection:
+  - Check collection IDs from TMDB
+  - Look for future release dates
+  - Track new releases in series
+- [ ] Add logging for all tracker operations
+
+### 6.2 Cron Job Script
+
+**File: `scripts/cron_job.py`**
+- [ ] Initialize environment (load config, set up logging)
+- [ ] Load configuration from config.yaml
+- [ ] Call tracker update method
+- [ ] Send notifications if new content found
+- [ ] Log results to file and database
+- [ ] Handle errors gracefully
+
+### 6.3 Systemd Integration (Ubuntu)
+
+**File: `scripts/install_service.sh`**
+- [ ] Create systemd service file for FastAPI server
+- [ ] Configure auto-start on boot
+- [ ] Set up restart on failure
+- [ ] Configure proper logging to systemd journal
+- [ ] Set user and group permissions
+
+### 6.4 Cron Setup (Ubuntu)
+- [ ] Schedule daily tracker check (e.g., 6:00 AM)
+- [ ] Schedule weekly log rotation
+- [ ] Schedule daily database backup
+- [ ] Add environment variables to cron environment
+
+### 6.5 Windows Notification Agent
+
+**File: `scripts/windows_toast.py`**
+- [ ] Create Python script with winrt
+- [ ] Create toast notifications with:
+  - Title: "New Media Available"
+  - Body: "Season X of Show Name is out!"
+  - Action buttons: [Download] [Dismiss]
+- [ ] Implement click handling to acknowledge notifications
+- [ ] Set up as Windows service or scheduled task
+
+---
+
+## 🧪 Phase 7: Testing & Quality Assurance
+*Estimated Effort: 4-5 hours*
+
+### 7.1 Unit Testing
+
+**File: `tests/`**
+- [ ] Database operations tests (CRUD, migrations)
+- [ ] TMDB parsing tests (API and scraper)
+- [ ] Renamer logic tests (naming conventions)
+- [ ] Subtitle purger tests (language detection)
+- [ ] Tracker logic tests (update detection)
+
+### 7.2 Integration Testing
+- [ ] End-to-end scan → rename → archive flow
+- [ ] API endpoint testing (Postman/curl)
+- [ ] Scraper vs API comparison tests
+- [ ] Notification triggering tests
+
+### 7.3 Error Handling
+- [ ] Network failure scenarios (timeouts, disconnections)
+- [ ] File permission issues
+- [ ] Missing directories
+- [ ] TMDB rate limiting
+- [ ] Database corruption recovery
+
+### 7.4 Performance Testing
+- [ ] Scan 100+ files and measure time
+- [ ] Concurrent operations testing
+- [ ] Large directory tree scanning
+- [ ] External HDD transfer speed tests
+
+---
+
+## 🚀 Phase 8: Deployment & Documentation
+*Estimated Effort: 3-4 hours*
+
+### 8.1 Production Deployment
+
+**File: `scripts/deploy.sh`**
+- [ ] Pull latest code from repository
+- [ ] Install/update Python dependencies
+- [ ] Run database migrations
+- [ ] Restart services (FastAPI, cron jobs)
+
+### 8.2 Monitoring
+- [ ] Implement health check endpoints
+- [ ] Set up log aggregation
+- [ ] Monitor resource usage (CPU, memory, disk)
+- [ ] Set up error alerting (email, Telegram, etc.)
+
+### 8.3 Documentation
+
+**File: `README.md`**
+- [ ] Project overview and features
+- [ ] Installation guide (Ubuntu + Windows)
+- [ ] Quick start instructions
+
+**File: `INSTALL.md`**
+- [ ] Detailed step-by-step installation guide
+- [ ] Ubuntu server setup
+- [ ] Windows client setup
+- [ ] Troubleshooting common issues
+
+**File: `CONFIG.md`**
+- [ ] Configuration reference for all settings
+- [ ] Example configurations
+- [ ] Environment variable overrides
+
+**File: `API.md`** (auto-generated by FastAPI)
+- [ ] All endpoint documentation
+- [ ] Request/response schemas
+- [ ] Error codes
+
+**File: `TROUBLESHOOTING.md`**
+- [ ] Common issues and solutions
+- [ ] Log analysis guide
+- [ ] FAQ
+
+### 8.4 Backup Strategy
+- [ ] Database backup cron job (daily)
+- [ ] Config backup (on change)
+- [ ] Test restore procedure (weekly)
+- [ ] Document backup/restore process
+
+### 8.5 Windows Client Setup
+
+**File: `scripts/setup_windows.bat`**
+- [ ] Create installer script
+- [ ] Add desktop shortcut
+- [ ] Set up auto-updates
+- [ ] Add configuration UI
+- [ ] Register with Windows startup
+
+---
+
+## 📊 Timeline Summary
+
+| Phase | Description | Effort | Dependencies |
+|-------|-------------|--------|--------------|
+| 0 | Environment Setup | 2-3 hrs | None |
+| 1 | Database & Foundation | 3-4 hrs | Phase 0 |
+| 2 | TMDB Integration | 4-5 hrs | Phase 1 |
+| 3 | Core File Processing | 6-8 hrs | Phase 2 |
+| 4 | FastAPI Backend | 5-6 hrs | Phase 3 |
+| 5 | Web Dashboard | 6-8 hrs | Phase 4 |
+| 6 | Tracker & Automation | 4-5 hrs | Phase 4 |
+| 7 | Testing & QA | 4-5 hrs | All previous |
+| 8 | Deployment & Docs | 3-4 hrs | Phase 7 |
+
+**Total Estimated Effort: 37-48 hours** (distributed across developers)
+
+---
+
+## 🔄 Parallel Development Opportunities
+
+### Team Allocation (If Multiple Agents)
+
+| Team | Responsibilities | Phases |
+|------|------------------|--------|
+| **Backend Team** | Database, API, Core logic | 1, 3, 4 |
+| **Frontend Team** | Web Dashboard, UI/UX | 5 |
+| **Integration Team** | TMDB, Scraper, Tracker | 2, 6 |
+| **DevOps Team** | Deployment, Monitoring, Testing | 0, 7, 8 |
+
+### Parallel Workstreams
+Week 1: Phase 0 (All teams) → Phase 1 & 2 start
+Week 2: Phase 1 (Backend) | Phase 2 (Integration) | Phase 0.5 (Design)
+Week 3: Phase 3 (Backend) | Phase 5 (Frontend starts)
+Week 4: Phase 4 (API) | Phase 5 (Frontend continues) | Phase 6 (Integration)
+Week 5: Phase 4 & 5 merge | Phase 6 continues
+Week 6: Phase 7 & 8 (All teams)
+
+---
+
+## 🛠️ Tools & Technologies
+
+### Backend
+- **Framework**: FastAPI (Python)
+- **Database**: SQLite3 (with SQLAlchemy ORM optional)
+- **API Client**: tmdbv3api, requests
+- **Scraping**: BeautifulSoup4, lxml, fake-useragent
+- **Async**: asyncio (for background tasks)
+- **Process Management**: systemd (Ubuntu), Task Scheduler (Windows)
+
+### Frontend
+- **UI Framework**: Vanilla JS + HTML5 + CSS3
+- **HTTP Client**: Fetch API
+- **Realtime**: Server-Sent Events (or polling for simplicity)
+- **Icons**: FontAwesome
+- **Theming**: Dark CSS theme
+
+### DevOps
+- **Version Control**: Git
+- **Deployment**: Shell scripts
+- **Monitoring**: Log files + health checks
+- **Backup**: Cron + rsync
+- **CI/CD**: Optional (GitHub Actions)
+
+---
+
+## ⚠️ Risk Matrix
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|--------|------------|
+| TMDB website changes breaking scraper | Medium | High | API key fallback; monitoring |
+| External HDD disconnection during archive | Low | High | Error handling; retry logic |
+| Large file transfers timeout | Medium | Medium | Background tasks; chunking |
+| SQLite corruption | Low | High | Regular backups; WAL mode |
+| Rate limiting from TMDB | Low | Low | Use API key; caching |
+| Windows firewall blocking requests | Medium | Medium | Documentation; setup script |
+| Regex parsing fails for unusual filenames | Medium | Medium | User override; manual input |
+
+---
+
+## 📝 Success Criteria
+
+### MVP (Minimum Viable Product)
+- [ ] Scan a directory and display files
+- [ ] Fetch metadata from TMDB (API or scraper)
+- [ ] Rename movies to: `Movie Name (Year)/Movie Name (Year).ext`
+- [ ] Rename TV to: `Show/Season XX/Show - SXXEYY - Title.ext`
+- [ ] Purge non-English subtitle files
+- [ ] Move to external HDD
+- [ ] Web dashboard accessible from Windows
+- [ ] Basic error handling and logging
+- [ ] Tracker detects new seasons (cron job)
+
+### v1.0 (Feature Complete)
+- [ ] All of MVP
+- [ ] Windows Toast notifications
+- [ ] Full history tracking
+- [ ] Batch operations
+- [ ] User settings
+- [ ] Database migrations
+- [ ] Comprehensive documentation
+- [ ] Install scripts for Ubuntu & Windows
+
+### v2.0 (Stretch Goals)
+- [ ] Docker containerization
+- [ ] Multi-user support
+- [ ] Plex/Jellyfin integration
+- [ ] Automatic download integration
+- [ ] Mobile responsive PWA
+- [ ] AI-based duplicate detection
+- [ ] Subtitle downloading
+- [ ] Trakt.tv sync
+
+---
+
+## 🎯 Deliverables Checklist
+
+### Documentation
+- [ ] `README.md` - Project overview and quick start
+- [ ] `INSTALL.md` - Detailed installation guide
+- [ ] `CONFIG.md` - Configuration reference
+- [ ] `API.md` - API documentation (auto-generated)
+- [ ] `TROUBLESHOOTING.md` - Common issues and solutions
+- [ ] `CONTRIBUTING.md` - Development guidelines
+
+### Scripts
+- [ ] `scripts/install_service.sh` - Ubuntu service installation
+- [ ] `scripts/deploy.sh` - Deployment script
+- [ ] `scripts/backup.sh` - Database backup
+- [ ] `scripts/cron_job.py` - Tracker cron job
+- [ ] `scripts/windows_toast.py` - Windows notifications
+- [ ] `scripts/setup_windows.bat` - Windows client setup
+
+### Configuration
+- [ ] `config.yaml` - Main configuration file
+- [ ] `.env.example` - Environment variables template
+- [ ] `requirements.txt` - Python dependencies
+
+### Tests
+- [ ] Unit tests for all core functions
+- [ ] Integration tests for API endpoints
+- [ ] Test data fixtures
+
+---
+
+## 🚦 Ready for Implementation
+
+This plan is now ready to be handed off to development agents. Each phase includes:
+
+1. **Clear objectives** with checkboxes
+2. **File paths** for implementation
+3. **Dependencies** between phases
+4. **Success criteria** for validation
+
+### Recommended Starting Point for Agents:
+
+1. **Agent 1 (Backend)**: Start with Phase 1 (Database) → Phase 3 (Core Logic)
+2. **Agent 2 (Frontend)**: Start with Phase 5 (Dashboard) after Phase 4 API is defined
+3. **Agent 3 (Integration)**: Start with Phase 2 (TMDB) → Phase 6 (Tracker)
+4. **Agent 4 (DevOps)**: Start with Phase 0 (Environment) → Phase 8 (Deployment)
+
+### Communication Flow:
+Daily Standups: Progress updates and blockers
+Weekly Reviews: Phase completion status
+Milestone Demos: After each major phase
+
+---
+
+**Project Kickoff Ready!** 🎬
+
+This plan provides everything needed for a team of agents to build the system with clear ownership, dependencies, and success criteria. The hybrid TMDB approach (API + scraper) ensures the system works regardless of API key availability.
+
+Would you like me to elaborate on any specific phase or provide sample code for a particular component?	
+
+---
+
+**Project Kickoff Ready!** 🎬
+
+This plan provides everything needed for a team of agents to build the system with clear ownership, dependencies, and success criteria. The hybrid TMDB approach (API + scraper) ensures the system works regardless of API key availability.
+
+Would you like me to elaborate on any specific phase or provide sample code for a particular component?
+**Project Kickoff Ready!** 🎬
+
+This plan provides everything needed for a team of agents to build the system with clear ownership, dependencies, and success criteria. The hybrid TMDB approach (API + scraper) ensures the system works regardless of API key availability.
+
+Would you like me to elaborate on any specific phase or provide sample code for a particular component?
