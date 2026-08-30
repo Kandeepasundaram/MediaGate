@@ -35,6 +35,7 @@ from app.models import (
     LibraryHealthOut,
     LibraryItemOut,
     LibraryResponse,
+    ManualOverrideRequest,
     MediaType,
     MetadataStatusResponse,
     MovieRelatedTitleOut,
@@ -89,6 +90,7 @@ def _to_out(row: dict) -> LibraryItemOut:
         file_name=file_name,
         size_bytes=size_bytes,
         episode_title=meta.get("episode_title"),
+        manual_override=bool(row["manual_override"]),
     )
 
 
@@ -314,12 +316,37 @@ def _apply_rematch(db: Database, ids: list[int], media: MediaResult, now: str, i
             year=media.year,
             metadata={"poster_path": media.poster_path, "overview": media.overview},
             match_attempted_at=now,
+            manual_override=0,
         )
         if imdb_id is not None:
             fields["imdb_id"] = imdb_id
         db.update_media_item(item_id, **fields)
         updated += 1
     return updated
+
+
+@router.post("/{item_id}/override", response_model=LibraryItemOut)
+def set_manual_override(item_id: int, payload: ManualOverrideRequest, db: Database = Depends(get_database)) -> LibraryItemOut:
+    """Gives an item a title/year with no TMDB match at all -- for something
+    genuinely not on TMDB (a home video, a fan edit, a rip TMDB doesn't list).
+    Sets manual_override so the metadata backfill never overwrites it once
+    its match_attempted_at cooldown lapses, and clears any previous tmdb_id
+    so ratings/rematch don't act on a stale id that no longer describes it.
+    """
+    if db.get_media_item(item_id) is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    db.update_media_item(
+        item_id,
+        title=payload.title,
+        year=payload.year,
+        tmdb_id=None,
+        imdb_id=None,
+        manual_override=1,
+        match_attempted_at=now,
+    )
+    return _to_out(db.get_media_item(item_id))
 
 
 @router.get("/{item_id}/ratings", response_model=RatingsOut)

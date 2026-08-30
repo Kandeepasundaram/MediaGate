@@ -444,6 +444,54 @@ def test_file_info_404_for_unknown_item(client):
     assert resp.status_code == 404
 
 
+def test_manual_override_sets_title_and_clears_tmdb_id(client):
+    c, db = client
+    media_id = db.create_media_item(
+        original_path="a", title="Untitled Home Video", media_type="movie", tmdb_id=999,
+    )
+
+    resp = c.post(f"/api/library/{media_id}/override", json={"title": "Family Vacation 2019", "year": 2019})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["title"] == "Family Vacation 2019"
+    assert body["year"] == 2019
+    assert body["tmdb_id"] is None
+    assert body["manual_override"] is True
+
+
+def test_manual_override_excluded_from_unmatched_count(client):
+    c, db = client
+    media_id = db.create_media_item(original_path="a", title="X", media_type="movie")
+    c.post(f"/api/library/{media_id}/override", json={"title": "Custom Title"})
+
+    resp = c.get("/api/library/metadata-status")
+    assert resp.json()["pending"] == 0
+
+
+def test_manual_override_404_for_missing_item(client):
+    c, _ = client
+    resp = c.post("/api/library/9999/override", json={"title": "X"})
+    assert resp.status_code == 404
+
+
+def test_rematch_tmdb_clears_manual_override(client):
+    c, db = client
+    media_id = db.create_media_item(original_path="a", title="X", media_type="movie", manual_override=1)
+
+    fake_tmdb = MagicMock(mode="scraper")
+    fake_tmdb.get_movie_details.return_value = MagicMock(
+        tmdb_id=42, title="Real Title", year=2020, poster_path="/p.jpg", overview="Plot", raw={}
+    )
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+    try:
+        resp = c.post("/api/library/rematch-tmdb", json={"ids": [media_id], "tmdb_id": 42, "media_type": "movie"})
+        assert resp.status_code == 200
+    finally:
+        app.dependency_overrides[get_tmdb_client] = lambda: MagicMock(mode="scraper")
+
+    assert db.get_media_item(media_id)["manual_override"] == 0
+
+
 def test_health_reports_orphan_when_final_path_missing(client):
     c, db = client
     _seed_movie(db, final_path=str(_archive_movies_dir(c) / "Gone.mkv"))

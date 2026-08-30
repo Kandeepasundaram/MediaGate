@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     metadata TEXT,
     match_attempted_at TEXT,
     imdb_id TEXT,
+    manual_override INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 
@@ -188,11 +189,14 @@ class Database:
         backfill background task. Never-attempted items come first; a
         previously-failed lookup is only retried after `retry_cooldown_hours`
         so a title with no real TMDB match doesn't get re-searched on every
-        backfill cycle."""
+        backfill cycle. manual_override rows are excluded permanently -- the
+        user has already given this item a title on purpose, so the backfill
+        must never overwrite it once the cooldown lapses."""
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=retry_cooldown_hours)).isoformat()
         return self.fetch_all(
             "SELECT * FROM media_items "
-            "WHERE tmdb_id IS NULL AND (match_attempted_at IS NULL OR match_attempted_at < ?) "
+            "WHERE tmdb_id IS NULL AND manual_override = 0 "
+            "AND (match_attempted_at IS NULL OR match_attempted_at < ?) "
             "ORDER BY (match_attempted_at IS NULL) DESC, created_at ASC "
             "LIMIT ?",
             (cutoff, limit),
@@ -201,10 +205,11 @@ class Database:
     def count_unmatched_media_items(self, media_type: str | None = None) -> int:
         if media_type:
             row = self.fetch_one(
-                "SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL AND media_type = ?", (media_type,)
+                "SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL AND manual_override = 0 AND media_type = ?",
+                (media_type,),
             )
         else:
-            row = self.fetch_one("SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL")
+            row = self.fetch_one("SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL AND manual_override = 0")
         return row["n"]
 
     def count_failed_match_items(self, media_type: str | None = None) -> int:
@@ -213,12 +218,13 @@ class Database:
         if media_type:
             row = self.fetch_one(
                 "SELECT COUNT(*) AS n FROM media_items "
-                "WHERE tmdb_id IS NULL AND match_attempted_at IS NOT NULL AND media_type = ?",
+                "WHERE tmdb_id IS NULL AND manual_override = 0 AND match_attempted_at IS NOT NULL AND media_type = ?",
                 (media_type,),
             )
         else:
             row = self.fetch_one(
-                "SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id IS NULL AND match_attempted_at IS NOT NULL"
+                "SELECT COUNT(*) AS n FROM media_items "
+                "WHERE tmdb_id IS NULL AND manual_override = 0 AND match_attempted_at IS NOT NULL"
             )
         return row["n"]
 
@@ -388,6 +394,15 @@ def _migration_v6(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v7(conn: sqlite3.Connection) -> None:
+    """Add media_items.manual_override -- set when the user gives an item a
+    custom title/year with no TMDB match (see /api/library/{id}/override).
+    Without this flag the metadata backfill would eventually re-search and
+    overwrite the manually-chosen title once its match_attempted_at cooldown
+    lapses. Plain nullable-with-default column add, no rebuild needed."""
+    conn.execute("ALTER TABLE media_items ADD COLUMN manual_override INTEGER NOT NULL DEFAULT 0")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -395,4 +410,5 @@ _MIGRATIONS = {
     4: _migration_v4,
     5: _migration_v5,
     6: _migration_v6,
+    7: _migration_v7,
 }

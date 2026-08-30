@@ -130,6 +130,15 @@ def test_list_unmatched_media_items_respects_cooldown(db):
     assert len(db.list_unmatched_media_items(retry_cooldown_hours=0.0, limit=10)) == 1
 
 
+def test_list_unmatched_media_items_excludes_manual_override(db):
+    overridden_id = db.create_media_item(original_path="a", title="A", media_type="movie", manual_override=1)
+    unmatched_id = db.create_media_item(original_path="b", title="B", media_type="movie")
+
+    unmatched = db.list_unmatched_media_items(limit=10)
+    assert [r["id"] for r in unmatched] == [unmatched_id]
+    assert overridden_id not in [r["id"] for r in unmatched]
+
+
 def test_count_unmatched_media_items_filters_by_type(db):
     db.create_media_item(original_path="a", title="A", media_type="movie")
     db.create_media_item(original_path="b", title="B", media_type="tv")
@@ -244,7 +253,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 6
+    assert version == 7
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -271,3 +280,6 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     # v6's indexes exist after upgrading from v1.
     indexes = {r["name"] for r in db.fetch_all("SELECT name FROM sqlite_master WHERE type='index'")}
     assert "idx_media_items_tmdb_id" in indexes
+
+    # v7's media_items.manual_override column exists and defaults to unset.
+    assert db.get_media_item(item_id)["manual_override"] == 0

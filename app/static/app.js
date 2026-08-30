@@ -195,7 +195,7 @@ function renderMoviesGallery() {
     <div class="gallery-card" data-item-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
       <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
-        ${item.tmdb_id == null ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
+        ${(item.tmdb_id == null && !item.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${item.watched ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
       </div>
       ${posterMarkup(item.title, item.poster_path)}
@@ -257,7 +257,7 @@ function groupEpisodesByShow(items) {
   for (const item of items) {
     const key = item.title;
     if (!shows.has(key)) {
-      shows.set(key, { title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview, episodes: [] });
+      shows.set(key, { title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview, manual_override: item.manual_override, episodes: [] });
     }
     shows.get(key).episodes.push(item);
   }
@@ -289,7 +289,7 @@ function renderTvGallery() {
   gallery.innerHTML = shows.map((show, i) => `
     <div class="gallery-card" data-show-index="${i}">
       <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">
-        ${show.tmdb_id == null ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
+        ${(show.tmdb_id == null && !show.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${show.episodes.every((e) => e.watched) ? `<span class="badge badge-ok" title="All episodes watched">✓</span>` : ""}
       </div>
       ${posterMarkup(show.title, show.poster_path)}
@@ -348,7 +348,7 @@ function renderDetailPane() {
     const item = pane.data;
     content.innerHTML = `
       <div id="detail-movie-status"></div>
-      ${item.tmdb_id == null ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
+      ${(item.tmdb_id == null && !item.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
       ${posterMarkupLarge(item.title, item.poster_path)}
       <div class="detail-title">${item.title}</div>
       <div class="detail-year">${item.year || ""}</div>
@@ -382,7 +382,7 @@ function renderDetailPane() {
     const show = pane.data;
     content.innerHTML = `
       <div id="detail-tv-status"></div>
-      ${show.tmdb_id == null ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
+      ${(show.tmdb_id == null && !show.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
       ${posterMarkupLarge(show.title, show.poster_path)}
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
@@ -693,6 +693,16 @@ function detailFixMarkup() {
       </label>
       <button id="detail-fetch-btn">Fetch Metadata from IMDb ID</button>
       <span id="detail-fetch-status" class="hint"></span>
+      <details class="detail-custom-title">
+        <summary>Not on TMDB? Set a custom title</summary>
+        <label>Title
+          <input type="text" id="detail-custom-title-input" placeholder="Family Vacation 2019">
+        </label>
+        <label>Year (optional)
+          <input type="number" id="detail-custom-year-input" placeholder="2019">
+        </label>
+        <button id="detail-custom-title-btn">Set Custom Title</button>
+      </details>
     </div>
   `;
 }
@@ -738,6 +748,26 @@ async function reopenDetailPaneAfterRematch(pane, ids) {
 
 function wireDetailFix() {
   $("#detail-change-match-btn").addEventListener("click", openPaneMatchPicker);
+  $("#detail-custom-title-btn").addEventListener("click", async () => {
+    const pane = state.detailPane;
+    if (!pane) return;
+    const title = $("#detail-custom-title-input").value.trim();
+    if (!title) return;
+    const yearRaw = $("#detail-custom-year-input").value.trim();
+    const year = yearRaw ? Number(yearRaw) : null;
+
+    const ids = pane.kind === "movie" ? [pane.data.id] : pane.data.episodes.map((e) => e.id);
+    $("#detail-fetch-status").textContent = "Setting custom title...";
+    try {
+      for (const id of ids) {
+        await api(`/api/library/${id}/override`, { method: "POST", body: JSON.stringify({ title, year }) });
+      }
+      $("#detail-fetch-status").textContent = "Updated.";
+      await reopenDetailPaneAfterRematch(pane, ids);
+    } catch (e) {
+      $("#detail-fetch-status").textContent = `Error: ${e.message}`;
+    }
+  });
   $("#detail-fetch-btn").addEventListener("click", async () => {
     const pane = state.detailPane;
     if (!pane) return;

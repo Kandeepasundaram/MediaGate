@@ -177,6 +177,7 @@ class LibraryItemOut(BaseModel):
     file_name: str | None = None
     size_bytes: int | None = None
     episode_title: str | None = None
+    manual_override: bool = False
 
 
 class TvStatusOut(BaseModel):
@@ -296,6 +297,11 @@ class LibraryHealthOut(BaseModel):
 
 class OrphanCleanupResponse(BaseModel):
     removed: int
+
+
+class ManualOverrideRequest(BaseModel):
+    title: str
+    year: int | None = None
 
 
 class SettingsOut(BaseModel):
