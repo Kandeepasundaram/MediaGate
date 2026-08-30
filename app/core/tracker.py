@@ -87,18 +87,29 @@ def check_movie_collection(db: Database, tmdb: TMDBClient, tracker_row: dict) ->
     return newly_pending
 
 
-def _fire_webhook(webhook_url: str, row: dict) -> None:
-    message = (
+def _message_for(row: dict) -> str:
+    return (
         f"New season available for {row['title']}"
         if row["media_type"] == "tv"
         else f"{row['title']}: {row.get('movie_release_status') or 'new release detected'}"
     )
+
+
+def _fire_webhook(webhook_url: str, rows: list[dict]) -> None:
+    """One POST per check_for_updates run, not one per newly-pending title --
+    a run that flips five titles at once (e.g. after being offline a while)
+    should send one digest, not fire the webhook five times back to back."""
+    if len(rows) == 1:
+        row = rows[0]
+        payload = {"title": row["title"], "media_type": row["media_type"], "message": _message_for(row)}
+    else:
+        payload = {
+            "count": len(rows),
+            "titles": [row["title"] for row in rows],
+            "message": "; ".join(_message_for(row) for row in rows),
+        }
     try:
-        requests.post(
-            webhook_url,
-            json={"title": row["title"], "media_type": row["media_type"], "message": message},
-            timeout=10,
-        )
+        requests.post(webhook_url, json=payload, timeout=10)
     except requests.RequestException as exc:
         logger.warning("Tracker webhook POST to %s failed: %s", webhook_url, exc)
 
@@ -107,6 +118,7 @@ def check_for_updates(db: Database, tmdb: TMDBClient, webhook_url: str | None = 
     """Main tracker entry point. Returns the number of items now pending notification."""
     tracked = db.list_tracked()
     now = datetime.now(timezone.utc)
+    newly_pending_rows: list[dict] = []
     for row in tracked:
         if not _is_due(row, now):
             continue
@@ -116,8 +128,8 @@ def check_for_updates(db: Database, tmdb: TMDBClient, webhook_url: str | None = 
             else:
                 newly_pending = check_movie_collection(db, tmdb, row)
             db.log_operation(operation_type="tracker_check", status="success", details={"tmdb_id": row["tmdb_id"]})
-            if newly_pending and not row["muted"] and webhook_url:
-                _fire_webhook(webhook_url, row)
+            if newly_pending and not row["muted"]:
+                newly_pending_rows.append(row)
         except Exception as exc:  # noqa: BLE001 - one bad title shouldn't abort the whole run
             logger.error("Tracker check failed for tmdb_id=%s: %s", row["tmdb_id"], exc)
             db.log_operation(
@@ -126,5 +138,8 @@ def check_for_updates(db: Database, tmdb: TMDBClient, webhook_url: str | None = 
                 details={"tmdb_id": row["tmdb_id"]},
                 error_message=str(exc),
             )
+
+    if newly_pending_rows and webhook_url:
+        _fire_webhook(webhook_url, newly_pending_rows)
 
     return len(db.list_pending_notifications())

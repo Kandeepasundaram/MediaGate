@@ -104,6 +104,25 @@ def test_check_for_updates_does_not_fire_webhook_for_muted_title(db):
     mock_post.assert_not_called()
 
 
+def test_check_for_updates_sends_single_digest_for_multiple_titles(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show A", current_season_archived=1)
+    db.upsert_tracker(tmdb_id=2, media_type="tv", title="Show B", current_season_archived=1)
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.side_effect = lambda tmdb_id: MediaResult(
+        tmdb_id=tmdb_id, title=f"Show {'A' if tmdb_id == 1 else 'B'}", media_type="tv",
+        raw={"number_of_seasons": 3},
+    )
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(db, tmdb, webhook_url="https://example.com/hook")
+
+    mock_post.assert_called_once()
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["count"] == 2
+    assert set(payload["titles"]) == {"Show A", "Show B"}
+
+
 def test_check_for_updates_skips_snoozed_title(db):
     db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
     row = db.get_tracker(1, "tv")
