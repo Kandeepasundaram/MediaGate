@@ -285,6 +285,36 @@ def test_delete_file_removes_tracked_file_and_db_row(client):
     assert ops[0]["status"] == "success"
 
 
+def test_delete_file_dry_run_reports_without_deleting(client):
+    c, db = client
+    folder = _archive_movies_dir(c) / "Movie (2020)"
+    folder.mkdir()
+    video = folder / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+    (folder / "Movie (2020).srt").write_bytes(b"sub")
+    (folder / "poster.jpg").write_bytes(b"img")
+    media_id = db.create_media_item(
+        original_path="x", final_path=str(video), title="Movie", media_type="movie"
+    )
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video), "dry_run": True})
+    body = resp.json()
+    assert resp.status_code == 200
+    assert body["deleted"] is False
+    assert body["dry_run"] is True
+    preview = body["preview"]
+    assert preview["would_delete"] is True
+    assert set(Path(p).name for p in preview["sibling_files"]) == {"Movie (2020).srt", "poster.jpg"}
+    assert preview["folder_removed"] == str(folder)
+
+    # nothing actually touched
+    assert video.exists()
+    assert (folder / "Movie (2020).srt").exists()
+    assert (folder / "poster.jpg").exists()
+    assert db.get_media_item(media_id) is not None
+    assert db.list_operations(operation_type="delete") == []
+
+
 def test_delete_batch_removes_multiple_files(client):
     c, db = client
     archive_dir = _archive_movies_dir(c)
@@ -302,6 +332,25 @@ def test_delete_batch_removes_multiple_files(client):
     assert not video1.exists()
     assert not video2.exists()
     assert db.get_media_item(media_id) is None
+
+
+def test_delete_batch_dry_run_reports_without_deleting(client):
+    c, db = client
+    archive_dir = _archive_movies_dir(c)
+    video1 = archive_dir / "a.mkv"
+    video1.write_bytes(b"1")
+    missing = archive_dir / "missing.mkv"
+
+    resp = c.post("/api/library/delete-batch", json={"paths": [str(video1), str(missing)], "dry_run": True})
+    body = resp.json()
+    assert resp.status_code == 200
+    assert body["deleted"] == 0
+    assert len(body["errors"]) == 1
+    assert "missing.mkv" in body["errors"][0]
+    assert len(body["previews"]) == 2
+    assert body["previews"][0]["would_delete"] is True
+    assert body["previews"][1]["would_delete"] is False
+    assert video1.exists()  # nothing actually deleted
 
 
 def test_delete_batch_reports_errors_without_aborting(client):
@@ -357,6 +406,24 @@ def test_delete_file_removes_sibling_subtitle_and_empty_movie_folder(client):
     (folder / "Movie (2020).srt").write_bytes(b"sub")
     (folder / "poster.jpg").write_bytes(b"img")
     (folder / "movie.nfo").write_bytes(b"nfo")
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video)})
+    assert resp.status_code == 200
+    assert not folder.exists()
+
+
+def test_delete_file_removes_adopted_radarr_style_sidecars_and_folder(client):
+    """An adopted (not self-archived) movie carries Radarr/Kodi's own
+    artwork/nfo naming rather than this app's fixed poster.jpg/movie.nfo --
+    those still need to go once the video is deleted."""
+    c, _ = client
+    folder = _archive_movies_dir(c) / "Movie (2020)"
+    folder.mkdir()
+    video = folder / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+    (folder / "Movie (2020).nfo").write_bytes(b"nfo")  # named after the movie, not "movie.nfo"
+    (folder / "banner.jpg").write_bytes(b"img")  # Kodi artwork set, not just poster/fanart
+    (folder / "English.srt").write_bytes(b"sub")  # subtitle not prefixed with the video stem
 
     resp = c.post("/api/library/delete-file", json={"path": str(video)})
     assert resp.status_code == 200
@@ -905,6 +972,21 @@ def test_cleanup_orphaned_artwork_removes_stray_files(client):
     assert c.post("/api/library/orphaned-artwork/cleanup").json()["removed"] == 0
 
 
+def test_cleanup_orphaned_artwork_dry_run_reports_without_deleting(client):
+    c, _ = client
+    folder = _archive_movies_dir(c) / "Old Movie Name (2020)"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "poster.jpg").write_bytes(b"x")
+
+    resp = c.post("/api/library/orphaned-artwork/cleanup?dry_run=true")
+    body = resp.json()
+    assert resp.status_code == 200
+    assert body["dry_run"] is True
+    assert body["removed"] == 1
+    assert body["groups"] == [{"folder": str(folder), "files": ["poster.jpg"]}]
+    assert (folder / "poster.jpg").exists()  # nothing actually deleted
+
+
 def test_cleanup_orphans_removes_only_missing_files(client):
     c, db = client
     video = _archive_movies_dir(c) / "Movie (2020).mkv"
@@ -921,6 +1003,26 @@ def test_cleanup_orphans_removes_only_missing_files(client):
     assert db.get_media_item(orphan_id) is None
     ops = db.list_operations(operation_type="delete")
     assert json.loads(ops[0]["details"])["reason"] == "orphan_cleanup"
+
+
+def test_cleanup_orphans_dry_run_reports_without_deleting(client):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"data")
+    _seed_movie(db, final_path=str(video))
+    orphan_path = str(_archive_movies_dir(c) / "Gone.mkv")
+    orphan_id = _seed_movie(db, final_path=orphan_path)
+
+    resp = c.post("/api/library/orphans/cleanup?dry_run=true")
+    body = resp.json()
+    assert resp.status_code == 200
+    assert body["dry_run"] is True
+    assert body["removed"] == 1
+    assert body["paths"] == [orphan_path]
+
+    assert db.get_media_item(orphan_id) is not None  # nothing actually removed
+    assert db.list_operations(operation_type="delete") == []
 
 
 def test_search_library_matches_across_movie_and_tv(client):

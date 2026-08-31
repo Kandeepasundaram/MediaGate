@@ -2337,11 +2337,25 @@ async function loadLibraryHealth() {
   }
 }
 
+function isBrowseDryRun() {
+  return $("#browse-dry-run-toggle").checked;
+}
+
 async function cleanupOrphanedArtwork() {
-  const ok = await showConfirm("Delete poster/nfo/subtitle files left behind in folders whose video was renamed or moved away? This does not touch any video file.");
-  if (!ok) return;
+  const dryRun = isBrowseDryRun();
+  if (!dryRun) {
+    const ok = await showConfirm("Delete poster/nfo/subtitle files left behind in folders whose video was renamed or moved away? This does not touch any video file.");
+    if (!ok) return;
+  }
   try {
-    const data = await api("/api/library/orphaned-artwork/cleanup", { method: "POST" });
+    const data = await api(`/api/library/orphaned-artwork/cleanup?dry_run=${dryRun}`, { method: "POST" });
+    if (dryRun) {
+      const fileCount = data.groups.reduce((n, g) => n + g.files.length, 0);
+      $("#browse-status").textContent = data.groups.length
+        ? `Dry run: would remove ${fileCount} file(s) across ${data.groups.length} folder(s). Nothing was changed.`
+        : "Dry run: nothing to clean up. Nothing was changed.";
+      return;
+    }
     $("#browse-status").textContent = `Removed ${data.removed} orphaned artwork file(s).`;
     loadLibraryHealth();
   } catch (e) {
@@ -2453,12 +2467,17 @@ async function deleteDuplicateCopy(path) {
 }
 
 async function cleanupOrphans() {
-  const ok = await showConfirm("Remove database records for archived files that no longer exist on disk? This does not touch any files.");
-  if (!ok) return;
+  const dryRun = isBrowseDryRun();
+  if (!dryRun) {
+    const ok = await showConfirm("Remove database records for archived files that no longer exist on disk? This does not touch any files.");
+    if (!ok) return;
+  }
   try {
-    const data = await api("/api/library/orphans/cleanup", { method: "POST" });
-    $("#browse-status").textContent = `Removed ${data.removed} orphaned record(s).`;
-    loadLibraryHealth();
+    const data = await api(`/api/library/orphans/cleanup?dry_run=${dryRun}`, { method: "POST" });
+    $("#browse-status").textContent = dryRun
+      ? `Dry run: would remove ${data.removed} orphaned record(s). Nothing was changed.`
+      : `Removed ${data.removed} orphaned record(s).`;
+    if (!dryRun) loadLibraryHealth();
   } catch (e) {
     $("#browse-status").textContent = `Error: ${e.message}`;
   }
@@ -2466,12 +2485,21 @@ async function cleanupOrphans() {
 
 async function deleteBrowseItem(index) {
   const item = state.browseFiltered[index];
-  const ok = await showConfirm(`Permanently delete "${item.path}"? This cannot be undone.`);
-  if (!ok) return;
+  const dryRun = isBrowseDryRun();
+  if (!dryRun) {
+    const ok = await showConfirm(`Permanently delete "${item.path}"? This cannot be undone.`);
+    if (!ok) return;
+  }
 
-  $("#browse-status").textContent = "Deleting...";
+  $("#browse-status").textContent = dryRun ? "Checking (dry run, nothing will change)..." : "Deleting...";
   try {
-    await api("/api/library/delete-file", { method: "POST", body: JSON.stringify({ path: item.path }) });
+    const data = await api("/api/library/delete-file", { method: "POST", body: JSON.stringify({ path: item.path, dry_run: dryRun }) });
+    if (dryRun) {
+      const p = data.preview;
+      const extra = p.sibling_files.length ? `, ${p.sibling_files.length} sibling file(s)` : "";
+      $("#browse-status").textContent = `Dry run: would delete "${item.path}"${extra}${p.folder_removed ? ", and its now-empty folder" : ""}. Nothing was changed.`;
+      return;
+    }
     loadBrowse();
   } catch (e) {
     $("#browse-status").textContent = `Error: ${e.message}`;
@@ -2481,15 +2509,26 @@ async function deleteBrowseItem(index) {
 async function deleteSelectedBrowseItems() {
   const selected = $all(".browse-check:checked").map((cb) => state.browseFiltered[Number(cb.dataset.index)]);
   if (selected.length === 0) return;
-  const ok = await showConfirm(`Permanently delete ${selected.length} file(s)? This cannot be undone.`);
-  if (!ok) return;
+  const dryRun = isBrowseDryRun();
+  if (!dryRun) {
+    const ok = await showConfirm(`Permanently delete ${selected.length} file(s)? This cannot be undone.`);
+    if (!ok) return;
+  }
 
-  $("#browse-status").textContent = "Deleting...";
+  $("#browse-status").textContent = dryRun ? "Checking (dry run, nothing will change)..." : "Deleting...";
   try {
     const data = await api("/api/library/delete-batch", {
       method: "POST",
-      body: JSON.stringify({ paths: selected.map((item) => item.path) }),
+      body: JSON.stringify({ paths: selected.map((item) => item.path), dry_run: dryRun }),
     });
+    if (dryRun) {
+      const wouldDelete = data.previews.filter((p) => p.would_delete).length;
+      const folders = data.previews.filter((p) => p.folder_removed).length;
+      $("#browse-status").textContent = data.errors.length
+        ? `Dry run: ${wouldDelete} would succeed (${folders} folder(s) removed too), ${data.errors.length} would fail: ${data.errors.join("; ")}`
+        : `Dry run: all ${wouldDelete} file(s) would succeed (${folders} folder(s) removed too). Nothing was changed.`;
+      return;
+    }
     $("#browse-status").textContent = data.errors.length
       ? `Deleted ${data.deleted}, ${data.errors.length} failed: ${data.errors.join("; ")}`
       : `Deleted ${data.deleted} file(s).`;

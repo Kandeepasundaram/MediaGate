@@ -520,15 +520,30 @@ class BrowseResponse(BaseModel):
 
 class DeleteFileRequest(BaseModel):
     path: str
+    # When true, nothing is deleted -- just reports what would happen,
+    # including which sibling files and the folder itself would go too.
+    dry_run: bool = False
 
 
 class DeleteBatchRequest(BaseModel):
     paths: list[str]
+    dry_run: bool = False
+
+
+class DeletePreviewOut(BaseModel):
+    path: str
+    would_delete: bool
+    sibling_files: list[str] = Field(default_factory=list)
+    folder_removed: str | None = None
+    error: str | None = None
 
 
 class DeleteBatchResponse(BaseModel):
     deleted: int
     errors: list[str] = Field(default_factory=list)
+    # Populated only when the request was a dry run -- one entry per path,
+    # describing what would have been deleted instead of what was.
+    previews: list[DeletePreviewOut] = Field(default_factory=list)
 
 
 class MetadataStatusResponse(BaseModel):
@@ -549,10 +564,18 @@ class LibraryHealthOut(BaseModel):
 
 class OrphanCleanupResponse(BaseModel):
     removed: int
+    dry_run: bool = False
+    # final_path of each affected media_items row -- removed if dry_run is
+    # false, would-be-removed if true.
+    paths: list[str] = Field(default_factory=list)
 
 
 class OrphanArtworkCleanupResponse(BaseModel):
     removed: int
+    dry_run: bool = False
+    # Populated only when dry_run is true -- same shape as /health's
+    # orphaned_artwork, so the UI can show exactly what would go.
+    groups: list[OrphanArtworkGroupOut] = Field(default_factory=list)
 
 
 class RetryFailedMatchesResponse(BaseModel):

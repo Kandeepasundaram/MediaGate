@@ -41,6 +41,7 @@ from app.models import (
     DeleteBatchRequest,
     DeleteBatchResponse,
     DeleteFileRequest,
+    DeletePreviewOut,
     FileInfoOut,
     LibraryExportResponse,
     LibraryHealthOut,
@@ -489,32 +490,46 @@ def library_health(config: AppConfig = Depends(get_config), db: Database = Depen
 
 
 @router.post("/orphans/cleanup", response_model=OrphanCleanupResponse)
-def cleanup_orphans(db: Database = Depends(get_database)) -> OrphanCleanupResponse:
+def cleanup_orphans(dry_run: bool = False, db: Database = Depends(get_database)) -> OrphanCleanupResponse:
     """Removes media_items rows whose final_path no longer exists on disk.
     There's no file to delete (it's already gone) -- just the stale DB row --
     so this logs a 'delete' operation for the audit trail without touching
     the filesystem, same operation_type the single-file delete-file uses.
+    With dry_run, nothing is logged or removed -- just reports which rows
+    would go.
     """
     removed = 0
+    paths: list[str] = []
     for row in db.list_media_items():
         if row["final_path"] and not Path(row["final_path"]).exists():
-            db.log_operation(
-                operation_type="delete",
-                status="success",
-                media_id=row["id"],
-                details={"reason": "orphan_cleanup", "final_path": row["final_path"]},
-            )
-            db.delete_media_item(row["id"])
+            paths.append(row["final_path"])
+            if not dry_run:
+                db.log_operation(
+                    operation_type="delete",
+                    status="success",
+                    media_id=row["id"],
+                    details={"reason": "orphan_cleanup", "final_path": row["final_path"]},
+                )
+                db.delete_media_item(row["id"])
             removed += 1
-    return OrphanCleanupResponse(removed=removed)
+    return OrphanCleanupResponse(removed=removed, dry_run=dry_run, paths=paths)
 
 
 @router.post("/orphaned-artwork/cleanup", response_model=OrphanArtworkCleanupResponse)
-def cleanup_orphaned_artwork_route(config: AppConfig = Depends(get_config)) -> OrphanArtworkCleanupResponse:
+def cleanup_orphaned_artwork_route(
+    dry_run: bool = False, config: AppConfig = Depends(get_config)
+) -> OrphanArtworkCleanupResponse:
     """Deletes poster/nfo/subtitle files found by find_orphaned_artwork() --
     a fresh re-scan at cleanup time (not whatever /health last returned),
-    so a file that got a video back in the meantime isn't touched."""
+    so a file that got a video back in the meantime isn't touched. With
+    dry_run, nothing is deleted -- the groups that would be cleaned up are
+    returned instead, same shape as /health's orphaned_artwork.
+    """
     groups = find_orphaned_artwork(config.paths.archive_movies) + find_orphaned_artwork(config.paths.archive_tv)
+    if dry_run:
+        total_files = sum(len(g.files) for g in groups)
+        group_out = [OrphanArtworkGroupOut(folder=str(g.folder), files=[f.name for f in g.files]) for g in groups]
+        return OrphanArtworkCleanupResponse(removed=total_files, dry_run=True, groups=group_out)
     removed = cleanup_orphaned_artwork(groups)
     return OrphanArtworkCleanupResponse(removed=removed)
 
@@ -1234,49 +1249,92 @@ def _delete_target(target: Path, db: Database, config: AppConfig) -> None:
     logger.info("Deleted %s (was tracked: %s)", target, bool(tracked_row))
 
 
-def _cleanup_siblings_and_folder(deleted_video: Path, config: AppConfig) -> None:
-    """After deleting a video, also removes its own subtitle files and --
-    only once no video remains in the folder, since a TV season folder
-    holds multiple episodes -- the poster/nfo written alongside it, then
-    the folder itself if that leaves it empty. Best-effort throughout: a
-    failure here doesn't undo the video deletion that already succeeded.
-    Never touches the configured incoming/archive roots themselves --
-    only subfolders within them (a movie's own folder, a TV season folder).
-    """
-    folder = deleted_video.parent
-    if not folder.is_dir():
-        return
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tbn"}
 
-    protected_roots = {
+
+def _protected_roots(config: AppConfig) -> set[Path]:
+    return {
         config.paths.incoming_movies.resolve(),
         config.paths.incoming_tv.resolve(),
         config.paths.archive_movies.resolve(),
         config.paths.archive_tv.resolve(),
     }
-    is_protected_root = folder.resolve() in protected_roots
 
-    for sub in folder.glob(f"{deleted_video.stem}*"):
-        if sub.is_file() and sub.suffix.lower() in SUBTITLE_EXTENSIONS:
-            try:
-                sub.unlink()
-            except OSError as exc:
-                logger.warning("Failed to remove sibling subtitle %s: %s", sub, exc)
 
-    remaining_videos = any(
-        p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS for p in folder.iterdir()
-    )
-    if not remaining_videos and not is_protected_root:
-        for name in ARTWORK_NAMES:
-            artwork = folder / name
-            if artwork.exists():
-                try:
-                    artwork.unlink()
-                except OSError as exc:
-                    logger.warning("Failed to remove leftover artwork %s: %s", artwork, exc)
+def _sidecar_candidates(deleted_video: Path, config: AppConfig) -> tuple[list[Path], bool]:
+    """What _cleanup_siblings_and_folder would remove for `deleted_video`:
+    (sidecar files to remove, whether the folder itself would end up
+    removable). Pure/side-effect-free so both the real cleanup and the
+    delete dry-run preview compute the exact same answer from one place.
+
+    Works whether `deleted_video` still physically exists in the folder
+    (dry run -- nothing has been deleted yet) or not (real cleanup runs
+    this after the video's already unlinked): entries are always compared
+    by path against `deleted_video` rather than relying on its absence.
+
+    While another video remains in the folder (a TV season with more
+    episodes), the answer is scoped to this video's own stem-prefixed
+    subtitle siblings only, so a still-needed sibling of another episode
+    is never touched. Once nothing else in the folder needs a video file,
+    any leftover subtitle/image/nfo file can only have belonged to what's
+    being deleted -- including ones this app didn't write itself (an
+    adopted Radarr/Sonarr import's own artwork/nfo naming, e.g.
+    "Movie (2020).nfo" or "banner.jpg", not just this app's own
+    poster.jpg/fanart.jpg/movie.nfo) -- so those are swept by extension
+    instead of by the fixed ARTWORK_NAMES list. Genuinely unrelated files
+    (anything not a subtitle/image/nfo extension) are left alone, and so
+    is the folder if any remain -- and the folder is never removable if
+    it's one of the configured incoming/archive roots themselves.
+    """
+    folder = deleted_video.parent
+    if not folder.is_dir():
+        return [], False
+
+    is_protected_root = folder.resolve() in _protected_roots(config)
+    other_entries = [p for p in folder.iterdir() if p.is_file() and p != deleted_video]
+
+    stem_subtitle_siblings = [
+        p for p in folder.glob(f"{deleted_video.stem}*")
+        if p.is_file() and p != deleted_video and p.suffix.lower() in SUBTITLE_EXTENSIONS
+    ]
+    remaining_videos = any(p.suffix.lower() in VIDEO_EXTENSIONS for p in other_entries)
+    if remaining_videos or is_protected_root:
+        return stem_subtitle_siblings, False
+
+    sidecar_exts = SUBTITLE_EXTENSIONS | IMAGE_EXTENSIONS | {".nfo"}
+    all_sidecars = [p for p in other_entries if p.name.lower() in ARTWORK_NAMES or p.suffix.lower() in sidecar_exts]
+    folder_removable = len(all_sidecars) == len(other_entries)  # nothing left over but sidecars
+    return all_sidecars, folder_removable
+
+
+def _cleanup_siblings_and_folder(deleted_video: Path, config: AppConfig) -> None:
+    """After deleting a video, also removes the sidecar files
+    `_sidecar_candidates()` identifies and, if that leaves the folder with
+    nothing else in it, the folder itself. Best-effort throughout: a
+    failure here doesn't undo the video deletion that already succeeded.
+    """
+    sidecars, folder_removable = _sidecar_candidates(deleted_video, config)
+    for sidecar in sidecars:
         try:
-            folder.rmdir()
+            sidecar.unlink()
+        except OSError as exc:
+            logger.warning("Failed to remove leftover sidecar file %s: %s", sidecar, exc)
+    if folder_removable:
+        try:
+            deleted_video.parent.rmdir()
         except OSError:
             pass  # not empty (something else still in there), or already gone
+
+
+def _preview_delete(target: Path, config: AppConfig) -> DeletePreviewOut:
+    """What deleting `target` would do, without touching the filesystem."""
+    sidecars, folder_removable = _sidecar_candidates(target, config)
+    return DeletePreviewOut(
+        path=str(target),
+        would_delete=True,
+        sibling_files=[str(p) for p in sidecars],
+        folder_removed=str(target.parent) if folder_removable else None,
+    )
 
 
 @router.post("/delete-file")
@@ -1285,13 +1343,19 @@ def delete_file(
     config: AppConfig = Depends(get_config),
     db: Database = Depends(get_database),
 ) -> dict:
-    """Permanently deletes a single file from disk."""
+    """Permanently deletes a single file from disk, or -- with dry_run --
+    just reports what that would do (the file itself, plus which sidecar
+    files and the folder it would take with it) without touching anything.
+    """
     try:
         target = _resolve_and_validate_target(payload.path, config)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if payload.dry_run:
+        return {"deleted": False, "dry_run": True, "preview": _preview_delete(target, config)}
 
     try:
         _delete_target(target, db, config)
@@ -1309,10 +1373,23 @@ def delete_batch(
     """Bulk version of delete-file for the gallery/Browse "Delete Selected"
     action -- one bad path in the batch (outside the media dirs, already
     gone, a permissions error) is reported per-path rather than aborting
-    the rest of the selection.
+    the rest of the selection. With dry_run, nothing is deleted -- each
+    path gets a DeletePreviewOut instead, in `previews`.
     """
+    if payload.dry_run:
+        previews: list[DeletePreviewOut] = []
+        errors: list[str] = []
+        for path in payload.paths:
+            try:
+                target = _resolve_and_validate_target(path, config)
+                previews.append(_preview_delete(target, config))
+            except (ValueError, FileNotFoundError) as exc:
+                errors.append(f"{path}: {exc}")
+                previews.append(DeletePreviewOut(path=path, would_delete=False, error=str(exc)))
+        return DeleteBatchResponse(deleted=0, errors=errors, previews=previews)
+
     deleted = 0
-    errors: list[str] = []
+    errors = []
     for path in payload.paths:
         try:
             target = _resolve_and_validate_target(path, config)
