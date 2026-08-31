@@ -601,6 +601,7 @@ function renderMoviesGallery() {
   gallery.innerHTML = visible.map((item, i) => `
     <div class="gallery-card" data-item-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
+      <span class="gallery-index" title="Position ${i + 1} of ${total} in the current sort/filter">${i + 1}</span>
       <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
         ${(item.tmdb_id == null && !item.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${effectiveWatched(item) ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
@@ -1008,6 +1009,7 @@ function renderTvGallery() {
   gallery.innerHTML = visible.map((show, i) => `
     <div class="gallery-card" data-show-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-title="${show.title}">
+      <span class="gallery-index" title="Position ${i + 1} of ${total} in the current sort/filter">${i + 1}</span>
       <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">
         ${(show.tmdb_id == null && !show.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${show.watched ? `<span class="badge badge-ok" title="All episodes watched">✓</span>` : ""}
