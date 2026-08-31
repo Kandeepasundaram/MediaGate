@@ -1415,6 +1415,38 @@ async function applyMatchOverride(index, candidate) {
   }
 }
 
+function openBulkMatchPicker() {
+  const items = selectedItems();
+  if (items.length === 0) {
+    $("#scan-status").textContent = "Select at least one row first.";
+    return;
+  }
+  const mediaTypes = new Set(items.map((i) => i.media_type));
+  if (mediaTypes.size > 1) {
+    $("#scan-status").textContent = "Select rows of only one media type (Movie or TV) to bulk-change match.";
+    return;
+  }
+  openMatchModal(items[0].media_type, items[0].title, (candidate) => applyBulkMatchOverride(items, candidate));
+}
+
+async function applyBulkMatchOverride(items, candidate) {
+  closeMatchPicker();
+  $("#scan-status").textContent = `Applying match to ${items.length} file(s)...`;
+  try {
+    const overrides = Object.fromEntries(items.map((i) => [i.source_path, candidate.tmdb_id]));
+    const preview = await api("/api/archive/preview", {
+      method: "POST",
+      body: JSON.stringify({ paths: items.map((i) => i.source_path), tmdb_overrides: overrides }),
+    });
+    const bySource = Object.fromEntries(preview.items.map((p) => [p.source_path, p]));
+    state.previewItems = state.previewItems.map((existing) => bySource[existing.source_path] || existing);
+    renderArchiveTable(state.previewItems);
+    $("#scan-status").textContent = `${state.previewItems.length} file(s) ready`;
+  } catch (e) {
+    $("#scan-status").textContent = `Error: ${e.message}`;
+  }
+}
+
 function closeMatchPicker() {
   $("#match-modal").classList.add("hidden");
   state.matchPicker = null;
@@ -2148,6 +2180,7 @@ document.addEventListener("DOMContentLoaded", () => {
     boxes.forEach((b) => { b.checked = !allChecked; });
   });
   $("#approve-btn").addEventListener("click", approveSelected);
+  $("#bulk-change-match-btn").addEventListener("click", openBulkMatchPicker);
   $("#track-add-movie-btn").addEventListener("click", () => openTrackAddModal("movie"));
   $("#track-add-tv-btn").addEventListener("click", () => openTrackAddModal("tv"));
   $("#match-cancel-btn").addEventListener("click", closeMatchPicker);
