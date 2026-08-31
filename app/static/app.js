@@ -1176,7 +1176,7 @@ function renderArchiveTable(items) {
       <td><input type="checkbox" class="row-check" data-index="${i}" ${checkedBefore[i] === false ? "" : "checked"}></td>
       <td>${item.duplicate ? `<span class="duplicate-badge" title="A matching title already exists in the library">⚠</span>` : ""}</td>
       <td title="${item.source_path}">${item.source_path.split(/[\\/]/).pop()}</td>
-      <td title="${item.dest_path}">${item.dest_path.split(/[\\/]/).pop()}</td>
+      <td><input type="text" class="dest-name-input" data-index="${i}" data-dir="${escapeAttr(dirOf(item.dest_path))}" title="${item.dest_path}" value="${escapeAttr(item.dest_path.split(/[\\/]/).pop())}"></td>
       <td>${item.media_type}</td>
       <td>${formatBytes(state.sizeByPath[item.source_path])}</td>
       <td title="${item.overview}">${item.overview.slice(0, 80)}</td>
@@ -1186,6 +1186,30 @@ function renderArchiveTable(items) {
   $all(".change-match-btn").forEach((btn) => {
     btn.addEventListener("click", () => openMatchPicker(Number(btn.dataset.index)));
   });
+  $all(".dest-name-input").forEach((input) => {
+    input.addEventListener("change", () => {
+      const idx = Number(input.dataset.index);
+      const item = state.previewItems[idx];
+      const dir = input.dataset.dir;
+      const name = input.value.trim();
+      if (!name) {
+        input.value = item.dest_path.split(/[\\/]/).pop();
+        return;
+      }
+      item.dest_path = dir ? `${dir}/${name}` : name;
+      input.title = item.dest_path;
+    });
+  });
+}
+
+function dirOf(path) {
+  const parts = path.split(/[\\/]/);
+  parts.pop();
+  return parts.join("/");
+}
+
+function escapeAttr(str) {
+  return str.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 }
 
 // ---- Manual TMDB match picker ----
