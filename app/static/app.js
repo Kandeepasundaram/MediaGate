@@ -8,6 +8,7 @@ const state = {
   tvStatusCache: {}, // tmdb_id -> TvStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
   movieStatusCache: {}, // tmdb_id -> MovieStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
   pendingGenreRestore: { movies: null, tv: null }, // saved genre filter value applied on the first gallery load only
+  pendingYearRestore: { movies: null, tv: null }, // saved year filter value applied on the first gallery load only
   moviesRenderLimit: 60,
   moviesFilterSignature: "",
   tvRenderLimit: 60,
@@ -219,11 +220,33 @@ function matchesResolution(item, resolutionFilter) {
   return (item.resolution || null) === wanted;
 }
 
-function filterAndSort(items, query, sortMode, titleKey, filterMode, genreFilter, resolutionFilter) {
+function matchesWatch(item, watchFilter) {
+  if (!watchFilter) return true;
+  return watchFilter === "watched" ? !!item.watched : !item.watched;
+}
+
+function matchesRating(item, ratingFilter) {
+  if (!ratingFilter) return true;
+  return (item.vote_average || 0) >= Number(ratingFilter);
+}
+
+function matchesAddedWithin(item, addedFilter) {
+  if (!addedFilter) return true;
+  if (!item.archived_at) return false;
+  const cutoff = Date.now() - Number(addedFilter) * 86400000;
+  return new Date(item.archived_at).getTime() >= cutoff;
+}
+
+function filterAndSort(items, opts) {
+  const { query, sortMode, titleKey, filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter } = opts;
   let out = items;
   if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
   if (genreFilter) out = out.filter((i) => (i.genres || []).includes(genreFilter));
   if (resolutionFilter) out = out.filter((i) => matchesResolution(i, resolutionFilter));
+  if (watchFilter) out = out.filter((i) => matchesWatch(i, watchFilter));
+  if (yearFilter) out = out.filter((i) => String(i.year) === yearFilter);
+  if (ratingFilter) out = out.filter((i) => matchesRating(i, ratingFilter));
+  if (addedFilter) out = out.filter((i) => matchesAddedWithin(i, addedFilter));
   if (query) {
     const q = query.toLowerCase();
     out = out.filter((i) => i[titleKey].toLowerCase().includes(q));
@@ -261,21 +284,23 @@ function restoreFilterState(prefix, controlIds) {
   return values;
 }
 
-const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution"];
-const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution"];
+const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution", "movies-watch", "movies-rating", "movies-added"];
+const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution", "tv-watch", "tv-rating", "tv-added"];
 
 function setupFilterPersistence() {
   const savedMovies = restoreFilterState("movies", MOVIE_FILTER_IDS);
   state.pendingGenreRestore.movies = savedMovies["movies-genre"] || null;
+  state.pendingYearRestore.movies = savedMovies["movies-year"] || null;
   const savedTv = restoreFilterState("tv", TV_FILTER_IDS);
   state.pendingGenreRestore.tv = savedTv["tv-genre"] || null;
+  state.pendingYearRestore.tv = savedTv["tv-year"] || null;
 
-  const movieIds = [...MOVIE_FILTER_IDS, "movies-genre"];
+  const movieIds = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year"];
   movieIds.forEach((id) => {
     const el = document.getElementById(id);
     el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("movies", movieIds));
   });
-  const tvIds = [...TV_FILTER_IDS, "tv-genre"];
+  const tvIds = [...TV_FILTER_IDS, "tv-genre", "tv-year"];
   tvIds.forEach((id) => {
     const el = document.getElementById(id);
     el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("tv", tvIds));
@@ -292,6 +317,16 @@ function populateGenreOptions(selectEl, items, previousValue) {
   if (previousValue && genres.includes(previousValue)) selectEl.value = previousValue;
 }
 
+function distinctYears(items) {
+  return Array.from(new Set(items.map((i) => i.year).filter((y) => y != null))).sort((a, b) => b - a);
+}
+
+function populateYearOptions(selectEl, items, previousValue) {
+  const years = distinctYears(items);
+  selectEl.innerHTML = `<option value="">All years</option>` + years.map((y) => `<option value="${y}">${y}</option>`).join("");
+  if (previousValue && years.includes(Number(previousValue))) selectEl.value = previousValue;
+}
+
 async function markWatchedBatch(ids, watched) {
   if (ids.length === 0) return;
   await api("/api/library/watched-batch", { method: "POST", body: JSON.stringify({ ids, watched }) });
@@ -304,8 +339,12 @@ function renderMoviesGallery() {
   const filterMode = $("#movies-filter").value;
   const genreFilter = $("#movies-genre").value;
   const resolutionFilter = $("#movies-resolution").value;
-  const items = filterAndSort(state.movieItems, query, sortMode, "title", filterMode, genreFilter, resolutionFilter);
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, resolutionFilter]);
+  const watchFilter = $("#movies-watch").value;
+  const yearFilter = $("#movies-year").value;
+  const ratingFilter = $("#movies-rating").value;
+  const addedFilter = $("#movies-added").value;
+  const items = filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter });
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
@@ -422,6 +461,9 @@ async function loadMoviesGallery() {
     const previousGenre = state.pendingGenreRestore.movies ?? $("#movies-genre").value;
     state.pendingGenreRestore.movies = null;
     populateGenreOptions($("#movies-genre"), state.movieItems, previousGenre);
+    const previousYear = state.pendingYearRestore.movies ?? $("#movies-year").value;
+    state.pendingYearRestore.movies = null;
+    populateYearOptions($("#movies-year"), state.movieItems, previousYear);
     checkBackfillProgress("movie", "movies", loadMoviesGallery);
     renderMoviesGallery();
   } catch (e) {
@@ -436,13 +478,15 @@ function groupEpisodesByShow(items) {
     if (!shows.has(key)) {
       shows.set(key, {
         title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview,
-        manual_override: item.manual_override, vote_average: item.vote_average, genres: item.genres, episodes: [],
+        manual_override: item.manual_override, vote_average: item.vote_average, genres: item.genres, year: item.year, episodes: [],
       });
     }
     shows.get(key).episodes.push(item);
   }
   for (const show of shows.values()) {
     show.episodes.sort((a, b) => (a.season_number - b.season_number) || (a.episode_number - b.episode_number));
+    show.watched = show.episodes.every((e) => e.watched);
+    show.archived_at = show.episodes.reduce((min, e) => (e.archived_at && (!min || e.archived_at < min)) ? e.archived_at : min, null);
   }
   return Array.from(shows.values());
 }
@@ -454,9 +498,13 @@ function renderTvGallery() {
   const filterMode = $("#tv-filter").value;
   const genreFilter = $("#tv-genre").value;
   const resolutionFilter = $("#tv-resolution").value;
+  const watchFilter = $("#tv-watch").value;
+  const yearFilter = $("#tv-year").value;
+  const ratingFilter = $("#tv-rating").value;
+  const addedFilter = $("#tv-added").value;
   const allShows = groupEpisodesByShow(state.tvItems);
-  const shows = filterAndSort(allShows, query, sortMode, "title", filterMode, genreFilter, resolutionFilter);
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, resolutionFilter]);
+  const shows = filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter });
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
@@ -475,7 +523,7 @@ function renderTvGallery() {
       <input type="checkbox" class="gallery-select" data-select-title="${show.title}">
       <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">
         ${(show.tmdb_id == null && !show.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
-        ${show.episodes.every((e) => e.watched) ? `<span class="badge badge-ok" title="All episodes watched">✓</span>` : ""}
+        ${show.watched ? `<span class="badge badge-ok" title="All episodes watched">✓</span>` : ""}
       </div>
       ${posterMarkup(show.title, show.poster_path)}
       <div class="gallery-info">
@@ -521,6 +569,9 @@ async function loadTvGallery() {
     const previousGenre = state.pendingGenreRestore.tv ?? $("#tv-genre").value;
     state.pendingGenreRestore.tv = null;
     populateGenreOptions($("#tv-genre"), state.tvItems, previousGenre);
+    const previousYear = state.pendingYearRestore.tv ?? $("#tv-year").value;
+    state.pendingYearRestore.tv = null;
+    populateYearOptions($("#tv-year"), state.tvItems, previousYear);
     checkBackfillProgress("tv", "tv", loadTvGallery);
     renderTvGallery();
   } catch (e) {
@@ -1940,6 +1991,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-filter").addEventListener("change", renderMoviesGallery);
   $("#movies-genre").addEventListener("change", renderMoviesGallery);
   $("#movies-resolution").addEventListener("change", renderMoviesGallery);
+  $("#movies-watch").addEventListener("change", renderMoviesGallery);
+  $("#movies-year").addEventListener("change", renderMoviesGallery);
+  $("#movies-rating").addEventListener("change", renderMoviesGallery);
+  $("#movies-added").addEventListener("change", renderMoviesGallery);
   $("#movies-select-all-btn").addEventListener("click", () => {
     const boxes = $all("#movies-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
@@ -1985,6 +2040,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#tv-filter").addEventListener("change", renderTvGallery);
   $("#tv-genre").addEventListener("change", renderTvGallery);
   $("#tv-resolution").addEventListener("change", renderTvGallery);
+  $("#tv-watch").addEventListener("change", renderTvGallery);
+  $("#tv-year").addEventListener("change", renderTvGallery);
+  $("#tv-rating").addEventListener("change", renderTvGallery);
+  $("#tv-added").addEventListener("change", renderTvGallery);
   $("#tv-select-all-btn").addEventListener("click", () => {
     const boxes = $all("#tv-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
