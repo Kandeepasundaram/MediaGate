@@ -735,6 +735,9 @@ function renderTvBody() {
   const seasonEpisodes = show.episodes.filter((e) => e.season_number === pane.selectedSeason);
   const allWatched = seasonEpisodes.length > 0 && seasonEpisodes.every((e) => e.watched);
   const hasEpisodeNames = show.episodes.some((e) => e.episode_title);
+  // Recomputed on every render (not just at groupEpisodesByShow time) so it
+  // stays correct after a season- or episode-level toggle changes it.
+  show.watched = show.episodes.every((e) => e.watched);
 
   container.innerHTML = `
     <div class="season-tabs">
@@ -748,6 +751,7 @@ function renderTvBody() {
         </label>
       ` : "<span></span>"}
       <button id="detail-season-watched-btn">${allWatched ? "Mark Season Unwatched" : "Mark Season Watched"}</button>
+      <button id="detail-show-watched-btn">${show.watched ? "Mark Show Unwatched" : "Mark Show Watched"}</button>
     </div>
     <div class="detail-episodes">
       ${seasonEpisodes.map((ep) => `
@@ -792,6 +796,23 @@ function renderTvBody() {
       seasonEpisodes.forEach((ep) => { ep.watched = newWatched; });
       renderTvBody();
       renderTvGallery(); // keeps the gallery card's "all watched" badge in sync
+    } catch (err) {
+      btn.disabled = false;
+    }
+  });
+
+  $("#detail-show-watched-btn").addEventListener("click", async (e) => {
+    const btn = e.target;
+    const newWatched = !show.watched;
+    btn.disabled = true;
+    try {
+      await api("/api/library/watched-batch", {
+        method: "POST",
+        body: JSON.stringify({ ids: show.episodes.map((ep) => ep.id), watched: newWatched }),
+      });
+      show.episodes.forEach((ep) => { ep.watched = newWatched; });
+      renderTvBody();
+      renderTvGallery();
     } catch (err) {
       btn.disabled = false;
     }
@@ -2279,6 +2300,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const boxes = $all("#tv-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
     boxes.forEach((b) => { b.checked = !allChecked; });
+  });
+  $("#tv-mark-watched-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
+    await markWatchedBatch(ids, true);
+    loadTvGallery();
+  });
+  $("#tv-mark-unwatched-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
+    await markWatchedBatch(ids, false);
+    loadTvGallery();
   });
   $("#tv-rename-selected-btn").addEventListener("click", async () => {
     const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
