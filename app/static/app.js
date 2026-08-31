@@ -980,7 +980,25 @@ async function loadMovieStatus(tmdbId) {
   const parts = info.hasGap ? [info.gapMessage, fraction] : [fraction];
   const cls = info.hasGap ? "status-banner" : "status-banner status-banner-ok";
   const icon = info.hasGap ? "🎬" : "✅";
-  el.innerHTML = `<div class="${cls}">${icon} ${parts.join(" · ")}</div>`;
+  const trackBtn = info.hasGap ? `<button id="detail-track-missing-btn">Track Missing Titles</button>` : "";
+  el.innerHTML = `<div class="${cls}">${icon} ${parts.join(" · ")}</div>${trackBtn}`;
+  if (info.hasGap) {
+    $("#detail-track-missing-btn").addEventListener("click", async (e) => {
+      const btn = e.target;
+      btn.disabled = true;
+      btn.textContent = "Tracking...";
+      const missing = status.related.filter((r) => r.tmdb_id != null && !archivedTmdbIds.has(r.tmdb_id));
+      for (const m of missing) {
+        try {
+          await api("/api/tracker/add", {
+            method: "POST",
+            body: JSON.stringify({ tmdb_id: m.tmdb_id, media_type: "movie", title: m.title }),
+          });
+        } catch (err) { /* best-effort -- one failure shouldn't block the rest */ }
+      }
+      btn.textContent = `Tracking ${missing.length} title(s)`;
+    });
+  }
 }
 
 async function loadTrailer(itemId) {
