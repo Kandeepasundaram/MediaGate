@@ -238,6 +238,7 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   justify-content: center;
 }
 
+.hidden { display: none !important; }
 .modal.hidden { display: none; }
 
 .modal-content {
