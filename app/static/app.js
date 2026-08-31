@@ -389,6 +389,79 @@ function renderMoviesGallery() {
   loadMovieGalleryBadges(visible);
 }
 
+// ---- CSV export of the currently filtered/sorted gallery view ----
+function csvEscape(value) {
+  const str = value === null || value === undefined ? "" : String(value);
+  return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function rowsToCsv(header, rows) {
+  return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\r\n");
+}
+
+function downloadCsv(filename, csvText) {
+  const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function currentMovieFilters() {
+  return {
+    query: $("#movies-search").value.trim(),
+    sortMode: $("#movies-sort").value,
+    titleKey: "title",
+    filterMode: $("#movies-filter").value,
+    genreFilter: $("#movies-genre").value,
+    resolutionFilter: $("#movies-resolution").value,
+    watchFilter: $("#movies-watch").value,
+    yearFilter: $("#movies-year").value,
+    ratingFilter: $("#movies-rating").value,
+    addedFilter: $("#movies-added").value,
+  };
+}
+
+function currentTvFilters() {
+  return {
+    query: $("#tv-search").value.trim(),
+    sortMode: $("#tv-sort").value,
+    titleKey: "title",
+    filterMode: $("#tv-filter").value,
+    genreFilter: $("#tv-genre").value,
+    resolutionFilter: $("#tv-resolution").value,
+    watchFilter: $("#tv-watch").value,
+    yearFilter: $("#tv-year").value,
+    ratingFilter: $("#tv-rating").value,
+    addedFilter: $("#tv-added").value,
+  };
+}
+
+function exportMoviesView() {
+  const items = filterAndSort(state.movieItems, currentMovieFilters());
+  const header = ["Title", "Year", "Rating", "Resolution", "Watched", "Genres", "TMDB ID", "Path"];
+  const rows = items.map((i) => [
+    i.title, i.year ?? "", i.vote_average ?? "", i.resolution ?? "",
+    i.watched ? "yes" : "no", (i.genres || []).join("; "), i.tmdb_id ?? "", i.final_path ?? "",
+  ]);
+  downloadCsv(`movies-export-${new Date().toISOString().slice(0, 10)}.csv`, rowsToCsv(header, rows));
+}
+
+function exportTvView() {
+  const shows = filterAndSort(groupEpisodesByShow(state.tvItems), currentTvFilters());
+  const header = ["Show", "Year", "Rating", "Season", "Episode", "Episode Title", "Resolution", "Watched", "Genres", "TMDB ID", "Path"];
+  const rows = shows.flatMap((show) => show.episodes.map((ep) => [
+    show.title, show.year ?? "", show.vote_average ?? "", ep.season_number ?? "", ep.episode_number ?? "",
+    ep.episode_title ?? "", ep.resolution ?? "", ep.watched ? "yes" : "no",
+    (show.genres || []).join("; "), show.tmdb_id ?? "", ep.final_path ?? "",
+  ]));
+  downloadCsv(`tv-export-${new Date().toISOString().slice(0, 10)}.csv`, rowsToCsv(header, rows));
+}
+
 function activeGalleryContext() {
   if ($("#tab-movies").classList.contains("active")) return { container: $("#movies-gallery") };
   if ($("#tab-tv").classList.contains("active")) return { container: $("#tv-gallery") };
@@ -2115,6 +2188,7 @@ document.addEventListener("DOMContentLoaded", () => {
       $("#movies-count").textContent = `Error: ${e.message}`;
     }
   });
+  $("#movies-export-btn").addEventListener("click", exportMoviesView);
 
   $("#tv-search").addEventListener("input", renderTvGallery);
   $("#tv-sort").addEventListener("change", renderTvGallery);
@@ -2137,6 +2211,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const sizeByPath = Object.fromEntries(items.map((i) => [i.final_path, i.size_bytes]));
     await organizePaths(items.map((i) => i.final_path), sizeByPath);
   });
+  $("#tv-export-btn").addEventListener("click", exportTvView);
 
   $("#history-type-filter").addEventListener("change", loadHistory);
 
