@@ -155,6 +155,45 @@ def test_save_settings_rejects_invalid_collision_policy(client):
     assert resp.status_code == 400
 
 
+def test_get_settings_reflects_default_notification_channels(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["discord_webhook_url"] == ""
+    assert body["telegram_bot_token_set"] is False
+    assert body["pushover_api_token_set"] is False
+    assert body["pushover_user_key_set"] is False
+
+
+def test_save_settings_updates_discord_and_telegram_chat_id(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={
+        "discord_webhook_url": "https://discord.com/api/webhooks/x",
+        "telegram_chat_id": "12345",
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["discord_webhook_url"] == "https://discord.com/api/webhooks/x"
+    assert body["telegram_chat_id"] == "12345"
+
+
+def test_save_settings_telegram_bot_token_is_never_echoed_back(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"telegram_bot_token": "super-secret-token"})
+    assert resp.status_code == 200
+    assert "super-secret-token" not in resp.text
+    assert resp.json()["telegram_bot_token_set"] is True
+
+
+def test_save_settings_pushover_credentials_are_never_echoed_back(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"pushover_api_token": "app-secret", "pushover_user_key": "user-secret"})
+    assert resp.status_code == 200
+    assert "app-secret" not in resp.text
+    assert "user-secret" not in resp.text
+    assert resp.json()["pushover_api_token_set"] is True
+    assert resp.json()["pushover_user_key_set"] is True
+
+
 def test_permissions_check_reports_writable_dirs(client):
     c, _ = client
     resp = c.get("/api/settings/permissions-check")

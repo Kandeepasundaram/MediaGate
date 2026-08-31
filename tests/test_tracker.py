@@ -104,6 +104,76 @@ def test_check_for_updates_does_not_fire_webhook_for_muted_title(db):
     mock_post.assert_not_called()
 
 
+def test_check_for_updates_fires_discord_on_newly_pending(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3})
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(db, tmdb, discord_webhook_url="https://discord.com/api/webhooks/x")
+
+    mock_post.assert_called_once()
+    assert mock_post.call_args.args[0] == "https://discord.com/api/webhooks/x"
+    assert "Show" in mock_post.call_args.kwargs["json"]["content"]
+
+
+def test_check_for_updates_fires_telegram_on_newly_pending(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3})
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(db, tmdb, telegram_bot_token="bot-token", telegram_chat_id="12345")
+
+    mock_post.assert_called_once()
+    assert mock_post.call_args.args[0] == "https://api.telegram.org/botbot-token/sendMessage"
+    assert mock_post.call_args.kwargs["json"]["chat_id"] == "12345"
+    assert "Show" in mock_post.call_args.kwargs["json"]["text"]
+
+
+def test_check_for_updates_skips_telegram_without_both_token_and_chat_id(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3})
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(db, tmdb, telegram_bot_token="bot-token")  # no chat_id
+
+    mock_post.assert_not_called()
+
+
+def test_check_for_updates_fires_pushover_on_newly_pending(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3})
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(db, tmdb, pushover_api_token="app-token", pushover_user_key="user-key")
+
+    mock_post.assert_called_once()
+    assert mock_post.call_args.args[0] == "https://api.pushover.net/1/messages.json"
+    assert mock_post.call_args.kwargs["data"]["token"] == "app-token"
+    assert mock_post.call_args.kwargs["data"]["user"] == "user-key"
+    assert "Show" in mock_post.call_args.kwargs["data"]["message"]
+
+
+def test_check_for_updates_fires_all_configured_channels_together(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3})
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        check_for_updates(
+            db, tmdb,
+            webhook_url="https://example.com/hook",
+            discord_webhook_url="https://discord.com/api/webhooks/x",
+            telegram_bot_token="bot-token", telegram_chat_id="12345",
+            pushover_api_token="app-token", pushover_user_key="user-key",
+        )
+
+    assert mock_post.call_count == 4
+
+
 def test_maybe_auto_track_noop_when_disabled(db):
     maybe_auto_track(db, False, tmdb_id=1, media_type="movie", title="Movie")
     assert db.list_tracked() == []

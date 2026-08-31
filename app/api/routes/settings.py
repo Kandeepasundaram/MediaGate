@@ -37,6 +37,11 @@ def _to_out(config: AppConfig) -> SettingsOut:
         tmdb_api_key_set=bool(config.tmdb.api_key),
         tmdb_api_key_locked_by_env=config.tmdb_api_key_from_env,
         webhook_url=config.notifications.webhook_url,
+        discord_webhook_url=config.notifications.discord_webhook_url,
+        telegram_bot_token_set=bool(config.notifications.telegram_bot_token),
+        telegram_chat_id=config.notifications.telegram_chat_id,
+        pushover_api_token_set=bool(config.notifications.pushover_api_token),
+        pushover_user_key_set=bool(config.notifications.pushover_user_key),
         omdb_api_key_set=bool(config.omdb.api_key),
         auto_track_new=config.tracker.auto_track_new,
         api_token_set=bool(config.server.api_token),
@@ -78,6 +83,16 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["tmdb"]["api_key"] = payload.tmdb_api_key
     if payload.webhook_url is not None:
         updates["notifications"]["webhook_url"] = payload.webhook_url
+    if payload.discord_webhook_url is not None:
+        updates["notifications"]["discord_webhook_url"] = payload.discord_webhook_url
+    if payload.telegram_bot_token is not None:
+        updates["notifications"]["telegram_bot_token"] = payload.telegram_bot_token
+    if payload.telegram_chat_id is not None:
+        updates["notifications"]["telegram_chat_id"] = payload.telegram_chat_id
+    if payload.pushover_api_token is not None:
+        updates["notifications"]["pushover_api_token"] = payload.pushover_api_token
+    if payload.pushover_user_key is not None:
+        updates["notifications"]["pushover_user_key"] = payload.pushover_user_key
     if payload.omdb_api_key is not None:
         updates["omdb"]["api_key"] = payload.omdb_api_key
     if payload.auto_track_new is not None:

@@ -23,7 +23,14 @@ _DEFAULT_CONFIG: dict = {
         "delete_extensions": [".srt", ".ass", ".ssa"],
     },
     "tracker": {"cron_time": "06:00", "notification_ttl_days": 30, "auto_track_new": False},
-    "notifications": {"webhook_url": ""},
+    "notifications": {
+        "webhook_url": "",
+        "discord_webhook_url": "",
+        "telegram_bot_token": "",
+        "telegram_chat_id": "",
+        "pushover_api_token": "",
+        "pushover_user_key": "",
+    },
     "omdb": {"api_key": ""},
     "backup": {"enabled": True, "retention_days": 14},
     "media_server": {"plex_url": "", "plex_token": "", "jellyfin_url": "", "jellyfin_api_key": ""},
@@ -68,6 +75,14 @@ class TrackerConfig:
 @dataclass
 class NotificationsConfig:
     webhook_url: str = ""
+    # Native provider integrations, each fired independently when
+    # configured (in addition to webhook_url above, not instead of it) --
+    # see tracker.py's _send_discord/_send_telegram/_send_pushover.
+    discord_webhook_url: str = ""
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    pushover_api_token: str = ""
+    pushover_user_key: str = ""
 
 
 @dataclass
@@ -210,7 +225,10 @@ _EDITABLE_KEYS = {
     "paths": {"incoming_movies", "incoming_tv", "archive_movies", "archive_tv"},
     "tmdb": {"api_key"},
     "server": {"cors_origins", "api_token"},
-    "notifications": {"webhook_url"},
+    "notifications": {
+        "webhook_url", "discord_webhook_url", "telegram_bot_token", "telegram_chat_id",
+        "pushover_api_token", "pushover_user_key",
+    },
     "omdb": {"api_key"},
     "tracker": {"auto_track_new"},
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key"},

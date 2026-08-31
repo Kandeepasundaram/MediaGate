@@ -2144,6 +2144,11 @@ async function loadSettings() {
         ? "A key is currently set. Leave blank to keep it."
         : "No key set — running in TMDB scraper fallback mode.";
     $("#setting-webhook-url").value = s.webhook_url || "";
+    $("#setting-discord-webhook-url").value = s.discord_webhook_url || "";
+    $("#telegram-token-note").textContent = s.telegram_bot_token_set ? "A token is currently set. Leave blank to keep it." : "";
+    $("#setting-telegram-chat-id").value = s.telegram_chat_id || "";
+    $("#pushover-token-note").textContent = s.pushover_api_token_set ? "A token is currently set. Leave blank to keep it." : "";
+    $("#pushover-user-note").textContent = s.pushover_user_key_set ? "A key is currently set. Leave blank to keep it." : "";
     $("#setting-auto-track-new").checked = !!s.auto_track_new;
     $("#omdb-key-note").textContent = s.omdb_api_key_set
       ? "A key is currently set. Leave blank to keep it. Powers IMDb/Rotten Tomatoes ratings in the detail pane."
@@ -2174,6 +2179,8 @@ async function saveSettings(e) {
     archive_movies: $("#setting-archive-movies").value.trim(),
     archive_tv: $("#setting-archive-tv").value.trim(),
     webhook_url: $("#setting-webhook-url").value.trim(),
+    discord_webhook_url: $("#setting-discord-webhook-url").value.trim(),
+    telegram_chat_id: $("#setting-telegram-chat-id").value.trim(),
     auto_track_new: $("#setting-auto-track-new").checked,
     subtitle_keep_languages: $("#setting-subtitle-languages").value.split(",").map((s) => s.trim()).filter(Boolean),
   };
@@ -2183,6 +2190,12 @@ async function saveSettings(e) {
   if (omdbKeyValue) payload.omdb_api_key = omdbKeyValue;
   const apiTokenValue = $("#setting-api-token").value;
   if (apiTokenValue) payload.api_token = apiTokenValue;
+  const telegramTokenValue = $("#setting-telegram-bot-token").value;
+  if (telegramTokenValue) payload.telegram_bot_token = telegramTokenValue;
+  const pushoverTokenValue = $("#setting-pushover-api-token").value;
+  if (pushoverTokenValue) payload.pushover_api_token = pushoverTokenValue;
+  const pushoverUserValue = $("#setting-pushover-user-key").value;
+  if (pushoverUserValue) payload.pushover_user_key = pushoverUserValue;
 
   $("#settings-status").textContent = "Saving...";
   try {
@@ -2190,6 +2203,9 @@ async function saveSettings(e) {
     $("#setting-tmdb-key").value = "";
     $("#setting-omdb-key").value = "";
     $("#setting-api-token").value = "";
+    $("#setting-telegram-bot-token").value = "";
+    $("#setting-pushover-api-token").value = "";
+    $("#setting-pushover-user-key").value = "";
     // We just set this token server-side ourselves, so this browser needs it stored too, or the very next request 401s.
     if (apiTokenValue) setStoredApiToken(apiTokenValue);
     $("#settings-status").textContent = "Saved.";

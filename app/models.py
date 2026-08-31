@@ -433,6 +433,11 @@ class SettingsOut(BaseModel):
     tmdb_api_key_set: bool
     tmdb_api_key_locked_by_env: bool
     webhook_url: str = ""
+    discord_webhook_url: str = ""
+    telegram_bot_token_set: bool = False
+    telegram_chat_id: str = ""
+    pushover_api_token_set: bool = False
+    pushover_user_key_set: bool = False
     omdb_api_key_set: bool = False
     auto_track_new: bool = False
     api_token_set: bool = False
@@ -455,6 +460,11 @@ class SettingsUpdateRequest(BaseModel):
     cors_origins: list[str] | None = None
     tmdb_api_key: str | None = None
     webhook_url: str | None = None
+    discord_webhook_url: str | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    pushover_api_token: str | None = None
+    pushover_user_key: str | None = None
     omdb_api_key: str | None = None
     auto_track_new: bool | None = None
     api_token: str | None = None

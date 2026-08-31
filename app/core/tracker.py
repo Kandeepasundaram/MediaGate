@@ -121,6 +121,10 @@ def _message_for(row: dict) -> str:
     )
 
 
+def _digest_message(rows: list[dict]) -> str:
+    return "; ".join(_message_for(row) for row in rows)
+
+
 def _fire_webhook(webhook_url: str, rows: list[dict]) -> None:
     """One POST per check_for_updates run, not one per newly-pending title --
     a run that flips five titles at once (e.g. after being offline a while)
@@ -129,18 +133,57 @@ def _fire_webhook(webhook_url: str, rows: list[dict]) -> None:
         row = rows[0]
         payload = {"title": row["title"], "media_type": row["media_type"], "message": _message_for(row)}
     else:
-        payload = {
-            "count": len(rows),
-            "titles": [row["title"] for row in rows],
-            "message": "; ".join(_message_for(row) for row in rows),
-        }
+        payload = {"count": len(rows), "titles": [row["title"] for row in rows], "message": _digest_message(rows)}
     try:
         requests.post(webhook_url, json=payload, timeout=10)
     except requests.RequestException as exc:
         logger.warning("Tracker webhook POST to %s failed: %s", webhook_url, exc)
 
 
-def check_for_updates(db: Database, tmdb: TMDBClient, webhook_url: str | None = None) -> int:
+def _send_discord(discord_webhook_url: str, rows: list[dict]) -> None:
+    try:
+        requests.post(discord_webhook_url, json={"content": _digest_message(rows)}, timeout=10)
+    except requests.RequestException as exc:
+        logger.warning("Discord webhook POST failed: %s", exc)
+
+
+def _send_telegram(bot_token: str, chat_id: str, rows: list[dict]) -> None:
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            json={"chat_id": chat_id, "text": _digest_message(rows)},
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        logger.warning("Telegram sendMessage failed: %s", exc)
+
+
+def _send_pushover(api_token: str, user_key: str, rows: list[dict]) -> None:
+    try:
+        requests.post(
+            "https://api.pushover.net/1/messages.json",
+            data={
+                "token": api_token,
+                "user": user_key,
+                "title": "Media Manager",
+                "message": _digest_message(rows),
+            },
+            timeout=10,
+        )
+    except requests.RequestException as exc:
+        logger.warning("Pushover message POST failed: %s", exc)
+
+
+def check_for_updates(
+    db: Database,
+    tmdb: TMDBClient,
+    webhook_url: str | None = None,
+    discord_webhook_url: str | None = None,
+    telegram_bot_token: str | None = None,
+    telegram_chat_id: str | None = None,
+    pushover_api_token: str | None = None,
+    pushover_user_key: str | None = None,
+) -> int:
     """Main tracker entry point. Returns the number of items now pending notification."""
     tracked = db.list_tracked()
     now = datetime.now(timezone.utc)
@@ -166,7 +209,14 @@ def check_for_updates(db: Database, tmdb: TMDBClient, webhook_url: str | None = 
                 error_message=str(exc),
             )
 
-    if newly_pending_rows and webhook_url:
-        _fire_webhook(webhook_url, newly_pending_rows)
+    if newly_pending_rows:
+        if webhook_url:
+            _fire_webhook(webhook_url, newly_pending_rows)
+        if discord_webhook_url:
+            _send_discord(discord_webhook_url, newly_pending_rows)
+        if telegram_bot_token and telegram_chat_id:
+            _send_telegram(telegram_bot_token, telegram_chat_id, newly_pending_rows)
+        if pushover_api_token and pushover_user_key:
+            _send_pushover(pushover_api_token, pushover_user_key, newly_pending_rows)
 
     return len(db.list_pending_notifications())

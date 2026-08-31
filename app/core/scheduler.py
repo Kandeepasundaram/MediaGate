@@ -41,8 +41,18 @@ async def run_daily_tracker_check() -> None:
 
             db = get_database()
             tmdb = get_tmdb_client()
-            webhook_url = get_config().notifications.webhook_url or None
-            pending = await asyncio.to_thread(check_for_updates, db, tmdb, webhook_url)
+            notifications = get_config().notifications
+            pending = await asyncio.to_thread(
+                check_for_updates,
+                db,
+                tmdb,
+                notifications.webhook_url or None,
+                notifications.discord_webhook_url or None,
+                notifications.telegram_bot_token or None,
+                notifications.telegram_chat_id or None,
+                notifications.pushover_api_token or None,
+                notifications.pushover_user_key or None,
+            )
             logger.info("Scheduled tracker check complete: %d item(s) pending notification", pending)
         except asyncio.CancelledError:
             raise

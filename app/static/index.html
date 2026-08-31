@@ -282,6 +282,25 @@
         <input type="text" id="setting-webhook-url" placeholder="https://example.com/hook">
       </label>
       <p class="hint">POSTed to when a tracked title newly has a season/sequel available (muted titles are skipped).</p>
+      <label>Discord webhook URL (optional)
+        <input type="text" id="setting-discord-webhook-url" placeholder="https://discord.com/api/webhooks/...">
+      </label>
+      <label>Telegram bot token (optional)
+        <input type="password" id="setting-telegram-bot-token" placeholder="leave blank to keep current">
+      </label>
+      <p id="telegram-token-note" class="hint"></p>
+      <label>Telegram chat ID
+        <input type="text" id="setting-telegram-chat-id" placeholder="123456789">
+      </label>
+      <label>Pushover API token (optional)
+        <input type="password" id="setting-pushover-api-token" placeholder="leave blank to keep current">
+      </label>
+      <p id="pushover-token-note" class="hint"></p>
+      <label>Pushover user key (optional)
+        <input type="password" id="setting-pushover-user-key" placeholder="leave blank to keep current">
+      </label>
+      <p id="pushover-user-note" class="hint"></p>
+      <p class="hint">Any combination of the above can be set together -- each fires independently when a tracked title newly has a season/sequel available.</p>
       <label>OMDb API key (optional)
         <input type="password" id="setting-omdb-key" placeholder="leave blank to keep current">
       </label>
