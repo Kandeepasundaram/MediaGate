@@ -806,13 +806,35 @@ async function loadMoviesGallery() {
     populateYearOptions($("#movies-year"), state.movieItems, previousYear);
     checkBackfillProgress("movie", "movies", loadMoviesGallery);
     renderMoviesGallery();
-    loadRecommendations("movie", "movies-recommendations-row", "movies-recommendations-cards");
   } catch (e) {
     gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
   }
 }
 
-function groupEpisodesByShow(items) {
+const TV_SHOW_STATUSES = [
+  { value: "watching", label: "Watching" },
+  { value: "running", label: "Running" },
+  { value: "season_done", label: "Season Done" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "ended", label: "Ended" },
+];
+
+function tvShowStatusLabel(status) {
+  return TV_SHOW_STATUSES.find((s) => s.value === status)?.label || status;
+}
+
+async function setTvShowStatus(tmdbId, status) {
+  return api(`/api/library/tv-shows/${tmdbId}/status`, {
+    method: "POST",
+    body: JSON.stringify({ status }),
+  });
+}
+
+// orphanShows: tracked shows with zero episode files left on disk (see
+// TvShowSummaryOut / GET /api/library/tv's orphaned_shows) -- rendered as
+// show cards with an empty episodes array so a show stays visible (with its
+// user-set status) even after every episode was deleted from disk.
+function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || []) {
   const shows = new Map();
   for (const item of items) {
     const key = item.title;
@@ -820,14 +842,23 @@ function groupEpisodesByShow(items) {
       shows.set(key, {
         title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview,
         manual_override: item.manual_override, vote_average: item.vote_average, genres: item.genres, tags: item.tags, year: item.year, episodes: [],
+        show_status: item.show_status,
       });
     }
     shows.get(key).episodes.push(item);
   }
   for (const show of shows.values()) {
     show.episodes.sort((a, b) => (a.season_number - b.season_number) || (a.episode_number - b.episode_number));
-    show.watched = show.episodes.every((e) => e.watched);
+    show.watched = show.episodes.length > 0 && show.episodes.every((e) => e.watched);
     show.archived_at = show.episodes.reduce((min, e) => (e.archived_at && (!min || e.archived_at < min)) ? e.archived_at : min, null);
+  }
+  for (const orphan of orphanShows) {
+    if (shows.has(orphan.title)) continue;
+    shows.set(orphan.title, {
+      title: orphan.title, poster_path: orphan.poster_path, tmdb_id: orphan.tmdb_id, overview: orphan.overview,
+      manual_override: false, vote_average: null, genres: orphan.genres, tags: [], year: null, episodes: [],
+      show_status: orphan.status, watched: false, archived_at: null, noFilesOnDisk: true,
+    });
   }
   return Array.from(shows.values());
 }
@@ -879,23 +910,39 @@ function renderContinueWatching(allShows) {
   });
 }
 
-// "Recommended for You" row shared by Movies and TV tabs -- pulls
-// GET /api/library/recommendations (TMDB "similar" results pooled across
-// recently-archived titles, already-owned candidates excluded server-side)
-// and renders it as a horizontal row with a one-click "+ Track" per card,
-// same interaction shape as Continue Watching.
+// "Recommended for You" row shared by Movies and TV tabs -- a <details>
+// collapsed by default, since GET /api/library/recommendations does a TMDB
+// "similar" lookup per recently-archived title (pooled + deduped server
+// side, but still N requests) and most sessions never open the row, so
+// fetching it eagerly on every gallery load wasted TMDB calls for nothing.
+// Wired once at startup (see DOMContentLoaded); fetches on first expand
+// and again on each subsequent expand, since the underlying library
+// (and therefore the pool of "recently archived" seed titles) can have
+// changed since the last time it was open.
+function wireRecommendationsToggle(mediaType, rowId, cardsId) {
+  const row = $(`#${rowId}`);
+  if (!row) return;
+  row.addEventListener("toggle", () => {
+    if (row.open) loadRecommendations(mediaType, rowId, cardsId);
+  });
+}
+
 async function loadRecommendations(mediaType, rowId, cardsId) {
   const row = $(`#${rowId}`);
   const cards = $(`#${cardsId}`);
-  if (!row || !cards) return;
+  if (!row || !cards || row.dataset.loading === "1") return;
+  row.dataset.loading = "1";
+  cards.innerHTML = `<p class="hint">Loading…</p>`;
   try {
     const data = await api(`/api/library/recommendations?media_type=${mediaType}`);
-    if (!data.tmdb_configured || data.items.length === 0) {
-      row.classList.add("hidden");
-      cards.innerHTML = "";
+    if (!data.tmdb_configured) {
+      cards.innerHTML = `<p class="hint">Recommendations need a TMDB key -- configure one in Settings.</p>`;
       return;
     }
-    row.classList.remove("hidden");
+    if (data.items.length === 0) {
+      cards.innerHTML = `<p class="hint">No recommendations right now.</p>`;
+      return;
+    }
     cards.innerHTML = data.items.map((item) => `
       <div class="continue-watching-card">
         ${posterMarkup(item.title, item.poster_path)}
@@ -923,8 +970,9 @@ async function loadRecommendations(mediaType, rowId, cardsId) {
       });
     });
   } catch (e) {
-    row.classList.add("hidden");
-    cards.innerHTML = "";
+    cards.innerHTML = `<p class="hint">Error: ${e.message}</p>`;
+  } finally {
+    row.dataset.loading = "0";
   }
 }
 
@@ -949,7 +997,7 @@ function renderTvGallery() {
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
     (total !== allShows.length ? ` (${total} shown)` : "");
 
-  if (state.tvItems.length === 0) {
+  if (state.tvItems.length === 0 && allShows.length === 0) {
     gallery.innerHTML = `<p class="gallery-empty">No TV episodes found — approve some from "Ready to Archive", or drop files into your TV archive folder and reload this tab.</p>`;
     return;
   }
@@ -970,7 +1018,9 @@ function renderTvGallery() {
         <div class="gallery-title" title="${show.title}">${show.title}</div>
         <div class="gallery-meta">
           <span>${show.episodes.length} episode(s)</span>
+          ${show.show_status ? `<span class="show-status-pill show-status-${show.show_status}">${tvShowStatusLabel(show.show_status)}</span>` : ""}
         </div>
+        ${show.noFilesOnDisk ? `<div class="hint">Removed from disk -- still tracked</div>` : ""}
       </div>
     </div>
   `).join("") + galleryLoadMoreMarkup(visible.length, total);
@@ -1007,6 +1057,7 @@ async function loadTvGallery() {
     const viewerId = getActiveViewerId();
     const data = await api(`/api/library/tv${viewerId != null ? `?viewer_id=${viewerId}` : ""}`);
     state.tvItems = data.items;
+    state.tvOrphanShows = data.orphaned_shows || [];
     const previousGenre = state.pendingGenreRestore.tv ?? $("#tv-genre").value;
     state.pendingGenreRestore.tv = null;
     populateGenreOptions($("#tv-genre"), state.tvItems, previousGenre);
@@ -1018,7 +1069,6 @@ async function loadTvGallery() {
     populateYearOptions($("#tv-year"), state.tvItems, previousYear);
     checkBackfillProgress("tv", "tv", loadTvGallery);
     renderTvGallery();
-    loadRecommendations("tv", "tv-recommendations-row", "tv-recommendations-cards");
   } catch (e) {
     gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
   }
@@ -1082,13 +1132,23 @@ function renderDetailPane() {
     wireDetailTags([item.id], (tags) => { item.tags = tags; renderMoviesGallery(); });
   } else {
     const show = pane.data;
+    const hasEpisodes = show.episodes.length > 0;
     content.innerHTML = `
       <div id="detail-tv-status"></div>
       ${(show.tmdb_id == null && !show.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
+      ${show.noFilesOnDisk ? `<p class="unidentified-badge">🗑 Removed from disk — still tracked</p>` : ""}
       ${posterMarkupLarge(show.title, show.poster_path)}
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
-      ${detailTagsMarkup(show.tags)}
+      ${show.tmdb_id != null ? `
+        <label class="show-status-select-label">
+          Status
+          <select id="detail-show-status-select">
+            ${TV_SHOW_STATUSES.map((s) => `<option value="${s.value}" ${s.value === show.show_status ? "selected" : ""}>${s.label}</option>`).join("")}
+          </select>
+        </label>
+      ` : ""}
+      ${hasEpisodes ? detailTagsMarkup(show.tags) : ""}
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
       <p class="detail-overview">${show.overview || "No overview available."}</p>
@@ -1106,17 +1166,33 @@ function renderDetailPane() {
     if (show.tmdb_id != null) {
       $("#detail-note-download-btn").addEventListener("click", () => downloadTvNote(show.tmdb_id));
       $("#detail-note-save-btn").addEventListener("click", () => saveTvNote(show.tmdb_id));
+      $("#detail-show-status-select").addEventListener("change", async (e) => {
+        const select = e.target;
+        const previous = show.show_status;
+        select.disabled = true;
+        try {
+          await setTvShowStatus(show.tmdb_id, select.value);
+          show.show_status = select.value;
+          renderTvGallery();
+        } catch (err) {
+          select.value = previous;
+        } finally {
+          select.disabled = false;
+        }
+      });
     }
     renderTvBody();
-    loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
-    loadTrailer(show.episodes[0].id);
-    loadMoreInfo(show.episodes[0].id);
+    if (hasEpisodes) {
+      loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
+      loadTrailer(show.episodes[0].id);
+      loadMoreInfo(show.episodes[0].id);
+      wireDetailTags(show.episodes.map((e) => e.id), (tags) => {
+        show.tags = tags;
+        show.episodes.forEach((e) => { e.tags = tags; });
+        renderTvGallery();
+      });
+    }
     if (show.tmdb_id != null) loadTvStatus(show.tmdb_id, show.episodes);
-    wireDetailTags(show.episodes.map((e) => e.id), (tags) => {
-      show.tags = tags;
-      show.episodes.forEach((e) => { e.tags = tags; });
-      renderTvGallery();
-    });
   }
 
   wireDetailFix();
@@ -1132,6 +1208,11 @@ function renderTvBody() {
   const show = pane.data;
   const container = $("#detail-tv-body");
   if (!container) return;
+
+  if (show.episodes.length === 0) {
+    container.innerHTML = `<p class="hint">No files on disk for this show -- status is still tracked above.</p>`;
+    return;
+  }
 
   const seasons = Array.from(new Set(show.episodes.map((e) => e.season_number))).sort((a, b) => a - b);
   if (pane.selectedSeason == null || !seasons.includes(pane.selectedSeason)) {
@@ -3395,6 +3476,8 @@ document.addEventListener("DOMContentLoaded", () => {
   loadStatus();
   loadMoviesGallery();
   loadViewers();
+  wireRecommendationsToggle("movie", "movies-recommendations-row", "movies-recommendations-cards");
+  wireRecommendationsToggle("tv", "tv-recommendations-row", "tv-recommendations-cards");
   requestNotificationPermission();
   pollNotifications();
   pollNewFiles();

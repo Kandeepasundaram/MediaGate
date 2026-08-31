@@ -1237,3 +1237,133 @@ def test_recommendations_ranks_by_frequency_and_excludes_owned(client):
     assert items[0]["score"] == 2
     assert items[1]["score"] == 1
     assert all(i["tmdb_id"] != 50 for i in items)
+
+
+# ---- tv_shows: persists across episode deletion, and status ----
+
+def test_get_tv_syncs_show_into_tv_shows_and_reports_default_status(client):
+    c, db = client
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    video = season / "Show - S01E01.mkv"
+    video.write_bytes(b"1")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, metadata={"poster_path": "/p.jpg"},
+    )
+
+    resp = c.get("/api/library/tv")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["orphaned_shows"] == []
+    assert body["items"][0]["show_status"] == "watching"
+    assert db.get_tv_show(75219)["status"] == "watching"
+
+
+def test_tv_show_persists_in_orphaned_shows_after_all_episodes_deleted(client):
+    c, db = client
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    video = season / "Show - S01E01.mkv"
+    video.write_bytes(b"1")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, metadata={"poster_path": "/p.jpg", "overview": "plot"},
+    )
+    # Registers the show in tv_shows before the file (and its media_items row) is gone.
+    assert c.get("/api/library/tv").status_code == 200
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video)})
+    assert resp.status_code == 200
+
+    body = c.get("/api/library/tv").json()
+    assert body["items"] == []
+    assert len(body["orphaned_shows"]) == 1
+    orphan = body["orphaned_shows"][0]
+    assert orphan["tmdb_id"] == 75219
+    assert orphan["title"] == "Show"
+    assert orphan["poster_path"] == "/p.jpg"
+    assert orphan["status"] == "watching"
+
+
+def test_set_tv_show_status_updates_and_survives_resync(client):
+    c, db = client
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    video = season / "Show - S01E01.mkv"
+    video.write_bytes(b"1")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, metadata={},
+    )
+    c.get("/api/library/tv")  # registers the show
+
+    resp = c.post("/api/library/tv-shows/75219/status", json={"status": "ended"})
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ended"
+
+    # A resync (every GET /api/library/tv) must never reset the chosen status.
+    body = c.get("/api/library/tv").json()
+    assert body["items"][0]["show_status"] == "ended"
+
+
+def test_set_tv_show_status_404_for_untracked_show(client):
+    c, _ = client
+    resp = c.post("/api/library/tv-shows/999999/status", json={"status": "ended"})
+    assert resp.status_code == 404
+
+
+def test_set_tv_show_status_rejects_invalid_value(client):
+    c, db = client
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    video = season / "Show - S01E01.mkv"
+    video.write_bytes(b"1")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, metadata={},
+    )
+    c.get("/api/library/tv")
+
+    resp = c.post("/api/library/tv-shows/75219/status", json={"status": "bogus"})
+    assert resp.status_code == 422
+
+
+def test_recommendations_excludes_orphaned_tracked_tv_show(client):
+    c, db = client
+    # "Deleted Show" is fully removed from disk after being tracked once --
+    # it must stay excluded from recommendations via tv_shows, even though
+    # it no longer has any media_items row to exclude it the normal way.
+    deleted_season = _archive_tv_dir(c) / "Deleted Show" / "Season 01"
+    deleted_season.mkdir(parents=True)
+    deleted_video = deleted_season / "Deleted Show - S01E01.mkv"
+    deleted_video.write_bytes(b"1")
+    db.create_media_item(
+        original_path="x", final_path=str(deleted_video), title="Deleted Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, metadata={},
+    )
+    c.get("/api/library/tv")
+    c.post("/api/library/delete-file", json={"path": str(deleted_video)})
+
+    # "Owned Show" is still on disk -- serves as the seed title whose
+    # "similar" results include both the deleted show and a genuinely new one.
+    owned_season = _archive_tv_dir(c) / "Owned Show" / "Season 01"
+    owned_season.mkdir(parents=True)
+    owned_video = owned_season / "Owned Show - S01E01.mkv"
+    owned_video.write_bytes(b"1")
+    db.create_media_item(
+        original_path="x", final_path=str(owned_video), title="Owned Show", media_type="tv",
+        tmdb_id=111, season_number=1, episode_number=1, metadata={},
+    )
+
+    fake_tmdb = MagicMock(mode="api")
+    fake_tmdb.get_similar_titles.return_value = [
+        MediaResult(tmdb_id=75219, title="Deleted Show", media_type="tv", year=2018),
+        MediaResult(tmdb_id=88888, title="New Show", media_type="tv", year=2020),
+    ]
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+
+    resp = c.get("/api/library/recommendations", params={"media_type": "tv"})
+    tmdb_ids = [i["tmdb_id"] for i in resp.json()["items"]]
+    assert 75219 not in tmdb_ids
+    assert 88888 in tmdb_ids

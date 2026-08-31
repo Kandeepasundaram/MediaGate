@@ -7,6 +7,10 @@ from pydantic import BaseModel, Field
 
 MediaType = Literal["movie", "tv"]
 
+# A show's own lifecycle tag, distinct from any per-episode `watched` flag --
+# set by the user (see TvShowStatusUpdateRequest), never inferred from TMDB.
+TvShowStatus = Literal["watching", "running", "season_done", "cancelled", "ended"]
+
 
 class ScannedFileOut(BaseModel):
     path: str
@@ -347,6 +351,7 @@ class LibraryItemOut(BaseModel):
     audio_channels: int | None = None
     tags: list[str] = Field(default_factory=list)
     viewer_watched: bool | None = None  # only set when a ?viewer_id= is passed; reflects that viewer's own state
+    show_status: TvShowStatus | None = None  # tv rows only -- see TvShowStatus
 
 
 class TagsUpdateRequest(BaseModel):
@@ -403,6 +408,29 @@ class FileInfoOut(BaseModel):
 
 class LibraryResponse(BaseModel):
     items: list[LibraryItemOut]
+
+
+class TvShowSummaryOut(BaseModel):
+    """A tracked show with no episode files currently on disk -- persists in
+    tv_shows independently of media_items, so deleting every episode (see
+    delete-file/delete-batch) doesn't make the show itself disappear from
+    the TV tab. See TvShowStatus."""
+    tmdb_id: int
+    title: str
+    imdb_id: str | None = None
+    poster_path: str | None = None
+    overview: str = ""
+    genres: list[str] = Field(default_factory=list)
+    status: TvShowStatus
+
+
+class TvLibraryResponse(BaseModel):
+    items: list[LibraryItemOut]
+    orphaned_shows: list[TvShowSummaryOut] = Field(default_factory=list)
+
+
+class TvShowStatusUpdateRequest(BaseModel):
+    status: TvShowStatus
 
 
 class WatchedUpdateRequest(BaseModel):

@@ -819,6 +819,40 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
 .continue-watching-row { margin-bottom: 1.2rem; }
 .continue-watching-row h3 { margin: 0 0 0.5rem; }
 
+.recommendations-row > summary {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+.recommendations-row > summary::-webkit-details-marker { display: none; }
+.recommendations-row > summary::before { content: "▶ "; font-size: 0.75em; }
+.recommendations-row[open] > summary::before { content: "▼ "; }
+.recommendations-row .hint { margin: 0 0 0.5rem; }
+
+.show-status-pill {
+  display: inline-block;
+  font-size: 0.7rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  margin-left: 0.4rem;
+}
+.show-status-watching, .show-status-running { border-color: #3b82f6; color: #3b82f6; }
+.show-status-season_done { border-color: #22c55e; color: #22c55e; }
+.show-status-cancelled { border-color: #ef4444; color: #ef4444; }
+.show-status-ended { border-color: var(--text-dim); color: var(--text-dim); }
+
+.show-status-select-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.4rem 0;
+  font-size: 0.85rem;
+}
+
 .continue-watching-cards {
   display: flex;
   gap: 0.8rem;

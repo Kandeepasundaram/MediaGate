@@ -74,7 +74,10 @@ from app.models import (
     TagsUpdateRequest,
     TrailerOut,
     NoteSaveResponse,
+    TvLibraryResponse,
     TvSeasonSummaryOut,
+    TvShowStatusUpdateRequest,
+    TvShowSummaryOut,
     ViewerCreateRequest,
     ViewerOut,
     ViewersListResponse,
@@ -106,7 +109,7 @@ def _tags_list(row: dict) -> list[str]:
     return tags if isinstance(tags, list) else []
 
 
-def _to_out(row: dict, viewer_watched_ids: set[int] | None = None) -> LibraryItemOut:
+def _to_out(row: dict, viewer_watched_ids: set[int] | None = None, show_status: str | None = None) -> LibraryItemOut:
     meta = _metadata_dict(row)
 
     file_name = None
@@ -143,6 +146,7 @@ def _to_out(row: dict, viewer_watched_ids: set[int] | None = None) -> LibraryIte
         audio_channels=meta.get("audio_channels"),
         tags=_tags_list(row),
         viewer_watched=(row["id"] in viewer_watched_ids) if viewer_watched_ids is not None else None,
+        show_status=show_status,
     )
 
 
@@ -165,13 +169,62 @@ def list_movies(
     return LibraryResponse(items=[_to_out(r, watched_ids) for r in db.list_media_items(media_type="movie")])
 
 
-@router.get("/tv", response_model=LibraryResponse)
+@router.get("/tv", response_model=TvLibraryResponse)
 def list_tv(
     viewer_id: int | None = None, config: AppConfig = Depends(get_config), db: Database = Depends(get_database)
-) -> LibraryResponse:
+) -> TvLibraryResponse:
+    """Alongside the usual auto-adopt-then-list, this also syncs every
+    tmdb-matched show still on disk into tv_shows (see Database.sync_tv_show)
+    -- so a show survives in tv_shows before any of its episode files could
+    ever be deleted -- and returns any tracked show with zero episode rows
+    left (`orphaned_shows`) so it stays visible in the TV tab (with its
+    user-set status) even after every file was deleted from disk.
+    """
     adopt_new_files(db, config, "tv")
+    rows = db.list_media_items(media_type="tv")
     watched_ids = db.list_viewer_watched_ids(viewer_id) if viewer_id is not None else None
-    return LibraryResponse(items=[_to_out(r, watched_ids) for r in db.list_media_items(media_type="tv")])
+
+    present_tmdb_ids: set[int] = set()
+    latest_by_tmdb_id: dict[int, dict] = {}
+    for row in rows:
+        if row["tmdb_id"] is None:
+            continue
+        present_tmdb_ids.add(row["tmdb_id"])
+        prior = latest_by_tmdb_id.get(row["tmdb_id"])
+        if prior is None or (row["archived_at"] or "") > (prior["archived_at"] or ""):
+            latest_by_tmdb_id[row["tmdb_id"]] = row
+
+    for tmdb_id, row in latest_by_tmdb_id.items():
+        meta = _metadata_dict(row)
+        db.sync_tv_show(
+            tmdb_id, row["title"], imdb_id=row["imdb_id"],
+            poster_path=meta.get("poster_path"), overview=meta.get("overview"), genres=meta.get("genres"),
+        )
+
+    status_by_tmdb_id = {s["tmdb_id"]: s["status"] for s in db.list_tv_shows()}
+    items = [_to_out(r, watched_ids, status_by_tmdb_id.get(r["tmdb_id"])) for r in rows]
+
+    orphaned_shows = [
+        TvShowSummaryOut(
+            tmdb_id=s["tmdb_id"], title=s["title"], imdb_id=s["imdb_id"], poster_path=s["poster_path"],
+            overview=s["overview"] or "", genres=json.loads(s["genres"]) if s["genres"] else [], status=s["status"],
+        )
+        for s in db.list_tv_shows() if s["tmdb_id"] not in present_tmdb_ids
+    ]
+    return TvLibraryResponse(items=items, orphaned_shows=orphaned_shows)
+
+
+@router.post("/tv-shows/{tmdb_id}/status", response_model=TvShowSummaryOut)
+def set_tv_show_status(tmdb_id: int, payload: TvShowStatusUpdateRequest, db: Database = Depends(get_database)) -> TvShowSummaryOut:
+    show = db.get_tv_show(tmdb_id)
+    if show is None:
+        raise HTTPException(status_code=404, detail="Show not tracked yet -- open its TV tab entry first")
+    db.set_tv_show_status(tmdb_id, payload.status)
+    show = db.get_tv_show(tmdb_id)
+    return TvShowSummaryOut(
+        tmdb_id=show["tmdb_id"], title=show["title"], imdb_id=show["imdb_id"], poster_path=show["poster_path"],
+        overview=show["overview"] or "", genres=json.loads(show["genres"]) if show["genres"] else [], status=show["status"],
+    )
 
 
 @router.get("/search", response_model=LibraryResponse)
@@ -211,6 +264,11 @@ def get_recommendations(
 
     rows = [r for r in db.list_media_items(media_type=media_type) if r["tmdb_id"] is not None]
     owned_tmdb_ids = {r["tmdb_id"] for r in rows}
+    if media_type == "tv":
+        # A show tracked in tv_shows but with every episode file deleted has
+        # no media_items rows left, so it wouldn't otherwise count as "owned"
+        # -- without this it'd resurface here right after being cleaned up.
+        owned_tmdb_ids |= {s["tmdb_id"] for s in db.list_tv_shows()}
 
     # Most recently archived, deduped by tmdb_id (a TV show's many episode
     # rows would otherwise burn most of the sample on one title) and capped

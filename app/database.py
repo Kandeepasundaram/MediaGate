@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -106,6 +106,19 @@ CREATE TABLE IF NOT EXISTS viewer_watched_items (
     media_item_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
     watched_at TEXT NOT NULL,
     PRIMARY KEY (viewer_id, media_item_id)
+);
+
+CREATE TABLE IF NOT EXISTS tv_shows (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tmdb_id INTEGER NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    imdb_id TEXT,
+    poster_path TEXT,
+    overview TEXT,
+    genres TEXT,
+    status TEXT NOT NULL DEFAULT 'watching' CHECK (status IN ('watching', 'running', 'season_done', 'cancelled', 'ended')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id ON media_items(tmdb_id);
@@ -533,6 +546,47 @@ class Database:
         )
         return row is not None
 
+    # ---- tv_shows (persists a show's identity + status independently of
+    # media_items, so deleting every episode file doesn't drop the show
+    # from the TV tab -- see TvShowStatus in models.py) ----
+
+    def sync_tv_show(
+        self, tmdb_id: int, title: str, imdb_id: str | None = None,
+        poster_path: str | None = None, overview: str | None = None, genres: list[str] | None = None,
+    ) -> None:
+        """Upserts everything except `status`, which is only ever set
+        explicitly (see set_tv_show_status) -- a re-sync (every /api/library/tv
+        load) must never silently reset a status the user chose. Called for
+        every tmdb-matched show still on disk, before it could ever be
+        deleted, so the row -- and its status -- outlives the last episode file.
+        """
+        existing = self.fetch_one("SELECT id FROM tv_shows WHERE tmdb_id = ?", (tmdb_id,))
+        genres_json = json.dumps(genres or [])
+        if existing:
+            self.execute_query(
+                "UPDATE tv_shows SET title = ?, imdb_id = COALESCE(?, imdb_id), poster_path = COALESCE(?, poster_path), "
+                "overview = COALESCE(NULLIF(?, ''), overview), genres = ?, updated_at = ? WHERE id = ?",
+                (title, imdb_id, poster_path, overview or "", genres_json, _now(), existing["id"]),
+            )
+        else:
+            self.execute_query(
+                "INSERT INTO tv_shows (tmdb_id, title, imdb_id, poster_path, overview, genres, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, 'watching', ?, ?)",
+                (tmdb_id, title, imdb_id, poster_path, overview or "", genres_json, _now(), _now()),
+            )
+
+    def get_tv_show(self, tmdb_id: int) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM tv_shows WHERE tmdb_id = ?", (tmdb_id,))
+
+    def list_tv_shows(self) -> list[dict[str, Any]]:
+        return self.fetch_all("SELECT * FROM tv_shows ORDER BY title ASC")
+
+    def set_tv_show_status(self, tmdb_id: int, status: str) -> None:
+        self.execute_query(
+            "UPDATE tv_shows SET status = ?, updated_at = ? WHERE tmdb_id = ?",
+            (status, _now(), tmdb_id),
+        )
+
     # ---- maintenance ----
 
     def maintenance_checkpoint_and_vacuum(self) -> None:
@@ -746,6 +800,32 @@ def _migration_v14(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v15(conn: sqlite3.Connection) -> None:
+    """Add tv_shows -- a show's identity (title/poster/overview/genres) and
+    user-set status (watching/running/season_done/cancelled/ended), kept
+    independently of media_items so a show stays visible in the TV tab even
+    after every one of its episode files (and their media_items rows) has
+    been deleted from disk. Synced from GET /api/library/tv on every load
+    (see sync_tv_show), so any show the user has ever browsed to is
+    registered here before it could be deleted."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS tv_shows (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            tmdb_id INTEGER NOT NULL UNIQUE,
+            title TEXT NOT NULL,
+            imdb_id TEXT,
+            poster_path TEXT,
+            overview TEXT,
+            genres TEXT,
+            status TEXT NOT NULL DEFAULT 'watching' CHECK (status IN ('watching', 'running', 'season_done', 'cancelled', 'ended')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -761,4 +841,5 @@ _MIGRATIONS = {
     12: _migration_v12,
     13: _migration_v13,
     14: _migration_v14,
+    15: _migration_v15,
 }

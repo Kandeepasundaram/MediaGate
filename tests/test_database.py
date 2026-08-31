@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 
 def test_init_db_creates_tables(db):
     tables = {r["name"] for r in db.fetch_all("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -370,7 +372,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 14
+    assert version == 15
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -515,3 +517,36 @@ def test_list_storage_snapshots_filters_by_label_and_window(db):
     tv_snapshots = db.list_storage_snapshots("TV", since_days=90)
     assert len(movies_snapshots) == 1
     assert tv_snapshots == []
+
+
+def test_sync_tv_show_inserts_with_default_watching_status(db):
+    db.sync_tv_show(75219, "9-1-1", imdb_id="tt7235466", poster_path="/p.jpg", overview="plot", genres=["Drama"])
+    show = db.get_tv_show(75219)
+    assert show["title"] == "9-1-1"
+    assert show["status"] == "watching"
+    assert json.loads(show["genres"]) == ["Drama"]
+
+
+def test_sync_tv_show_never_overwrites_an_existing_status(db):
+    db.sync_tv_show(75219, "9-1-1")
+    db.set_tv_show_status(75219, "ended")
+    db.sync_tv_show(75219, "9-1-1", overview="updated plot")
+    show = db.get_tv_show(75219)
+    assert show["status"] == "ended"
+    assert show["overview"] == "updated plot"
+
+
+def test_sync_tv_show_keeps_prior_value_when_new_field_is_blank(db):
+    db.sync_tv_show(75219, "9-1-1", imdb_id="tt7235466", poster_path="/p.jpg", overview="plot")
+    db.sync_tv_show(75219, "9-1-1", imdb_id=None, poster_path=None, overview="")
+    show = db.get_tv_show(75219)
+    assert show["imdb_id"] == "tt7235466"
+    assert show["poster_path"] == "/p.jpg"
+    assert show["overview"] == "plot"
+
+
+def test_list_tv_shows_orders_by_title(db):
+    db.sync_tv_show(2, "Zeta Show")
+    db.sync_tv_show(1, "Alpha Show")
+    titles = [s["title"] for s in db.list_tv_shows()]
+    assert titles == ["Alpha Show", "Zeta Show"]
