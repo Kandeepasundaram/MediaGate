@@ -9,6 +9,7 @@ to trigger.
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import uuid
 from pathlib import Path
@@ -16,8 +17,13 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.config_loader import AppConfig, update_settings
-from app.dependencies import get_config, reset_singletons
+from app.database import Database
+from app.dependencies import get_config, get_database, reset_singletons
 from app.models import (
+    ApiTokenCreateRequest,
+    ApiTokenCreateResponse,
+    ApiTokenOut,
+    ApiTokensListResponse,
     PathCheck,
     PermissionsCheckResponse,
     SettingsOut,
@@ -145,6 +151,38 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
     new_config = update_settings(config.config_path, updates)
     reset_singletons()
     return _to_out(new_config)
+
+
+@router.get("/tokens", response_model=ApiTokensListResponse)
+def list_api_tokens(db: Database = Depends(get_database)) -> ApiTokensListResponse:
+    """Named, individually-revocable API tokens -- distinct from the single
+    legacy server.api_token in config.yaml, which both this endpoint and
+    require_api_token() leave untouched. Never returns the token value
+    itself; only visible once, in the create response below."""
+    rows = db.list_api_tokens()
+    return ApiTokensListResponse(
+        tokens=[
+            ApiTokenOut(id=r["id"], name=r["name"], created_at=r["created_at"], last_used_at=r["last_used_at"])
+            for r in rows
+        ]
+    )
+
+
+@router.post("/tokens", response_model=ApiTokenCreateResponse)
+def create_api_token(payload: ApiTokenCreateRequest, db: Database = Depends(get_database)) -> ApiTokenCreateResponse:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Token name is required")
+    token = secrets.token_urlsafe(32)
+    token_id = db.create_api_token(name, token)
+    row = db.get_api_token_by_value(token)
+    return ApiTokenCreateResponse(id=token_id, name=name, token=token, created_at=row["created_at"])
+
+
+@router.delete("/tokens/{token_id}")
+def delete_api_token(token_id: int, db: Database = Depends(get_database)) -> dict:
+    db.delete_api_token(token_id)
+    return {"deleted": True}
 
 
 LOW_SPACE_THRESHOLD_BYTES = 5 * 1024 * 1024 * 1024  # 5 GiB

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -75,6 +75,14 @@ CREATE TABLE IF NOT EXISTS notification_history (
     title TEXT NOT NULL,
     message TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id ON media_items(tmdb_id);
@@ -362,6 +370,26 @@ class Database:
             )
         return self.fetch_all("SELECT * FROM operation_log ORDER BY created_at DESC LIMIT ?", (limit,))
 
+    # ---- API tokens ----
+
+    def create_api_token(self, name: str, token: str) -> int:
+        return self.execute_query(
+            "INSERT INTO api_tokens (name, token, created_at) VALUES (?, ?, ?)",
+            (name, token, _now()),
+        )
+
+    def list_api_tokens(self) -> list[dict[str, Any]]:
+        return self.fetch_all("SELECT * FROM api_tokens ORDER BY created_at DESC")
+
+    def get_api_token_by_value(self, token: str) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM api_tokens WHERE token = ?", (token,))
+
+    def touch_api_token(self, token_id: int) -> None:
+        self.execute_query("UPDATE api_tokens SET last_used_at = ? WHERE id = ?", (_now(), token_id))
+
+    def delete_api_token(self, token_id: int) -> None:
+        self.execute_query("DELETE FROM api_tokens WHERE id = ?", (token_id,))
+
     # ---- maintenance ----
 
     def maintenance_checkpoint_and_vacuum(self) -> None:
@@ -490,6 +518,25 @@ def _migration_v9(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v10(conn: sqlite3.Connection) -> None:
+    """Add api_tokens -- named, individually-revocable API tokens (Settings
+    > API Tokens), alongside the original single shared server.api_token in
+    config.yaml (kept for backward compatibility, still checked first by
+    require_api_token()). A new table, not a rework of the config-based
+    token, so existing single-token deploys keep working unchanged."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS api_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            token TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL,
+            last_used_at TEXT
+        );
+        """
+    )
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -500,4 +547,5 @@ _MIGRATIONS = {
     7: _migration_v7,
     8: _migration_v8,
     9: _migration_v9,
+    10: _migration_v10,
 }

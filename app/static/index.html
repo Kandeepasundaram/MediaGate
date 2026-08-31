@@ -345,6 +345,17 @@
       <p class="hint">A backup of the previous config.yaml is kept as config.yaml.bak on every save.</p>
     </form>
 
+    <h3>API Tokens (per-device, individually revocable)</h3>
+    <div class="card">
+      <p class="hint">An alternative to the single shared token above: create a named token per device/client and revoke just that one later, without breaking the others. Either kind of token is enough on its own to satisfy the API token check.</p>
+      <div class="toolbar">
+        <input type="text" id="new-api-token-name" placeholder="Token name (e.g. 'phone')">
+        <button id="create-api-token-btn">Create Token</button>
+      </div>
+      <div id="new-api-token-reveal" class="hint hidden"></div>
+      <div id="api-tokens-list"></div>
+    </div>
+
     <h3>Naming Templates</h3>
     <form id="naming-templates-form" class="card">
       <p class="hint">Blank resets to the default. A bad template (unknown token, bad format spec) silently falls back to the default for that file rather than failing the archive.</p>

@@ -3,7 +3,40 @@ from __future__ import annotations
 
 def test_init_db_creates_tables(db):
     tables = {r["name"] for r in db.fetch_all("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert {"media_items", "archive_tracker", "operation_log", "schema_meta"} <= tables
+    assert {"media_items", "archive_tracker", "operation_log", "schema_meta", "api_tokens"} <= tables
+
+
+def test_create_and_list_api_tokens(db):
+    db.create_api_token("phone", "secret-abc")
+    db.create_api_token("laptop", "secret-def")
+
+    tokens = db.list_api_tokens()
+    assert {t["name"] for t in tokens} == {"phone", "laptop"}
+    assert all(t["last_used_at"] is None for t in tokens)
+
+
+def test_get_api_token_by_value(db):
+    db.create_api_token("phone", "secret-abc")
+
+    row = db.get_api_token_by_value("secret-abc")
+    assert row["name"] == "phone"
+    assert db.get_api_token_by_value("wrong-value") is None
+
+
+def test_touch_api_token_sets_last_used_at(db):
+    token_id = db.create_api_token("phone", "secret-abc")
+    db.touch_api_token(token_id)
+
+    row = db.get_api_token_by_value("secret-abc")
+    assert row["last_used_at"] is not None
+
+
+def test_delete_api_token_removes_it(db):
+    token_id = db.create_api_token("phone", "secret-abc")
+    db.delete_api_token(token_id)
+
+    assert db.list_api_tokens() == []
+    assert db.get_api_token_by_value("secret-abc") is None
 
 
 def test_init_db_creates_indexes(db):
@@ -295,7 +328,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 9
+    assert version == 10
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -309,6 +342,10 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     item_id = db.create_media_item(original_path="x", title="T", media_type="movie")
     db.update_media_item(item_id, match_attempted_at="2026-01-01T00:00:00+00:00")
     assert db.get_media_item(item_id)["match_attempted_at"] == "2026-01-01T00:00:00+00:00"
+
+    # v10's api_tokens table exists and is usable.
+    db.create_api_token("phone", "secret-abc")
+    assert db.get_api_token_by_value("secret-abc")["name"] == "phone"
 
     # v4's archive_tracker.muted column exists and defaults to unmuted.
     db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show")

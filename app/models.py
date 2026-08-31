@@ -546,6 +546,28 @@ class PermissionsCheckResponse(BaseModel):
     running_gid: int | None = None
 
 
+class ApiTokenOut(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    last_used_at: str | None = None
+
+
+class ApiTokenCreateRequest(BaseModel):
+    name: str
+
+
+class ApiTokenCreateResponse(BaseModel):
+    id: int
+    name: str
+    token: str  # shown once -- not retrievable again after this response
+    created_at: str
+
+
+class ApiTokensListResponse(BaseModel):
+    tokens: list[ApiTokenOut] = Field(default_factory=list)
+
+
 class LogEntryOut(BaseModel):
     id: int
     operation_type: str

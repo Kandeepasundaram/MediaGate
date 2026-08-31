@@ -609,6 +609,67 @@ def test_api_token_gate_rejects_missing_or_wrong_token(client):
         app.dependency_overrides[get_config]().server.api_token = ""
 
 
+def test_named_api_token_alone_gates_and_grants_access(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    create_resp = c.post("/api/settings/tokens", json={"name": "phone"})
+    assert create_resp.status_code == 200
+    token = create_resp.json()["token"]
+
+    try:
+        # no legacy server.api_token was ever set, but a named token now
+        # exists, so the gate is on -- an unauthenticated request 401s.
+        assert c.get("/api/status").status_code == 401
+        assert c.get("/api/status", headers={"X-API-Token": "wrong"}).status_code == 401
+        assert c.get("/api/status", headers={"X-API-Token": token}).status_code == 200
+    finally:
+        for row in db.list_api_tokens():
+            db.delete_api_token(row["id"])
+
+
+def test_named_api_token_updates_last_used_at(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    token = c.post("/api/settings/tokens", json={"name": "phone"}).json()["token"]
+
+    try:
+        # Checked directly against the DB, not through an authenticated
+        # HTTP call -- an authenticated GET would touch last_used_at as a
+        # side effect of its own auth check, before the assertion below.
+        assert db.get_api_token_by_value(token)["last_used_at"] is None
+        c.get("/api/status", headers={"X-API-Token": token})
+        assert db.get_api_token_by_value(token)["last_used_at"] is not None
+    finally:
+        for row in db.list_api_tokens():
+            db.delete_api_token(row["id"])
+
+
+def test_revoked_named_api_token_no_longer_grants_access(client):
+    c, _ = client
+    # Keep the legacy token set too, so the gate stays on after the named
+    # token is revoked below -- revoking the *only* configured token of
+    # either kind opens the API back up entirely, which is the existing,
+    # intentional "Disable API Token" behavior, not what this test is
+    # checking (that a revoked token specifically stops working).
+    app.dependency_overrides[get_config]().server.api_token = "legacy-secret"
+    try:
+        create_resp = c.post("/api/settings/tokens", json={"name": "phone"}, headers={"X-API-Token": "legacy-secret"})
+        token, token_id = create_resp.json()["token"], create_resp.json()["id"]
+
+        assert c.get("/api/status", headers={"X-API-Token": token}).status_code == 200
+        c.delete(f"/api/settings/tokens/{token_id}", headers={"X-API-Token": "legacy-secret"})
+        assert c.get("/api/status", headers={"X-API-Token": token}).status_code == 401
+        assert c.get("/api/status", headers={"X-API-Token": "legacy-secret"}).status_code == 200
+    finally:
+        app.dependency_overrides[get_config]().server.api_token = ""
+
+
+def test_create_api_token_requires_a_name(client):
+    c, _ = client
+    resp = c.post("/api/settings/tokens", json={"name": "  "})
+    assert resp.status_code == 400
+
+
 def test_pwa_manifest_and_service_worker_are_served(client):
     c, _ = client
     manifest = c.get("/manifest.json")

@@ -49,18 +49,37 @@ def get_new_file_tracker() -> NewFileTracker:
 
 
 def require_api_token(
-    config: AppConfig = Depends(get_config), x_api_token: str | None = Header(default=None)
+    config: AppConfig = Depends(get_config),
+    db: Database = Depends(get_database),
+    x_api_token: str | None = Header(default=None),
 ) -> None:
-    """Optional shared-secret gate for the API, off by default (empty
-    token) -- this is a LAN dashboard with no login system, so this exists
-    for the one case that matters: someone exposing it past the LAN via a
-    reverse proxy who wants more than "whoever can reach the port". Applied
-    as a router-level dependency (not global middleware) so it goes through
-    Depends(get_config) like everything else, honoring dependency_overrides
-    in tests instead of hitting the real cached singleton directly.
+    """Optional shared-secret gate for the API, off by default (no legacy
+    token and no named tokens) -- this is a LAN dashboard with no login
+    system, so this exists for the one case that matters: someone exposing
+    it past the LAN via a reverse proxy who wants more than "whoever can
+    reach the port". Applied as a router-level dependency (not global
+    middleware) so it goes through Depends(get_config)/Depends(get_database)
+    like everything else, honoring dependency_overrides in tests instead of
+    hitting the real cached singletons directly.
+
+    Two token forms, checked in order: the single legacy server.api_token
+    from config.yaml (kept for backward compatibility, one shared secret
+    for everyone), and any named per-device token from Settings > API
+    Tokens (api_tokens table) -- each independently revocable without
+    rotating the token everyone else uses. A matched named token's
+    last_used_at is updated so Settings can show which ones are actually
+    still in use.
     """
-    if config.server.api_token and x_api_token != config.server.api_token:
-        raise HTTPException(status_code=401, detail="Missing or invalid API token")
+    if x_api_token and config.server.api_token and x_api_token == config.server.api_token:
+        return
+    if x_api_token:
+        token_row = db.get_api_token_by_value(x_api_token)
+        if token_row:
+            db.touch_api_token(token_row["id"])
+            return
+    if not config.server.api_token and not db.list_api_tokens():
+        return
+    raise HTTPException(status_code=401, detail="Missing or invalid API token")
 
 
 def reset_singletons() -> None:

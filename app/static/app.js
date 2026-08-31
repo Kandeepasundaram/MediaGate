@@ -91,7 +91,7 @@ function setupTabs() {
       if (btn.dataset.tab === "browse") loadBrowse();
       if (btn.dataset.tab === "notifications") { loadNotifications(); loadTrackedList(); loadNotificationHistory(); }
       if (btn.dataset.tab === "history") loadHistory();
-      if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); }
+      if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); loadApiTokensList(); }
     });
   });
 }
@@ -2349,6 +2349,65 @@ async function saveMediaServerSettings(e) {
   }
 }
 
+async function loadApiTokensList() {
+  const el = $("#api-tokens-list");
+  el.textContent = "Loading...";
+  try {
+    const data = await api("/api/settings/tokens");
+    if (data.tokens.length === 0) {
+      el.innerHTML = `<p class="hint">No named tokens yet.</p>`;
+      return;
+    }
+    el.innerHTML = data.tokens.map((t) => `
+      <div class="tracked-item">
+        <div>
+          <strong>${t.name}</strong>
+          <span class="hint">created ${new Date(t.created_at).toLocaleString()}${
+            t.last_used_at ? ` · last used ${new Date(t.last_used_at).toLocaleString()}` : " · never used"
+          }</span>
+        </div>
+        <button class="danger revoke-api-token-btn" data-id="${t.id}">Revoke</button>
+      </div>
+    `).join("");
+    el.querySelectorAll(".revoke-api-token-btn").forEach((btn) => {
+      btn.addEventListener("click", () => revokeApiToken(Number(btn.dataset.id)));
+    });
+  } catch (e) {
+    el.innerHTML = `<p class="hint">Error: ${e.message}</p>`;
+  }
+}
+
+async function createApiToken() {
+  const nameInput = $("#new-api-token-name");
+  const name = nameInput.value.trim();
+  if (!name) return;
+  const reveal = $("#new-api-token-reveal");
+  try {
+    const data = await api("/api/settings/tokens", { method: "POST", body: JSON.stringify({ name }) });
+    nameInput.value = "";
+    reveal.classList.remove("hidden");
+    reveal.innerHTML = `Token for "${data.name}" (copy it now — it won't be shown again): <code>${data.token}</code>`;
+    // This browser needs the new token too, or its own next request 401s
+    // the moment this becomes the first token ever created.
+    setStoredApiToken(data.token);
+    loadApiTokensList();
+  } catch (e) {
+    reveal.classList.remove("hidden");
+    reveal.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function revokeApiToken(id) {
+  const ok = await showConfirm("Revoke this token? Any client still using it will start getting 401 errors.");
+  if (!ok) return;
+  try {
+    await api(`/api/settings/tokens/${id}`, { method: "DELETE" });
+    loadApiTokensList();
+  } catch (e) {
+    $("#api-tokens-list").insertAdjacentHTML("afterbegin", `<p class="hint">Error: ${e.message}</p>`);
+  }
+}
+
 async function disableApiToken() {
   const ok = await showConfirm("Disable the API token? Every /api/* request will then be allowed with no token.");
   if (!ok) return;
@@ -2534,6 +2593,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
   $("#disable-api-token-btn").addEventListener("click", disableApiToken);
+  $("#create-api-token-btn").addEventListener("click", createApiToken);
   $("#naming-templates-form").addEventListener("submit", saveNamingTemplates);
   $("#media-server-form").addEventListener("submit", saveMediaServerSettings);
   $("#export-library-btn").addEventListener("click", exportLibrary);
