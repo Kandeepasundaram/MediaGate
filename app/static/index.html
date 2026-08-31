@@ -327,7 +327,13 @@
       <label>Subtitle languages to keep (comma-separated)
         <input type="text" id="setting-subtitle-languages" placeholder="en, eng, english">
       </label>
-      <p class="hint">Any other subtitle language found alongside an archived file is deleted. Language codes are matched from the subtitle's own filename tag (e.g. "Movie.fr.srt").</p>
+      <p class="hint">Any other subtitle language found alongside an archived file is deleted. Language codes are matched from the subtitle's own filename tag (e.g. "Movie.fr.srt"). Used for both movies and TV unless overridden below.</p>
+      <label>Movie subtitle languages to keep (optional override)
+        <input type="text" id="setting-subtitle-languages-movies" placeholder="leave blank to use the list above">
+      </label>
+      <label>TV subtitle languages to keep (optional override)
+        <input type="text" id="setting-subtitle-languages-tv" placeholder="leave blank to use the list above">
+      </label>
       <label>API token (optional, for exposing this dashboard past your LAN)
         <input type="password" id="setting-api-token" placeholder="leave blank to keep current">
       </label>

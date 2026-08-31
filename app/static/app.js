@@ -2216,6 +2216,8 @@ async function loadSettings() {
     $("#setting-jellyfin-url").value = s.jellyfin_url || "";
     $("#jellyfin-key-note").textContent = s.jellyfin_api_key_set ? "A key is currently set. Leave blank to keep it." : "";
     $("#setting-subtitle-languages").value = (s.subtitle_keep_languages || []).join(", ");
+    $("#setting-subtitle-languages-movies").value = (s.subtitle_keep_languages_movies || []).join(", ");
+    $("#setting-subtitle-languages-tv").value = (s.subtitle_keep_languages_tv || []).join(", ");
     $("#setting-movie-folder-template").value = s.movie_folder_template || "";
     $("#setting-tv-season-folder-template").value = s.tv_season_folder_template || "";
     $("#setting-tv-file-template").value = s.tv_file_template || "";
@@ -2240,6 +2242,8 @@ async function saveSettings(e) {
     digest_interval_days: Number($("#setting-digest-interval-days").value) || 1,
     watcher_enabled: $("#setting-watcher-enabled").checked,
     subtitle_keep_languages: $("#setting-subtitle-languages").value.split(",").map((s) => s.trim()).filter(Boolean),
+    subtitle_keep_languages_movies: $("#setting-subtitle-languages-movies").value.split(",").map((s) => s.trim()).filter(Boolean),
+    subtitle_keep_languages_tv: $("#setting-subtitle-languages-tv").value.split(",").map((s) => s.trim()).filter(Boolean),
   };
   const keyValue = $("#setting-tmdb-key").value;
   if (keyValue) payload.tmdb_api_key = keyValue;

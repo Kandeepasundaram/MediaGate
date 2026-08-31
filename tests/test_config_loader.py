@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from app.config_loader import load_config, update_settings
+from app.config_loader import SubtitlesConfig, keep_languages_for, load_config, update_settings
 
 
 def test_load_config_creates_default_file_if_missing(tmp_path):
@@ -97,6 +97,28 @@ def test_update_settings_renaming_template_round_trips(tmp_path):
     assert cfg.renaming.movie_folder == "[{year}] {title}"
     # untouched sibling templates keep their previous values
     assert cfg.renaming.tv_file == "{show_name} - {code}{episode_title_suffix}"
+
+
+def test_keep_languages_for_falls_back_to_default_when_no_override():
+    subtitles = SubtitlesConfig(keep_languages=["en"])
+    assert keep_languages_for(subtitles, "movie") == ["en"]
+    assert keep_languages_for(subtitles, "tv") == ["en"]
+
+
+def test_keep_languages_for_honors_per_type_override():
+    subtitles = SubtitlesConfig(keep_languages=["en"], keep_languages_movies=["en", "fr"], keep_languages_tv=["en", "ja"])
+    assert keep_languages_for(subtitles, "movie") == ["en", "fr"]
+    assert keep_languages_for(subtitles, "tv") == ["en", "ja"]
+
+
+def test_update_settings_per_type_subtitle_languages_round_trip(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    load_config(config_path)
+
+    cfg = update_settings(config_path, {"subtitles": {"keep_languages_tv": ["en", "ja"]}})
+
+    assert cfg.subtitles.keep_languages_tv == ["en", "ja"]
+    assert cfg.subtitles.keep_languages_movies == []  # untouched, still falls back to default
 
 
 def test_load_config_no_create_dirs(tmp_path):

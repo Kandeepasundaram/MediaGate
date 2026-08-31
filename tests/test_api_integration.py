@@ -176,6 +176,26 @@ def test_archive_confirm_purge_subtitles_honors_configured_keep_languages(client
     assert fr_sub.exists()  # configured keep language -- kept
 
 
+def test_archive_confirm_purge_subtitles_honors_per_movie_type_override(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.subtitles.keep_languages = ["en"]
+    config.subtitles.keep_languages_movies = ["fr"]  # movie-specific override wins over the default above
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+    en_sub = incoming_movies / "Sample.Movie.2020.1080p.en.srt"
+    en_sub.write_text("english subtitle")
+    fr_sub = incoming_movies / "Sample.Movie.2020.1080p.fr.srt"
+    fr_sub.write_text("french subtitle")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": True})
+
+    assert not en_sub.exists()  # default keep list doesn't apply -- movie override took over
+    assert fr_sub.exists()
+
+
 def test_archive_preview_skip_collision_policy_reports_error(client):
     c, incoming_movies = client
     config = app.dependency_overrides[get_config]()

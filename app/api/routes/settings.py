@@ -53,6 +53,8 @@ def _to_out(config: AppConfig) -> SettingsOut:
         jellyfin_url=config.media_server.jellyfin_url,
         jellyfin_api_key_set=bool(config.media_server.jellyfin_api_key),
         subtitle_keep_languages=config.subtitles.keep_languages,
+        subtitle_keep_languages_movies=config.subtitles.keep_languages_movies,
+        subtitle_keep_languages_tv=config.subtitles.keep_languages_tv,
         movie_folder_template=config.renaming.movie_folder,
         tv_season_folder_template=config.renaming.tv_season_folder,
         tv_file_template=config.renaming.tv_file,
@@ -119,6 +121,14 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
     if payload.subtitle_keep_languages is not None:
         updates["subtitles"]["keep_languages"] = [
             lang.strip().lower() for lang in payload.subtitle_keep_languages if lang.strip()
+        ]
+    if payload.subtitle_keep_languages_movies is not None:
+        updates["subtitles"]["keep_languages_movies"] = [
+            lang.strip().lower() for lang in payload.subtitle_keep_languages_movies if lang.strip()
+        ]
+    if payload.subtitle_keep_languages_tv is not None:
+        updates["subtitles"]["keep_languages_tv"] = [
+            lang.strip().lower() for lang in payload.subtitle_keep_languages_tv if lang.strip()
         ]
     if payload.movie_folder_template is not None:
         updates["renaming"]["movie_folder"] = payload.movie_folder_template

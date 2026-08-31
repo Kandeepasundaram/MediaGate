@@ -114,6 +114,25 @@ def test_save_settings_updates_subtitle_languages(client):
     assert resp2.json()["subtitle_keep_languages"] == ["fr", "es"]
 
 
+def test_get_settings_reflects_default_per_type_subtitle_languages(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["subtitle_keep_languages_movies"] == []
+    assert body["subtitle_keep_languages_tv"] == []
+
+
+def test_save_settings_updates_per_type_subtitle_languages(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={
+        "subtitle_keep_languages_movies": ["FR"],
+        "subtitle_keep_languages_tv": ["EN", "JA"],
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["subtitle_keep_languages_movies"] == ["fr"]
+    assert body["subtitle_keep_languages_tv"] == ["en", "ja"]
+
+
 def test_get_settings_reflects_default_naming_templates(client):
     c, _ = client
     body = c.get("/api/settings").json()

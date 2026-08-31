@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.config_loader import AppConfig
+from app.config_loader import AppConfig, keep_languages_for
 from app.core.archiver import ArchiveError, archive_file
 from app.core.renamer import RenamePlan, plan_movie_rename, plan_tv_rename
 from app.core.subtitle_purger import SUBTITLE_EXTENSIONS, purge_subtitles
@@ -166,7 +166,8 @@ def confirm_archive(
             continue
 
         if payload.purge_subtitles:
-            purge_subtitles(source.parent, keep_languages=config.subtitles.keep_languages, dry_run=False)
+            keep_languages = keep_languages_for(config.subtitles, item.media_type)
+            purge_subtitles(source.parent, keep_languages=keep_languages, dry_run=False)
 
         plan = RenamePlan(
             source_path=source,

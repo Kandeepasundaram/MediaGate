@@ -21,6 +21,8 @@ _DEFAULT_CONFIG: dict = {
     "subtitles": {
         "keep_languages": ["en", "eng", "english"],
         "delete_extensions": [".srt", ".ass", ".ssa"],
+        "keep_languages_movies": [],
+        "keep_languages_tv": [],
     },
     "tracker": {
         "cron_time": "06:00", "notification_ttl_days": 30, "auto_track_new": False,
@@ -67,6 +69,17 @@ class TMDBConfig:
 class SubtitlesConfig:
     keep_languages: list[str] = field(default_factory=lambda: ["en", "eng", "english"])
     delete_extensions: list[str] = field(default_factory=lambda: [".srt", ".ass", ".ssa"])
+    # Per-media-type overrides -- empty (the default) means "use
+    # keep_languages above for this type too". Lets e.g. anime TV keep
+    # Japanese subtitles while movies stay English-only, without the two
+    # media types being forced to share one list.
+    keep_languages_movies: list[str] = field(default_factory=list)
+    keep_languages_tv: list[str] = field(default_factory=list)
+
+
+def keep_languages_for(subtitles: SubtitlesConfig, media_type: str) -> list[str]:
+    override = subtitles.keep_languages_movies if media_type == "movie" else subtitles.keep_languages_tv
+    return override or subtitles.keep_languages
 
 
 @dataclass
@@ -213,6 +226,8 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         subtitles=SubtitlesConfig(
             keep_languages=[s.lower() for s in raw["subtitles"]["keep_languages"]],
             delete_extensions=raw["subtitles"]["delete_extensions"],
+            keep_languages_movies=[s.lower() for s in raw["subtitles"].get("keep_languages_movies", [])],
+            keep_languages_tv=[s.lower() for s in raw["subtitles"].get("keep_languages_tv", [])],
         ),
         tracker=TrackerConfig(**raw["tracker"]),
         notifications=NotificationsConfig(**raw["notifications"]),
@@ -255,7 +270,7 @@ _EDITABLE_KEYS = {
     "omdb": {"api_key"},
     "tracker": {"auto_track_new", "digest_mode", "digest_interval_days"},
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key"},
-    "subtitles": {"keep_languages"},
+    "subtitles": {"keep_languages", "keep_languages_movies", "keep_languages_tv"},
     "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy"},
     "watcher": {"enabled"},
 }
