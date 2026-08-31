@@ -472,6 +472,7 @@ function renderTvGallery() {
   }
   gallery.innerHTML = visible.map((show, i) => `
     <div class="gallery-card" data-show-index="${i}">
+      <input type="checkbox" class="gallery-select" data-select-title="${show.title}">
       <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">
         ${(show.tmdb_id == null && !show.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${show.episodes.every((e) => e.watched) ? `<span class="badge badge-ok" title="All episodes watched">✓</span>` : ""}
@@ -485,6 +486,9 @@ function renderTvGallery() {
       </div>
     </div>
   `).join("") + galleryLoadMoreMarkup(visible.length, total);
+  gallery.querySelectorAll(".gallery-select").forEach((cb) => {
+    cb.addEventListener("click", (e) => e.stopPropagation());
+  });
   gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
     card.addEventListener("click", () => openDetailPane("tv", visible[i]));
   });
@@ -1389,6 +1393,16 @@ async function deleteSelectedBrowseItems() {
 async function organizeSelected() {
   const selected = $all(".browse-check:checked").map((cb) => state.browseFiltered[Number(cb.dataset.index)]);
   if (selected.length === 0) return;
+  const sizeByPath = Object.fromEntries(selected.map((item) => [item.path, item.size_bytes]));
+  await organizePaths(selected.map((item) => item.path), sizeByPath);
+}
+
+// Switches to the Archive tab and feeds the given paths into the existing
+// preview-then-organize flow (moves files in place, updates existing
+// media_items rows) -- shared by Browse's "Organize Selected" and the
+// Movies/TV galleries' "Rename Selected".
+async function organizePaths(paths, sizeByPath) {
+  if (paths.length === 0) return;
 
   $all(".tab-btn").forEach((b) => b.classList.remove("active"));
   $all(".tab-panel").forEach((p) => p.classList.remove("active"));
@@ -1396,8 +1410,7 @@ async function organizeSelected() {
   $("#tab-archive").classList.add("active");
 
   setPreviewMode("organize");
-  const sizeByPath = Object.fromEntries(selected.map((item) => [item.path, item.size_bytes]));
-  await previewPaths(selected.map((item) => item.path), sizeByPath);
+  await previewPaths(paths, sizeByPath);
 }
 
 // ---- Notifications tab ----
@@ -1928,22 +1941,29 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-genre").addEventListener("change", renderMoviesGallery);
   $("#movies-resolution").addEventListener("change", renderMoviesGallery);
   $("#movies-select-all-btn").addEventListener("click", () => {
-    const boxes = $all(".gallery-select");
+    const boxes = $all("#movies-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
     boxes.forEach((b) => { b.checked = !allChecked; });
   });
   $("#movies-mark-watched-btn").addEventListener("click", async () => {
-    const ids = $all(".gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
     await markWatchedBatch(ids, true);
     loadMoviesGallery();
   });
   $("#movies-mark-unwatched-btn").addEventListener("click", async () => {
-    const ids = $all(".gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
     await markWatchedBatch(ids, false);
     loadMoviesGallery();
   });
+  $("#movies-rename-selected-btn").addEventListener("click", async () => {
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    const items = state.movieItems.filter((i) => ids.includes(i.id) && i.final_path);
+    if (items.length === 0) return;
+    const sizeByPath = Object.fromEntries(items.map((i) => [i.final_path, i.size_bytes]));
+    await organizePaths(items.map((i) => i.final_path), sizeByPath);
+  });
   $("#movies-delete-selected-btn").addEventListener("click", async () => {
-    const ids = $all(".gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
     const items = state.movieItems.filter((i) => ids.includes(i.id) && i.final_path);
     if (items.length === 0) return;
     const ok = await showConfirm(`Permanently delete ${items.length} movie file(s) from disk? This cannot be undone.`);
@@ -1965,6 +1985,18 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#tv-filter").addEventListener("change", renderTvGallery);
   $("#tv-genre").addEventListener("change", renderTvGallery);
   $("#tv-resolution").addEventListener("change", renderTvGallery);
+  $("#tv-select-all-btn").addEventListener("click", () => {
+    const boxes = $all("#tv-gallery .gallery-select");
+    const allChecked = boxes.every((b) => b.checked);
+    boxes.forEach((b) => { b.checked = !allChecked; });
+  });
+  $("#tv-rename-selected-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    const items = state.tvItems.filter((i) => titles.has(i.title) && i.final_path);
+    if (items.length === 0) return;
+    const sizeByPath = Object.fromEntries(items.map((i) => [i.final_path, i.size_bytes]));
+    await organizePaths(items.map((i) => i.final_path), sizeByPath);
+  });
 
   $("#history-type-filter").addEventListener("change", loadHistory);
 
