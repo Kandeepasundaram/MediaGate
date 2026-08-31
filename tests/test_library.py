@@ -528,6 +528,34 @@ def test_file_info_caches_probe_result_and_exposes_resolution(client, monkeypatc
     assert gallery_item["resolution"] == "1080p"
 
 
+def test_file_info_caches_hdr_and_audio_channels(client, monkeypatch):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.parent.mkdir(parents=True, exist_ok=True)
+    video.write_bytes(b"x" * 100)
+    media_id = _seed_movie(db, final_path=str(video))
+
+    from app.core import media_probe as mp
+
+    fake_probe = mp.MediaProbeResult(width=3840, height=2160, hdr=True, audio_channels=6)
+    monkeypatch.setattr(mp, "probe_file", lambda path: fake_probe)
+    monkeypatch.setattr(mp, "ffprobe_available", lambda: True)
+
+    resp = c.get(f"/api/library/{media_id}/file-info")
+    body = resp.json()
+    assert body["hdr"] is True
+    assert body["audio_channels"] == 6
+
+    item = db.get_media_item(media_id)
+    meta = json.loads(item["metadata"])
+    assert meta["hdr"] is True
+    assert meta["audio_channels"] == 6
+
+    gallery_item = c.get("/api/library/movies").json()["items"][0]
+    assert gallery_item["hdr"] is True
+    assert gallery_item["audio_channels"] == 6
+
+
 def test_rematch_preserves_cached_resolution(client, monkeypatch):
     c, db = client
     media_id = _seed_movie(db)

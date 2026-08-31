@@ -213,6 +213,8 @@ class LibraryItemOut(BaseModel):
     vote_average: float | None = None
     genres: list[str] = Field(default_factory=list)
     resolution: str | None = None
+    hdr: bool = False
+    audio_channels: int | None = None
 
 
 class TvStatusOut(BaseModel):
@@ -248,6 +250,8 @@ class FileInfoOut(BaseModel):
     audio_codec: str | None = None
     bitrate: int | None = None
     container: str | None = None
+    hdr: bool = False
+    audio_channels: int | None = None
     probe_available: bool = False
 
 

@@ -741,6 +741,13 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
 .badge-ok { background: var(--success); border-color: var(--success); color: #fff; }
 .badge-warn { background: var(--warning); border-color: var(--warning); color: #fff; }
 .badge-new { background: var(--accent); border-color: var(--accent); color: #fff; }
+.badge-hdr, .badge-audio {
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 0 0.35rem;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+}
 
 .duplicate-badge {
   color: var(--warning);

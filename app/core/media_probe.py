@@ -24,6 +24,15 @@ class MediaProbeResult:
     audio_codec: str | None = None
     bitrate: int | None = None
     container: str | None = None
+    hdr: bool = False
+    audio_channels: int | None = None
+
+
+_HDR_TRANSFER_FUNCTIONS = {"smpte2084", "arib-std-b67"}  # PQ (HDR10/HDR10+/DV) and HLG
+
+
+def _is_hdr(video_stream: dict) -> bool:
+    return video_stream.get("color_transfer") in _HDR_TRANSFER_FUNCTIONS
 
 
 def ffprobe_available() -> bool:
@@ -75,4 +84,6 @@ def probe_file(path: Path) -> MediaProbeResult | None:
         audio_codec=audio_stream.get("codec_name") if audio_stream else None,
         bitrate=int(fmt["bit_rate"]) if fmt.get("bit_rate") else None,
         container=fmt.get("format_name"),
+        hdr=_is_hdr(video_stream) if video_stream else False,
+        audio_channels=audio_stream.get("channels") if audio_stream else None,
     )

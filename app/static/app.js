@@ -168,6 +168,23 @@ function wireWatchedToggles(container, items) {
   });
 }
 
+const AUDIO_CHANNEL_LABELS = { 1: "1.0", 2: "2.0", 6: "5.1", 8: "7.1" };
+
+function mediaBadges(item) {
+  // item is either a movie/episode row (hdr/audio_channels directly) or a
+  // TV show grouping (aggregate across episodes -- season-to-season HDR
+  // masters and audio mixes are common, so "any episode has it" is the
+  // useful signal for a single show-level badge).
+  const hdr = item.episodes ? item.episodes.some((e) => e.hdr) : item.hdr;
+  const channels = item.episodes
+    ? item.episodes.map((e) => e.audio_channels).find((c) => c)
+    : item.audio_channels;
+  let html = "";
+  if (hdr) html += `<span class="badge badge-hdr" title="HDR video">HDR</span>`;
+  if (channels) html += `<span class="badge badge-audio" title="${channels}-channel audio">${AUDIO_CHANNEL_LABELS[channels] || `${channels}ch`}</span>`;
+  return html;
+}
+
 function setWatchedBadge(card, watched) {
   const badges = card ? card.querySelector(".gallery-badges") : null;
   if (!badges) return;
@@ -364,6 +381,7 @@ function renderMoviesGallery() {
       <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
         ${(item.tmdb_id == null && !item.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${item.watched ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
+        ${mediaBadges(item)}
       </div>
       ${posterMarkup(item.title, item.poster_path)}
       <div class="gallery-info">
@@ -597,6 +615,7 @@ function renderTvGallery() {
       <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">
         ${(show.tmdb_id == null && !show.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${show.watched ? `<span class="badge badge-ok" title="All episodes watched">✓</span>` : ""}
+        ${mediaBadges(show)}
       </div>
       ${posterMarkup(show.title, show.poster_path)}
       <div class="gallery-info">

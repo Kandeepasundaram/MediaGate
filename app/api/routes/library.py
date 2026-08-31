@@ -106,6 +106,8 @@ def _to_out(row: dict) -> LibraryItemOut:
         vote_average=meta.get("vote_average"),
         genres=meta.get("genres") or [],
         resolution=media_probe.resolution_bucket(meta.get("height")),
+        hdr=bool(meta.get("hdr", False)),
+        audio_channels=meta.get("audio_channels"),
     )
 
 
@@ -511,11 +513,15 @@ def get_file_info(item_id: int, db: Database = Depends(get_database)) -> FileInf
     probe = media_probe.probe_file(path)
 
     if probe is not None:
-        # Cached on the row so the resolution filter/badge doesn't need to
-        # re-probe the file (a subprocess call) on every gallery load --
-        # only the first detail-pane open (or file-info fetch) pays that cost.
+        # Cached on the row so the resolution/HDR/audio-channel filters and
+        # badges don't need to re-probe the file (a subprocess call) on
+        # every gallery load -- only the first detail-pane open (or
+        # file-info fetch) pays that cost.
         meta = _metadata_dict(item)
-        meta.update(width=probe.width, height=probe.height, video_codec=probe.video_codec)
+        meta.update(
+            width=probe.width, height=probe.height, video_codec=probe.video_codec,
+            hdr=probe.hdr, audio_channels=probe.audio_channels,
+        )
         db.update_media_item(item_id, metadata=meta)
 
     return FileInfoOut(
@@ -527,6 +533,8 @@ def get_file_info(item_id: int, db: Database = Depends(get_database)) -> FileInf
         height=probe.height if probe else None,
         video_codec=probe.video_codec if probe else None,
         audio_codec=probe.audio_codec if probe else None,
+        hdr=probe.hdr if probe else False,
+        audio_channels=probe.audio_channels if probe else None,
         bitrate=probe.bitrate if probe else None,
         container=probe.container if probe else None,
         probe_available=media_probe.ffprobe_available(),

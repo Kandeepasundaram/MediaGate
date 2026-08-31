@@ -44,6 +44,39 @@ def test_probe_file_parses_duration_and_streams(monkeypatch, tmp_path):
     assert result.audio_codec == "aac"
     assert result.bitrate == 4500000
     assert result.container == "matroska,webm"
+    assert result.hdr is False
+    assert result.audio_channels is None
+
+
+def test_probe_file_detects_hdr_and_audio_channels(monkeypatch, tmp_path):
+    monkeypatch.setattr(media_probe.shutil, "which", lambda name: "/usr/bin/ffprobe")
+
+    payload = {
+        "format": {"duration": "5432.1"},
+        "streams": [
+            {"codec_type": "video", "codec_name": "hevc", "width": 3840, "height": 2160, "color_transfer": "smpte2084"},
+            {"codec_type": "audio", "codec_name": "eac3", "channels": 6},
+        ],
+    }
+    fake_proc = MagicMock(stdout=json.dumps(payload))
+    monkeypatch.setattr(media_probe.subprocess, "run", lambda *a, **kw: fake_proc)
+
+    result = media_probe.probe_file(tmp_path / "movie.mkv")
+    assert result.hdr is True
+    assert result.audio_channels == 6
+
+
+def test_probe_file_sdr_transfer_is_not_hdr(monkeypatch, tmp_path):
+    monkeypatch.setattr(media_probe.shutil, "which", lambda name: "/usr/bin/ffprobe")
+
+    payload = {
+        "format": {},
+        "streams": [{"codec_type": "video", "codec_name": "h264", "color_transfer": "bt709"}],
+    }
+    fake_proc = MagicMock(stdout=json.dumps(payload))
+    monkeypatch.setattr(media_probe.subprocess, "run", lambda *a, **kw: fake_proc)
+
+    assert media_probe.probe_file(tmp_path / "movie.mkv").hdr is False
 
 
 def test_probe_file_returns_none_on_subprocess_failure(monkeypatch, tmp_path):
