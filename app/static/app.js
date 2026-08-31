@@ -1497,8 +1497,21 @@ state.browseFiltered = [];
 
 function renderBrowseTable() {
   const tbody = $("#browse-table tbody");
+  const query = $("#browse-search").value.trim().toLowerCase();
   const filterMode = $("#browse-filter").value;
-  const items = filterMode === "unmatched" ? state.browseItems.filter((i) => i.tmdb_id == null) : state.browseItems;
+  const trackedFilter = $("#browse-tracked").value;
+  const sortMode = $("#browse-sort").value;
+
+  let items = state.browseItems;
+  if (filterMode === "unmatched") items = items.filter((i) => i.tmdb_id == null);
+  if (trackedFilter === "tracked") items = items.filter((i) => i.tracked);
+  if (trackedFilter === "untracked") items = items.filter((i) => !i.tracked);
+  if (query) items = items.filter((i) => i.path.toLowerCase().includes(query) || i.parsed_title.toLowerCase().includes(query));
+  items = [...items].sort((a, b) => {
+    if (sortMode === "size") return b.size_bytes - a.size_bytes;
+    if (sortMode === "title") return a.parsed_title.localeCompare(b.parsed_title);
+    return a.path.localeCompare(b.path);
+  });
   state.browseFiltered = items;
 
   if (state.browseDirectory) {
@@ -1511,7 +1524,7 @@ function renderBrowseTable() {
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan=6>No files match the unmatched filter.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan=6>No files match the current filters.</td></tr>`;
     return;
   }
   tbody.innerHTML = items.map((item, i) => `
@@ -2159,6 +2172,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#cleanup-orphans-btn").addEventListener("click", cleanupOrphans);
   $("#browse-type").addEventListener("change", loadBrowse);
   $("#browse-filter").addEventListener("change", renderBrowseTable);
+  $("#browse-search").addEventListener("input", renderBrowseTable);
+  $("#browse-tracked").addEventListener("change", renderBrowseTable);
+  $("#browse-sort").addEventListener("change", renderBrowseTable);
   $("#browse-organize-btn").addEventListener("click", organizeSelected);
   $("#browse-delete-selected-btn").addEventListener("click", deleteSelectedBrowseItems);
   $("#browse-select-all-btn").addEventListener("click", () => {
