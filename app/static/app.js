@@ -692,6 +692,7 @@ function renderDetailPane() {
         Watched
       </label>
       <div id="detail-ratings" class="detail-ratings"></div>
+      <div id="detail-trailer" class="detail-trailer"></div>
       <p class="detail-overview">${item.overview || "No overview available."}</p>
       <div class="detail-file-info">
         <div class="detail-file-row"><span>File</span><span class="detail-file-value" title="${item.file_name || ""}">${item.file_name || "—"}</span></div>
@@ -711,6 +712,7 @@ function renderDetailPane() {
       }
     });
     loadRatings(item.id);
+    loadTrailer(item.id);
     loadFileInfo(item.id, "#detail-file-extra");
     if (item.tmdb_id != null) loadMovieStatus(item.tmdb_id);
   } else {
@@ -722,12 +724,14 @@ function renderDetailPane() {
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
       <div id="detail-ratings" class="detail-ratings"></div>
+      <div id="detail-trailer" class="detail-trailer"></div>
       <p class="detail-overview">${show.overview || "No overview available."}</p>
       <div id="detail-tv-body"></div>
       ${detailFixMarkup()}
     `;
     renderTvBody();
     loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
+    loadTrailer(show.episodes[0].id);
     if (show.tmdb_id != null) loadTvStatus(show.tmdb_id, show.episodes);
   }
 
@@ -973,6 +977,23 @@ async function loadMovieStatus(tmdbId) {
   const cls = info.hasGap ? "status-banner" : "status-banner status-banner-ok";
   const icon = info.hasGap ? "🎬" : "✅";
   el.innerHTML = `<div class="${cls}">${icon} ${parts.join(" · ")}</div>`;
+}
+
+async function loadTrailer(itemId) {
+  const el = $("#detail-trailer");
+  if (!el) return;
+  try {
+    const t = await api(`/api/library/${itemId}/trailer`);
+    if (t.youtube_key) {
+      el.innerHTML = `<a href="https://www.youtube.com/watch?v=${encodeURIComponent(t.youtube_key)}" target="_blank" rel="noopener">▶ Watch Trailer</a>`;
+    } else if (!t.tmdb_configured) {
+      el.innerHTML = "";
+    } else {
+      el.innerHTML = `<span class="hint">No trailer found.</span>`;
+    }
+  } catch (e) {
+    el.innerHTML = "";
+  }
 }
 
 async function loadRatings(itemId) {

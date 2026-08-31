@@ -195,6 +195,67 @@ def test_get_external_imdb_id_api_falls_back_to_scraper_on_error(monkeypatch):
     assert client.get_external_imdb_id(278, "movie") == "tt0111161"
 
 
+def test_get_trailer_key_returns_none_without_api_key():
+    fake_scraper = MagicMock()
+    client = TMDBClient(api_key="", scraper=fake_scraper)
+    assert client.get_trailer_key(278, "movie") is None
+
+
+def test_get_trailer_key_prefers_official_youtube_trailer(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "results": [
+                    {"site": "YouTube", "type": "Trailer", "official": False, "key": "unofficial-key"},
+                    {"site": "YouTube", "type": "Teaser", "official": True, "key": "teaser-key"},
+                    {"site": "YouTube", "type": "Trailer", "official": True, "key": "official-key"},
+                    {"site": "Vimeo", "type": "Trailer", "official": True, "key": "vimeo-key"},
+                ]
+            }
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    assert client.get_trailer_key(278, "movie") == "official-key"
+
+
+def test_get_trailer_key_falls_back_to_any_trailer_when_none_official(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": [{"site": "YouTube", "type": "Trailer", "official": False, "key": "only-key"}]}
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    assert client.get_trailer_key(278, "movie") == "only-key"
+
+
+def test_get_trailer_key_returns_none_when_no_trailers(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": []}
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    assert client.get_trailer_key(278, "movie") is None
+
+
+def test_get_trailer_key_returns_none_on_api_error(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
+    assert client.get_trailer_key(278, "movie") is None
+
+
 def test_search_movie_handles_zero_results_from_real_api_without_crashing(monkeypatch):
     """Regression test for tmdbv3api 1.9.0's AsObj.__iter__ bug: a genuine
     zero-results search response, when iterated, yields the response's own

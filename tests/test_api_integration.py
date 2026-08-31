@@ -742,6 +742,52 @@ def test_ratings_returns_values_when_omdb_configured(client, monkeypatch):
     assert body["omdb_configured"] is True
 
 
+def test_trailer_returns_youtube_key(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = [MediaResult(tmdb_id=99, title="Sample Movie", media_type="movie", year=2020)]
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    fake_tmdb.mode = "api"
+    fake_tmdb.get_trailer_key.return_value = "dQw4w9WgXcQ"
+
+    resp = c.get(f"/api/library/{item_id}/trailer")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["youtube_key"] == "dQw4w9WgXcQ"
+    assert body["tmdb_configured"] is True
+    fake_tmdb.get_trailer_key.assert_called_once_with(99, "movie")
+
+
+def test_trailer_404_for_missing_item(client):
+    c, _ = client
+    resp = c.get("/api/library/999999/trailer")
+    assert resp.status_code == 404
+
+
+def test_trailer_reports_not_configured_without_api_key(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = [MediaResult(tmdb_id=99, title="Sample Movie", media_type="movie", year=2020)]
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    fake_tmdb.mode = "scraper"
+    fake_tmdb.get_trailer_key.return_value = None
+
+    resp = c.get(f"/api/library/{item_id}/trailer")
+    body = resp.json()
+    assert body["youtube_key"] is None
+    assert body["tmdb_configured"] is False
+
+
 def test_settings_omdb_key_round_trips(client):
     c, _ = client
     resp = c.post("/api/settings", json={"omdb_api_key": "abc123"})

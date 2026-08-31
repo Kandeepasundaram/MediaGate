@@ -55,6 +55,7 @@ from app.models import (
     RematchImdbRequest,
     RematchResponse,
     RematchTmdbRequest,
+    TrailerOut,
     TvStatusOut,
     WatchedBatchRequest,
     WatchedBatchResponse,
@@ -489,6 +490,24 @@ def get_ratings(
         metacritic=ratings.metacritic,
         omdb_configured=True,
     )
+
+
+@router.get("/{item_id}/trailer", response_model=TrailerOut)
+def get_trailer(
+    item_id: int, db: Database = Depends(get_database), tmdb: TMDBClient = Depends(get_tmdb_client)
+) -> TrailerOut:
+    """YouTube trailer key for the detail pane's "Watch Trailer" link --
+    API-key-only (see TMDBClient.get_trailer_key), so tmdb_configured tells
+    the frontend whether to show "no TMDB API key configured" instead of
+    "no trailer found" when youtube_key comes back empty."""
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if item["tmdb_id"] is None:
+        return TrailerOut(youtube_key=None, tmdb_configured=tmdb.mode == "api")
+
+    key = tmdb.get_trailer_key(item["tmdb_id"], item["media_type"])
+    return TrailerOut(youtube_key=key, tmdb_configured=tmdb.mode == "api")
 
 
 @router.get("/{item_id}/file-info", response_model=FileInfoOut)

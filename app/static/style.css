@@ -479,6 +479,15 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   font-size: 0.78rem;
 }
 
+.detail-trailer { margin: 0.2rem 0 0.6rem; }
+.detail-trailer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.detail-trailer a:hover { text-decoration: underline; }
+
 .detail-file-info {
   margin: 1rem 0;
   padding: 0.8rem;

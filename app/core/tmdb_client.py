@@ -358,6 +358,35 @@ class TMDBClient:
 
         return self.scraper.get_imdb_id(tmdb_id, media_type)
 
+    def get_trailer_key(self, tmdb_id: int, media_type: str) -> str | None:
+        """YouTube video key for the best available trailer, for a
+        "Watch Trailer" link in the detail pane. API-key-only: no scraper
+        fallback exists yet (themoviedb.org's own trailer widget isn't
+        scraped), so this is simply unavailable without a TMDB API key --
+        same "no key means no feature" pattern as OMDb ratings."""
+        return self._cached(("trailer", tmdb_id, media_type), lambda: self._get_trailer_key(tmdb_id, media_type))
+
+    def _get_trailer_key(self, tmdb_id: int, media_type: str) -> str | None:
+        if not self._api:
+            return None
+        try:
+            resp = requests.get(
+                f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/videos",
+                params={"api_key": self.api_key},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            videos = resp.json().get("results", [])
+        except Exception as exc:
+            logger.warning("TMDB API videos lookup failed: %s", exc)
+            return None
+
+        trailers = [v for v in videos if v.get("site") == "YouTube" and v.get("type") == "Trailer"]
+        if not trailers:
+            return None
+        official = next((v for v in trailers if v.get("official")), None)
+        return (official or trailers[0]).get("key")
+
     def get_collection_movies(self, collection_id: int) -> list[MediaResult]:
         return self._cached(("collection", collection_id), lambda: self._get_collection_movies(collection_id))
 

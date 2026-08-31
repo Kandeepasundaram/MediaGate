@@ -306,6 +306,11 @@ class RatingsOut(BaseModel):
     omdb_configured: bool = False
 
 
+class TrailerOut(BaseModel):
+    youtube_key: str | None = None
+    tmdb_configured: bool = False
+
+
 class BrowseItemOut(BaseModel):
     path: str
     size_bytes: int
