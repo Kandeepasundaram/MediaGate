@@ -19,6 +19,7 @@ from app.config_loader import AppConfig
 from app.core import media_probe
 from app.core.library_adopt import adopt_new_files
 from app.core.omdb_client import OMDbClient
+from app.core.orphan_artwork import cleanup_orphaned_artwork, find_orphaned_artwork
 from app.core.organizer import OrganizeError, organize_file
 from app.core.renamer import RenamePlan
 from app.core.scanner import scan_directory
@@ -49,6 +50,8 @@ from app.models import (
     MetadataStatusResponse,
     MovieRelatedTitleOut,
     MovieStatusOut,
+    OrphanArtworkCleanupResponse,
+    OrphanArtworkGroupOut,
     OrphanCleanupResponse,
     RatingsOut,
     RetryFailedMatchesResponse,
@@ -211,14 +214,17 @@ def import_library(payload: LibraryImportRequest, db: Database = Depends(get_dat
 
 
 @router.get("/health", response_model=LibraryHealthOut)
-def library_health(db: Database = Depends(get_database)) -> LibraryHealthOut:
-    """Two library-wide sanity checks the gallery views don't otherwise
+def library_health(config: AppConfig = Depends(get_config), db: Database = Depends(get_database)) -> LibraryHealthOut:
+    """Three library-wide sanity checks the gallery views don't otherwise
     surface: orphans (a media_items row whose final_path no longer exists on
-    disk -- moved or deleted outside this app) and duplicates (more than one
+    disk -- moved or deleted outside this app), duplicates (more than one
     row pointing at the same tmdb_id/season/episode, e.g. from organizing the
-    same episode from two different source files). Duplicates are reported
-    only, never auto-resolved -- picking which copy to keep is a judgment
-    call for the user via the existing delete-file action.
+    same episode from two different source files), and orphaned artwork
+    (poster.jpg/*.nfo/subtitle files left in a folder whose video has since
+    been renamed or moved away -- see app/core/orphan_artwork.py). Duplicates
+    and orphaned artwork are reported only, never auto-resolved -- picking
+    which copy to keep, or confirming a stray file really is stray, is a
+    judgment call for the user.
     """
     items = db.list_media_items()
 
@@ -234,7 +240,12 @@ def library_health(db: Database = Depends(get_database)) -> LibraryHealthOut:
         groups.setdefault(key, []).append(row)
     duplicates = [[_to_out(r) for r in rows] for rows in groups.values() if len(rows) > 1]
 
-    return LibraryHealthOut(orphans=orphans, duplicates=duplicates)
+    artwork_groups = find_orphaned_artwork(config.paths.archive_movies) + find_orphaned_artwork(config.paths.archive_tv)
+    orphaned_artwork = [
+        OrphanArtworkGroupOut(folder=str(g.folder), files=[f.name for f in g.files]) for g in artwork_groups
+    ]
+
+    return LibraryHealthOut(orphans=orphans, duplicates=duplicates, orphaned_artwork=orphaned_artwork)
 
 
 @router.post("/orphans/cleanup", response_model=OrphanCleanupResponse)
@@ -256,6 +267,16 @@ def cleanup_orphans(db: Database = Depends(get_database)) -> OrphanCleanupRespon
             db.delete_media_item(row["id"])
             removed += 1
     return OrphanCleanupResponse(removed=removed)
+
+
+@router.post("/orphaned-artwork/cleanup", response_model=OrphanArtworkCleanupResponse)
+def cleanup_orphaned_artwork_route(config: AppConfig = Depends(get_config)) -> OrphanArtworkCleanupResponse:
+    """Deletes poster/nfo/subtitle files found by find_orphaned_artwork() --
+    a fresh re-scan at cleanup time (not whatever /health last returned),
+    so a file that got a video back in the meantime isn't touched."""
+    groups = find_orphaned_artwork(config.paths.archive_movies) + find_orphaned_artwork(config.paths.archive_tv)
+    removed = cleanup_orphaned_artwork(groups)
+    return OrphanArtworkCleanupResponse(removed=removed)
 
 
 @router.post("/retry-failed-matches", response_model=RetryFailedMatchesResponse)

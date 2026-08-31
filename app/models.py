@@ -366,12 +366,22 @@ class MetadataStatusResponse(BaseModel):
     failed: int = 0
 
 
+class OrphanArtworkGroupOut(BaseModel):
+    folder: str
+    files: list[str] = Field(default_factory=list)
+
+
 class LibraryHealthOut(BaseModel):
     orphans: list[LibraryItemOut] = Field(default_factory=list)
     duplicates: list[list[LibraryItemOut]] = Field(default_factory=list)
+    orphaned_artwork: list[OrphanArtworkGroupOut] = Field(default_factory=list)
 
 
 class OrphanCleanupResponse(BaseModel):
+    removed: int
+
+
+class OrphanArtworkCleanupResponse(BaseModel):
     removed: int
 
 

@@ -786,6 +786,45 @@ def test_health_does_not_group_items_without_tmdb_id(client):
     assert resp.json()["duplicates"] == []
 
 
+def test_health_reports_orphaned_artwork(client):
+    c, _ = client
+    folder = _archive_movies_dir(c) / "Old Movie Name (2020)"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "poster.jpg").write_bytes(b"x")
+    (folder / "movie.nfo").write_text("<movie/>")
+
+    resp = c.get("/api/library/health")
+    groups = resp.json()["orphaned_artwork"]
+    assert len(groups) == 1
+    assert set(groups[0]["files"]) == {"poster.jpg", "movie.nfo"}
+
+
+def test_health_ignores_artwork_folder_with_video(client):
+    c, _ = client
+    folder = _archive_movies_dir(c) / "Movie (2020)"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "poster.jpg").write_bytes(b"x")
+    (folder / "Movie (2020).mkv").write_bytes(b"data")
+
+    resp = c.get("/api/library/health")
+    assert resp.json()["orphaned_artwork"] == []
+
+
+def test_cleanup_orphaned_artwork_removes_stray_files(client):
+    c, _ = client
+    folder = _archive_movies_dir(c) / "Old Movie Name (2020)"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "poster.jpg").write_bytes(b"x")
+
+    resp = c.post("/api/library/orphaned-artwork/cleanup")
+    assert resp.status_code == 200
+    assert resp.json()["removed"] == 1
+    assert not (folder / "poster.jpg").exists()
+
+    # a second run has nothing left to clean up
+    assert c.post("/api/library/orphaned-artwork/cleanup").json()["removed"] == 0
+
+
 def test_cleanup_orphans_removes_only_missing_files(client):
     c, db = client
     video = _archive_movies_dir(c) / "Movie (2020).mkv"

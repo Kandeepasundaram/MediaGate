@@ -1738,12 +1738,14 @@ async function loadLibraryHealth() {
   const summary = $("#library-health-summary");
   const cleanupBtn = $("#cleanup-orphans-btn");
   const reviewBtn = $("#review-duplicates-btn");
+  const artworkBtn = $("#cleanup-artwork-btn");
   try {
     const data = await api("/api/library/health");
     state.libraryDuplicates = data.duplicates;
     const orphanCount = data.orphans.length;
     const duplicateCount = data.duplicates.length;
-    if (orphanCount === 0 && duplicateCount === 0) {
+    const artworkCount = data.orphaned_artwork.length;
+    if (orphanCount === 0 && duplicateCount === 0 && artworkCount === 0) {
       card.classList.add("hidden");
       return;
     }
@@ -1751,11 +1753,25 @@ async function loadLibraryHealth() {
     const parts = [];
     if (orphanCount > 0) parts.push(`${orphanCount} orphaned record(s) (file missing on disk)`);
     if (duplicateCount > 0) parts.push(`${duplicateCount} duplicate group(s)`);
+    if (artworkCount > 0) parts.push(`${artworkCount} folder(s) with leftover artwork/subtitles`);
     summary.textContent = parts.join(" — ");
     cleanupBtn.classList.toggle("hidden", orphanCount === 0);
     reviewBtn.classList.toggle("hidden", duplicateCount === 0);
+    artworkBtn.classList.toggle("hidden", artworkCount === 0);
   } catch (e) {
     card.classList.add("hidden");
+  }
+}
+
+async function cleanupOrphanedArtwork() {
+  const ok = await showConfirm("Delete poster/nfo/subtitle files left behind in folders whose video was renamed or moved away? This does not touch any video file.");
+  if (!ok) return;
+  try {
+    const data = await api("/api/library/orphaned-artwork/cleanup", { method: "POST" });
+    $("#browse-status").textContent = `Removed ${data.removed} orphaned artwork file(s).`;
+    loadLibraryHealth();
+  } catch (e) {
+    $("#browse-status").textContent = `Error: ${e.message}`;
   }
 }
 
@@ -2425,6 +2441,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#browse-refresh-btn").addEventListener("click", loadBrowse);
   $("#cleanup-orphans-btn").addEventListener("click", cleanupOrphans);
+  $("#cleanup-artwork-btn").addEventListener("click", cleanupOrphanedArtwork);
   $("#review-duplicates-btn").addEventListener("click", openDuplicatesModal);
   $("#duplicates-close-btn").addEventListener("click", () => $("#duplicates-modal").classList.add("hidden"));
   $("#browse-type").addEventListener("change", loadBrowse);
