@@ -188,6 +188,10 @@ def _archive_movies_dir(c) -> Path:
     return Path(c.get("/api/settings").json()["archive_movies"])
 
 
+def _archive_tv_dir(c) -> Path:
+    return Path(c.get("/api/settings").json()["archive_tv"])
+
+
 def test_browse_finds_untracked_file(client):
     c, _ = client
     archive_dir = _archive_movies_dir(c)
@@ -341,6 +345,81 @@ def test_delete_file_rejects_path_outside_media_dirs(client, tmp_path):
     resp = c.post("/api/library/delete-file", json={"path": str(outside)})
     assert resp.status_code == 400
     assert outside.exists()
+
+
+def test_delete_file_removes_sibling_subtitle_and_empty_movie_folder(client):
+    c, _ = client
+    folder = _archive_movies_dir(c) / "Movie (2020)"
+    folder.mkdir()
+    video = folder / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+    (folder / "Movie (2020).srt").write_bytes(b"sub")
+    (folder / "poster.jpg").write_bytes(b"img")
+    (folder / "movie.nfo").write_bytes(b"nfo")
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video)})
+    assert resp.status_code == 200
+    assert not folder.exists()
+
+
+def test_delete_file_leaves_unrelated_files_in_folder(client):
+    c, _ = client
+    folder = _archive_movies_dir(c) / "Movie (2020)"
+    folder.mkdir()
+    video = folder / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+    other = folder / "readme.txt"
+    other.write_bytes(b"keep me")
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video)})
+    assert resp.status_code == 200
+    assert folder.exists()
+    assert other.exists()
+
+
+def test_delete_episode_keeps_season_folder_with_other_episodes(client):
+    c, _ = client
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    ep1 = season / "Show - S01E01 - Pilot.mkv"
+    ep2 = season / "Show - S01E02 - Second.mkv"
+    ep1.write_bytes(b"1")
+    ep2.write_bytes(b"2")
+    (season / "Show - S01E01 - Pilot.srt").write_bytes(b"sub1")
+    (season / "tv.nfo").write_bytes(b"nfo")
+
+    resp = c.post("/api/library/delete-file", json={"path": str(ep1)})
+    assert resp.status_code == 200
+    assert not ep1.exists()
+    assert not (season / "Show - S01E01 - Pilot.srt").exists()
+    assert season.exists()
+    assert ep2.exists()
+    assert (season / "tv.nfo").exists()  # other episodes remain -- season artwork untouched
+
+
+def test_delete_last_episode_removes_season_folder(client):
+    c, _ = client
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    ep1 = season / "Show - S01E01 - Pilot.mkv"
+    ep1.write_bytes(b"1")
+    (season / "tv.nfo").write_bytes(b"nfo")
+
+    resp = c.post("/api/library/delete-file", json={"path": str(ep1)})
+    assert resp.status_code == 200
+    assert not season.exists()
+
+
+def test_delete_file_at_archive_root_never_removes_root(client):
+    c, _ = client
+    archive_dir = _archive_movies_dir(c)
+    video = archive_dir / "junk.mkv"
+    video.write_bytes(b"data")
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video)})
+    assert resp.status_code == 200
+    assert not video.exists()
+    assert archive_dir.is_dir()
 
 
 def test_list_movies_auto_adopts_untracked_archive_files(client):

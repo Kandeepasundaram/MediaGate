@@ -19,10 +19,10 @@ from app.config_loader import AppConfig
 from app.core import media_probe
 from app.core.library_adopt import adopt_new_files
 from app.core.omdb_client import OMDbClient
-from app.core.orphan_artwork import cleanup_orphaned_artwork, find_orphaned_artwork
+from app.core.orphan_artwork import ARTWORK_NAMES, cleanup_orphaned_artwork, find_orphaned_artwork
 from app.core.organizer import OrganizeError, organize_file
 from app.core.renamer import RenamePlan
-from app.core.scanner import scan_directory
+from app.core.scanner import SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS, scan_directory
 from app.core.media_server import notify_media_servers
 from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, vote_average_for
 from app.core.tracker import maybe_auto_track
@@ -717,7 +717,7 @@ def _resolve_and_validate_target(path: str, config: AppConfig) -> Path:
     return target
 
 
-def _delete_target(target: Path, db: Database) -> None:
+def _delete_target(target: Path, db: Database, config: AppConfig) -> None:
     # Log while media_id still references a real row -- operation_log.media_id
     # has a foreign key, and deleting the media_items row first would make a
     # log entry pointing at it fail that constraint.
@@ -734,6 +734,8 @@ def _delete_target(target: Path, db: Database) -> None:
         )
         raise
 
+    _cleanup_siblings_and_folder(target, config)
+
     db.log_operation(
         operation_type="delete",
         status="success",
@@ -743,6 +745,51 @@ def _delete_target(target: Path, db: Database) -> None:
     if tracked_row:
         db.delete_media_item(tracked_row["id"])
     logger.info("Deleted %s (was tracked: %s)", target, bool(tracked_row))
+
+
+def _cleanup_siblings_and_folder(deleted_video: Path, config: AppConfig) -> None:
+    """After deleting a video, also removes its own subtitle files and --
+    only once no video remains in the folder, since a TV season folder
+    holds multiple episodes -- the poster/nfo written alongside it, then
+    the folder itself if that leaves it empty. Best-effort throughout: a
+    failure here doesn't undo the video deletion that already succeeded.
+    Never touches the configured incoming/archive roots themselves --
+    only subfolders within them (a movie's own folder, a TV season folder).
+    """
+    folder = deleted_video.parent
+    if not folder.is_dir():
+        return
+
+    protected_roots = {
+        config.paths.incoming_movies.resolve(),
+        config.paths.incoming_tv.resolve(),
+        config.paths.archive_movies.resolve(),
+        config.paths.archive_tv.resolve(),
+    }
+    is_protected_root = folder.resolve() in protected_roots
+
+    for sub in folder.glob(f"{deleted_video.stem}*"):
+        if sub.is_file() and sub.suffix.lower() in SUBTITLE_EXTENSIONS:
+            try:
+                sub.unlink()
+            except OSError as exc:
+                logger.warning("Failed to remove sibling subtitle %s: %s", sub, exc)
+
+    remaining_videos = any(
+        p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS for p in folder.iterdir()
+    )
+    if not remaining_videos and not is_protected_root:
+        for name in ARTWORK_NAMES:
+            artwork = folder / name
+            if artwork.exists():
+                try:
+                    artwork.unlink()
+                except OSError as exc:
+                    logger.warning("Failed to remove leftover artwork %s: %s", artwork, exc)
+        try:
+            folder.rmdir()
+        except OSError:
+            pass  # not empty (something else still in there), or already gone
 
 
 @router.post("/delete-file")
@@ -760,7 +807,7 @@ def delete_file(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     try:
-        _delete_target(target, db)
+        _delete_target(target, db, config)
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Failed to delete: {exc}") from exc
     return {"deleted": True}
@@ -782,7 +829,7 @@ def delete_batch(
     for path in payload.paths:
         try:
             target = _resolve_and_validate_target(path, config)
-            _delete_target(target, db)
+            _delete_target(target, db, config)
             deleted += 1
         except (ValueError, FileNotFoundError, OSError) as exc:
             errors.append(f"{path}: {exc}")
