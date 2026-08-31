@@ -122,12 +122,41 @@ button.danger {
 button.danger:hover { border-color: var(--danger); }
 
 select {
-  background: var(--bg-elevated);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: var(--bg-elevated);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%239aa1ab' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 11px 7px;
   border: 1px solid var(--border);
   color: var(--text);
-  padding: 0.5rem 0.6rem;
+  padding: 0.5rem 1.9rem 0.5rem 0.6rem;
   border-radius: 6px;
   font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+select:hover { border-color: var(--accent); }
+
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 140, 255, 0.25);
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+body[data-theme="light"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23626976' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+body[data-theme="light"] select:focus {
+  box-shadow: 0 0 0 3px rgba(47, 111, 237, 0.2);
 }
 
 .search-input {
