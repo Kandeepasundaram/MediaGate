@@ -387,6 +387,65 @@ class TMDBClient:
         official = next((v for v in trailers if v.get("official")), None)
         return (official or trailers[0]).get("key")
 
+    def get_cast(self, tmdb_id: int, media_type: str, limit: int = 8) -> list[dict]:
+        """Top-billed cast (name/character/headshot) for the detail pane.
+        API-key-only, same as get_trailer_key -- no scraper fallback."""
+        return self._cached(("cast", tmdb_id, media_type), lambda: self._get_cast(tmdb_id, media_type))[:limit]
+
+    def _get_cast(self, tmdb_id: int, media_type: str) -> list[dict]:
+        if not self._api:
+            return []
+        try:
+            resp = requests.get(
+                f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/credits",
+                params={"api_key": self.api_key},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            cast = resp.json().get("cast", [])
+        except Exception as exc:
+            logger.warning("TMDB API credits lookup failed: %s", exc)
+            return []
+        return [
+            {"name": c.get("name"), "character": c.get("character"), "profile_path": c.get("profile_path")}
+            for c in sorted(cast, key=lambda c: c.get("order", 999))
+        ]
+
+    def get_similar_titles(self, tmdb_id: int, media_type: str, limit: int = 8) -> list[MediaResult]:
+        """Other titles TMDB considers similar, for detail-pane discovery.
+        API-key-only, same as get_trailer_key -- no scraper fallback."""
+        return self._cached(("similar", tmdb_id, media_type), lambda: self._get_similar_titles(tmdb_id, media_type))[:limit]
+
+    def _get_similar_titles(self, tmdb_id: int, media_type: str) -> list[MediaResult]:
+        if not self._api:
+            return []
+        try:
+            resp = requests.get(
+                f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/similar",
+                params={"api_key": self.api_key},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+        except Exception as exc:
+            logger.warning("TMDB API similar lookup failed: %s", exc)
+            return []
+
+        titles = []
+        for r in results:
+            date = r.get("release_date") if media_type == "movie" else r.get("first_air_date")
+            titles.append(
+                MediaResult(
+                    tmdb_id=r.get("id"),
+                    title=r.get("title") or r.get("name") or "",
+                    media_type=media_type,
+                    year=int(date[:4]) if date else None,
+                    poster_path=r.get("poster_path"),
+                    source="api",
+                )
+            )
+        return titles
+
     def get_collection_movies(self, collection_id: int) -> list[MediaResult]:
         return self._cached(("collection", collection_id), lambda: self._get_collection_movies(collection_id))
 

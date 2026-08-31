@@ -788,6 +788,55 @@ def test_trailer_reports_not_configured_without_api_key(client):
     assert body["tmdb_configured"] is False
 
 
+def test_more_info_returns_cast_and_similar(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"data")
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = [MediaResult(tmdb_id=99, title="Sample Movie", media_type="movie", year=2020)]
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    fake_tmdb.mode = "api"
+    fake_tmdb.get_cast.return_value = [{"name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"}]
+    fake_tmdb.get_similar_titles.return_value = [
+        MediaResult(tmdb_id=7, title="Related Movie", media_type="movie", year=2018, poster_path="/r.jpg")
+    ]
+
+    resp = c.get(f"/api/library/{item_id}/more-info")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tmdb_configured"] is True
+    assert body["cast"] == [{"name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"}]
+    assert body["similar"][0]["title"] == "Related Movie"
+    assert body["similar"][0]["year"] == 2018
+    fake_tmdb.get_cast.assert_called_once_with(99, "movie")
+    fake_tmdb.get_similar_titles.assert_called_once_with(99, "movie")
+
+
+def test_more_info_404_for_missing_item(client):
+    c, _ = client
+    resp = c.get("/api/library/999999/more-info")
+    assert resp.status_code == 404
+
+
+def test_more_info_empty_without_tmdb_match(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Unmatched.File.mkv"
+    video.write_bytes(b"data")
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = []
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    resp = c.get(f"/api/library/{item_id}/more-info")
+    body = resp.json()
+    assert body["cast"] == []
+    assert body["similar"] == []
+
+
 def test_settings_omdb_key_round_trips(client):
     c, _ = client
     resp = c.post("/api/settings", json={"omdb_api_key": "abc123"})

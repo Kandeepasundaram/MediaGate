@@ -55,6 +55,9 @@ from app.models import (
     RematchImdbRequest,
     RematchResponse,
     RematchTmdbRequest,
+    CastMemberOut,
+    MoreInfoOut,
+    SimilarTitleOut,
     TrailerOut,
     TvStatusOut,
     WatchedBatchRequest,
@@ -508,6 +511,31 @@ def get_trailer(
 
     key = tmdb.get_trailer_key(item["tmdb_id"], item["media_type"])
     return TrailerOut(youtube_key=key, tmdb_configured=tmdb.mode == "api")
+
+
+@router.get("/{item_id}/more-info", response_model=MoreInfoOut)
+def get_more_info(
+    item_id: int, db: Database = Depends(get_database), tmdb: TMDBClient = Depends(get_tmdb_client)
+) -> MoreInfoOut:
+    """Top-billed cast and similar titles for the detail pane's discovery
+    section -- both API-key-only (see TMDBClient.get_cast/get_similar_titles),
+    combined into one call so opening the pane doesn't fire two separate
+    TMDB requests for what's shown together."""
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if item["tmdb_id"] is None:
+        return MoreInfoOut(tmdb_configured=tmdb.mode == "api")
+
+    cast = tmdb.get_cast(item["tmdb_id"], item["media_type"])
+    similar = tmdb.get_similar_titles(item["tmdb_id"], item["media_type"])
+    return MoreInfoOut(
+        cast=[CastMemberOut(**c) for c in cast],
+        similar=[
+            SimilarTitleOut(tmdb_id=s.tmdb_id, title=s.title, year=s.year, poster_path=s.poster_path) for s in similar
+        ],
+        tmdb_configured=tmdb.mode == "api",
+    )
 
 
 @router.get("/{item_id}/file-info", response_model=FileInfoOut)

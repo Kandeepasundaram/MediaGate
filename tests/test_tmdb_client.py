@@ -256,6 +256,84 @@ def test_get_trailer_key_returns_none_on_api_error(monkeypatch):
     assert client.get_trailer_key(278, "movie") is None
 
 
+def test_get_cast_returns_empty_without_api_key():
+    client = TMDBClient(api_key="", scraper=MagicMock())
+    assert client.get_cast(278, "movie") == []
+
+
+def test_get_cast_sorts_by_billing_order_and_respects_limit(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "cast": [
+                    {"name": "Second Billed", "character": "B", "profile_path": "/b.jpg", "order": 1},
+                    {"name": "Top Billed", "character": "A", "profile_path": "/a.jpg", "order": 0},
+                    {"name": "Third Billed", "character": "C", "profile_path": None, "order": 2},
+                ]
+            }
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    cast = client.get_cast(278, "movie", limit=2)
+    assert [c["name"] for c in cast] == ["Top Billed", "Second Billed"]
+
+
+def test_get_cast_returns_empty_on_api_error(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
+    assert client.get_cast(278, "movie") == []
+
+
+def test_get_similar_titles_returns_empty_without_api_key():
+    client = TMDBClient(api_key="", scraper=MagicMock())
+    assert client.get_similar_titles(278, "movie") == []
+
+
+def test_get_similar_titles_parses_movie_results(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": [{"id": 42, "title": "Similar Movie", "release_date": "2019-05-01", "poster_path": "/p.jpg"}]}
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    similar = client.get_similar_titles(278, "movie")
+    assert len(similar) == 1
+    assert similar[0].tmdb_id == 42
+    assert similar[0].title == "Similar Movie"
+    assert similar[0].year == 2019
+    assert similar[0].poster_path == "/p.jpg"
+
+
+def test_get_similar_titles_parses_tv_results(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": [{"id": 7, "name": "Similar Show", "first_air_date": "2021-01-01"}]}
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    similar = client.get_similar_titles(7, "tv")
+    assert similar[0].title == "Similar Show"
+    assert similar[0].year == 2021
+
+
+def test_get_similar_titles_returns_empty_on_api_error(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
+    assert client.get_similar_titles(278, "movie") == []
+
+
 def test_search_movie_handles_zero_results_from_real_api_without_crashing(monkeypatch):
     """Regression test for tmdbv3api 1.9.0's AsObj.__iter__ bug: a genuine
     zero-results search response, when iterated, yields the response's own

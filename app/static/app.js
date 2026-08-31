@@ -694,6 +694,7 @@ function renderDetailPane() {
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
       <p class="detail-overview">${item.overview || "No overview available."}</p>
+      <div id="detail-more-info"></div>
       <div class="detail-file-info">
         <div class="detail-file-row"><span>File</span><span class="detail-file-value" title="${item.file_name || ""}">${item.file_name || "—"}</span></div>
         <div class="detail-file-row"><span>Size</span><span>${item.size_bytes != null ? formatBytes(item.size_bytes) : "—"}</span></div>
@@ -713,6 +714,7 @@ function renderDetailPane() {
     });
     loadRatings(item.id);
     loadTrailer(item.id);
+    loadMoreInfo(item.id);
     loadFileInfo(item.id, "#detail-file-extra");
     if (item.tmdb_id != null) loadMovieStatus(item.tmdb_id);
   } else {
@@ -726,12 +728,14 @@ function renderDetailPane() {
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
       <p class="detail-overview">${show.overview || "No overview available."}</p>
+      <div id="detail-more-info"></div>
       <div id="detail-tv-body"></div>
       ${detailFixMarkup()}
     `;
     renderTvBody();
     loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
     loadTrailer(show.episodes[0].id);
+    loadMoreInfo(show.episodes[0].id);
     if (show.tmdb_id != null) loadTvStatus(show.tmdb_id, show.episodes);
   }
 
@@ -991,6 +995,50 @@ async function loadTrailer(itemId) {
     } else {
       el.innerHTML = `<span class="hint">No trailer found.</span>`;
     }
+  } catch (e) {
+    el.innerHTML = "";
+  }
+}
+
+async function loadMoreInfo(itemId) {
+  const el = $("#detail-more-info");
+  if (!el) return;
+  try {
+    const info = await api(`/api/library/${itemId}/more-info`);
+    if (!info.tmdb_configured || (info.cast.length === 0 && info.similar.length === 0)) {
+      el.innerHTML = "";
+      return;
+    }
+    const castHtml = info.cast.length ? `
+      <div class="detail-section">
+        <h4>Cast</h4>
+        <div class="cast-row">
+          ${info.cast.map((c) => `
+            <div class="cast-card" title="${c.name || ""}${c.character ? ` as ${c.character}` : ""}">
+              ${c.profile_path
+                ? `<img src="https://image.tmdb.org/t/p/w185${c.profile_path}" alt="${c.name || ""}">`
+                : `<div class="cast-card-placeholder"></div>`}
+              <span class="cast-name">${c.name || ""}</span>
+              ${c.character ? `<span class="cast-character hint">${c.character}</span>` : ""}
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    ` : "";
+    const similarHtml = info.similar.length ? `
+      <div class="detail-section">
+        <h4>Similar Titles</h4>
+        <div class="cast-row">
+          ${info.similar.map((s) => `
+            <div class="cast-card" title="${s.title}${s.year ? ` (${s.year})` : ""}">
+              ${posterMarkup(s.title, s.poster_path)}
+              <span class="cast-name">${s.title}</span>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    ` : "";
+    el.innerHTML = castHtml + similarHtml;
   } catch (e) {
     el.innerHTML = "";
   }

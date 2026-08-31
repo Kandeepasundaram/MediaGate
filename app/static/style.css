@@ -488,6 +488,46 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
 }
 .detail-trailer a:hover { text-decoration: underline; }
 
+.detail-section { margin: 1rem 0; }
+.detail-section h4 { margin: 0 0 0.5rem; font-size: 0.85rem; color: var(--text-dim); }
+
+.cast-row {
+  display: flex;
+  gap: 0.6rem;
+  overflow-x: auto;
+  padding-bottom: 0.3rem;
+}
+
+.cast-card {
+  flex: 0 0 90px;
+  width: 90px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.cast-card img, .cast-card-placeholder {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.cast-name {
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cast-character {
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .detail-file-info {
   margin: 1rem 0;
   padding: 0.8rem;

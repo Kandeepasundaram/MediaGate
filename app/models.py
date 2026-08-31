@@ -311,6 +311,25 @@ class TrailerOut(BaseModel):
     tmdb_configured: bool = False
 
 
+class CastMemberOut(BaseModel):
+    name: str | None = None
+    character: str | None = None
+    profile_path: str | None = None
+
+
+class SimilarTitleOut(BaseModel):
+    tmdb_id: int | None = None
+    title: str
+    year: int | None = None
+    poster_path: str | None = None
+
+
+class MoreInfoOut(BaseModel):
+    cast: list[CastMemberOut] = Field(default_factory=list)
+    similar: list[SimilarTitleOut] = Field(default_factory=list)
+    tmdb_configured: bool = False
+
+
 class BrowseItemOut(BaseModel):
     path: str
     size_bytes: int
