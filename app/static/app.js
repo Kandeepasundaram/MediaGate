@@ -1804,6 +1804,7 @@ async function loadSettings() {
     $("#plex-token-note").textContent = s.plex_token_set ? "A token is currently set. Leave blank to keep it." : "";
     $("#setting-jellyfin-url").value = s.jellyfin_url || "";
     $("#jellyfin-key-note").textContent = s.jellyfin_api_key_set ? "A key is currently set. Leave blank to keep it." : "";
+    $("#setting-subtitle-languages").value = (s.subtitle_keep_languages || []).join(", ");
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
   }
@@ -1818,6 +1819,7 @@ async function saveSettings(e) {
     archive_tv: $("#setting-archive-tv").value.trim(),
     webhook_url: $("#setting-webhook-url").value.trim(),
     auto_track_new: $("#setting-auto-track-new").checked,
+    subtitle_keep_languages: $("#setting-subtitle-languages").value.split(",").map((s) => s.trim()).filter(Boolean),
   };
   const keyValue = $("#setting-tmdb-key").value;
   if (keyValue) payload.tmdb_api_key = keyValue;

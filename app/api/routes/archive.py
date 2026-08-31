@@ -161,7 +161,7 @@ def confirm_archive(
         dest = Path(item.dest_path)
 
         if payload.purge_subtitles:
-            purge_subtitles(source.parent, dry_run=False)
+            purge_subtitles(source.parent, keep_languages=config.subtitles.keep_languages, dry_run=False)
 
         plan = RenamePlan(
             source_path=source,

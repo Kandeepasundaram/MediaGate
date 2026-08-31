@@ -98,6 +98,22 @@ def test_save_settings_ignores_env_locked_key(client, monkeypatch):
     assert resp2.json()["tmdb_api_key_locked_by_env"] is True
 
 
+def test_get_settings_reflects_default_subtitle_languages(client):
+    c, _ = client
+    resp = c.get("/api/settings")
+    assert resp.json()["subtitle_keep_languages"] == ["en", "eng", "english"]
+
+
+def test_save_settings_updates_subtitle_languages(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"subtitle_keep_languages": ["FR", " es ", ""]})
+    assert resp.status_code == 200
+    assert resp.json()["subtitle_keep_languages"] == ["fr", "es"]
+
+    resp2 = c.get("/api/settings")
+    assert resp2.json()["subtitle_keep_languages"] == ["fr", "es"]
+
+
 def test_permissions_check_reports_writable_dirs(client):
     c, _ = client
     resp = c.get("/api/settings/permissions-check")

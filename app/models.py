@@ -398,6 +398,7 @@ class SettingsOut(BaseModel):
     plex_token_set: bool = False
     jellyfin_url: str = ""
     jellyfin_api_key_set: bool = False
+    subtitle_keep_languages: list[str] = Field(default_factory=list)
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -415,6 +416,7 @@ class SettingsUpdateRequest(BaseModel):
     plex_token: str | None = None
     jellyfin_url: str | None = None
     jellyfin_api_key: str | None = None
+    subtitle_keep_languages: list[str] | None = None
 
 
 class PathCheck(BaseModel):

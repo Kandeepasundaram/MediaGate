@@ -86,6 +86,28 @@ def test_status_endpoint(client):
     assert body["next_tracker_check_in_seconds"] > 0
 
 
+def test_archive_confirm_purge_subtitles_honors_configured_keep_languages(client):
+    c, incoming_movies = client
+    # Override the fixture's default config to keep only French subtitles --
+    # confirms purge_subtitles reads config.subtitles.keep_languages instead
+    # of always falling back to subtitle_purger's hardcoded English default.
+    config = app.dependency_overrides[get_config]()
+    config.subtitles.keep_languages = ["fr"]
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+    en_sub = incoming_movies / "Sample.Movie.2020.1080p.en.srt"
+    en_sub.write_text("english subtitle")
+    fr_sub = incoming_movies / "Sample.Movie.2020.1080p.fr.srt"
+    fr_sub.write_text("french subtitle")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": True})
+
+    assert not en_sub.exists()  # not in the configured keep list -- purged
+    assert fr_sub.exists()  # configured keep language -- kept
+
+
 def test_scan_preview_confirm_flow(client):
     c, incoming_movies = client
 

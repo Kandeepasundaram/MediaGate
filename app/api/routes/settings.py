@@ -44,6 +44,7 @@ def _to_out(config: AppConfig) -> SettingsOut:
         plex_token_set=bool(config.media_server.plex_token),
         jellyfin_url=config.media_server.jellyfin_url,
         jellyfin_api_key_set=bool(config.media_server.jellyfin_api_key),
+        subtitle_keep_languages=config.subtitles.keep_languages,
     )
 
 
@@ -56,6 +57,7 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
     updates: dict[str, dict] = {
         "paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tracker": {}, "media_server": {},
+        "subtitles": {},
     }
 
     if payload.incoming_movies is not None:
@@ -86,6 +88,10 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["media_server"]["jellyfin_url"] = payload.jellyfin_url
     if payload.jellyfin_api_key is not None:
         updates["media_server"]["jellyfin_api_key"] = payload.jellyfin_api_key
+    if payload.subtitle_keep_languages is not None:
+        updates["subtitles"]["keep_languages"] = [
+            lang.strip().lower() for lang in payload.subtitle_keep_languages if lang.strip()
+        ]
 
     updates = {k: v for k, v in updates.items() if v}
     new_config = update_settings(config.config_path, updates)

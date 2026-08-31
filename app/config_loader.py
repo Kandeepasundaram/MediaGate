@@ -184,6 +184,7 @@ _EDITABLE_KEYS = {
     "omdb": {"api_key"},
     "tracker": {"auto_track_new"},
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key"},
+    "subtitles": {"keep_languages"},
 }
 
 
