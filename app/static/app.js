@@ -91,7 +91,7 @@ function setupTabs() {
       if (btn.dataset.tab === "browse") loadBrowse();
       if (btn.dataset.tab === "notifications") { loadNotifications(); loadTrackedList(); loadNotificationHistory(); }
       if (btn.dataset.tab === "history") loadHistory();
-      if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); loadBackgroundTaskStatus(); }
+      if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); }
     });
   });
 }
@@ -2176,6 +2176,30 @@ async function loadBackgroundTaskStatus() {
     card.innerHTML = `<h4>Background Tasks</h4>${lines.map((l) => `<p class="hint">${l}</p>`).join("")}`;
   } catch (e) {
     card.textContent = `Error loading task status: ${e.message}`;
+  }
+}
+
+async function loadStorageStatus() {
+  const card = $("#storage-card");
+  card.textContent = "Loading...";
+  try {
+    const data = await api("/api/status/storage");
+    const rows = data.paths.map((p) => {
+      if (!p.exists) {
+        return `<div class="storage-row"><span>${p.label}</span><span class="hint">${p.path} — does not exist</span></div>`;
+      }
+      const pct = p.total_bytes ? Math.round((p.used_bytes / p.total_bytes) * 100) : 0;
+      return `
+        <div class="storage-row">
+          <span>${p.label}</span>
+          <span class="hint">${formatBytes(p.used_bytes)} used of ${formatBytes(p.total_bytes)} (${formatBytes(p.free_bytes)} free)</span>
+        </div>
+        <div class="storage-bar"><div class="storage-bar-fill" style="width:${pct}%"></div></div>
+      `;
+    });
+    card.innerHTML = `<h4>Storage</h4>${rows.join("")}`;
+  } catch (e) {
+    card.textContent = `Error loading storage status: ${e.message}`;
   }
 }
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
 
@@ -18,6 +19,8 @@ from app.models import (
     SimpleTaskStatusOut,
     StatsResponse,
     StatusResponse,
+    StoragePathOut,
+    StorageStatusOut,
     TrackerTaskStatusOut,
 )
 
@@ -77,6 +80,41 @@ def get_background_tasks_status(
             last_error=task_status["maintenance"]["last_error"],
         ),
     )
+
+
+@router.get("/status/storage", response_model=StorageStatusOut)
+def get_storage_status(config: AppConfig = Depends(get_config)) -> StorageStatusOut:
+    """Disk total/used/free for each configured media path -- the Movies/TV
+    incoming and archive folders commonly point at the same physical path
+    (per config_loader's own default), so those are reported as one row
+    with a combined label rather than as duplicate entries with the same
+    numbers. Read-only; unlike /permissions-check this doesn't write-probe
+    anything, just shutil.disk_usage().
+    """
+    labeled_paths = [
+        ("Movies incoming", config.paths.incoming_movies),
+        ("Movies archive", config.paths.archive_movies),
+        ("TV incoming", config.paths.incoming_tv),
+        ("TV archive", config.paths.archive_tv),
+    ]
+    grouped: dict[Path, list[str]] = {}
+    for label, path in labeled_paths:
+        grouped.setdefault(path, []).append(label)
+
+    paths_out = []
+    for path, labels in grouped.items():
+        label = " / ".join(labels)
+        if not path.exists():
+            paths_out.append(StoragePathOut(label=label, path=str(path), exists=False))
+            continue
+        usage = shutil.disk_usage(path)
+        paths_out.append(
+            StoragePathOut(
+                label=label, path=str(path), exists=True,
+                total_bytes=usage.total, used_bytes=usage.used, free_bytes=usage.free,
+            )
+        )
+    return StorageStatusOut(paths=paths_out)
 
 
 @router.get("/stats", response_model=StatsResponse)

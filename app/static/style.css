@@ -205,6 +205,27 @@ tr:hover td { background: var(--bg-elevated); }
   margin-bottom: 1rem;
 }
 
+.storage-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  margin: 0.4rem 0 0.15rem;
+}
+
+.storage-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.storage-bar-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
 .notification-item {
   background: var(--bg-elevated);
   border: 1px solid var(--border);

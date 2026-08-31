@@ -216,6 +216,19 @@ class BackgroundTasksStatusOut(BaseModel):
     maintenance: SimpleTaskStatusOut
 
 
+class StoragePathOut(BaseModel):
+    label: str
+    path: str
+    exists: bool
+    total_bytes: int | None = None
+    used_bytes: int | None = None
+    free_bytes: int | None = None
+
+
+class StorageStatusOut(BaseModel):
+    paths: list[StoragePathOut] = Field(default_factory=list)
+
+
 class StatsResponse(BaseModel):
     total_media_items: int
     total_movies: int

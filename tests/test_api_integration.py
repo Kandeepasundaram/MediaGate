@@ -109,6 +109,44 @@ def test_scan_clears_new_files_tracker(client):
     assert tracker.count() == 0
 
 
+def test_storage_status_reports_combined_label_for_shared_path(client):
+    c, _ = client
+    resp = c.get("/api/status/storage")
+    assert resp.status_code == 200
+    body = resp.json()
+    # the fixture config points incoming and archive at different tmp_path
+    # subdirectories per media type, but incoming_movies == archive_movies
+    # is the documented common case -- here they're distinct dirs, so
+    # expect one row per unique configured path (4 total), not merged.
+    assert len(body["paths"]) == 4
+    for p in body["paths"]:
+        assert p["exists"] is True
+        assert p["total_bytes"] > 0
+        assert p["free_bytes"] >= 0
+
+
+def test_storage_status_merges_rows_for_identical_paths(client):
+    c, _ = client
+    config = app.dependency_overrides[get_config]()
+    config.paths.archive_movies = config.paths.incoming_movies
+
+    body = c.get("/api/status/storage").json()
+    merged = next(p for p in body["paths"] if p["path"] == str(config.paths.incoming_movies))
+    assert merged["label"] == "Movies incoming / Movies archive"
+    assert len(body["paths"]) == 3  # was 4 unique paths, now 3
+
+
+def test_storage_status_reports_missing_directory(client, tmp_path):
+    c, _ = client
+    config = app.dependency_overrides[get_config]()
+    config.paths.archive_tv = tmp_path / "does_not_exist_tv_archive"
+
+    body = c.get("/api/status/storage").json()
+    missing = next(p for p in body["paths"] if p["path"] == str(config.paths.archive_tv))
+    assert missing["exists"] is False
+    assert missing["total_bytes"] is None
+
+
 def test_background_tasks_status_defaults(client):
     c, _ = client
     resp = c.get("/api/status/tasks")
