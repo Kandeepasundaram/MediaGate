@@ -1346,12 +1346,17 @@ async function openMatchPicker(index) {
   openMatchModal(item.media_type, item.title, (candidate) => applyMatchOverride(index, candidate));
 }
 
-function openMatchModal(mediaType, initialQuery, onApply) {
+function openMatchModal(mediaType, initialQuery, onApply, { hideIdEntry = false } = {}) {
   state.matchPicker = { mediaType, onApply };
   $("#match-modal").classList.remove("hidden");
   $("#match-search-input").value = initialQuery;
   $("#match-id-input").value = "";
-  runMatchSearch(initialQuery);
+  // "Use ID" has no title to go with the tmdb_id -- fine for archive preview
+  // (which re-fetches full TMDB details anyway) but tracker.add needs a
+  // title up front, so that path is search-results-only.
+  $(".match-id-row").classList.toggle("hidden", hideIdEntry);
+  if (initialQuery) runMatchSearch(initialQuery);
+  else $("#match-results").innerHTML = "";
 }
 
 async function runMatchSearch(query) {
@@ -1413,6 +1418,26 @@ async function applyMatchOverride(index, candidate) {
 function closeMatchPicker() {
   $("#match-modal").classList.add("hidden");
   state.matchPicker = null;
+}
+
+// ---- Manually track a title not yet in the library (wishlist/wanted) ----
+function openTrackAddModal(mediaType) {
+  openMatchModal(mediaType, "", (candidate) => addTrackedTitle(mediaType, candidate), { hideIdEntry: true });
+}
+
+async function addTrackedTitle(mediaType, candidate) {
+  closeMatchPicker();
+  $("#track-add-status").textContent = `Tracking "${candidate.title}"...`;
+  try {
+    await api("/api/tracker/add", {
+      method: "POST",
+      body: JSON.stringify({ tmdb_id: candidate.tmdb_id, media_type: mediaType, title: candidate.title }),
+    });
+    $("#track-add-status").textContent = `Now tracking "${candidate.title}".`;
+    loadTrackedList();
+  } catch (e) {
+    $("#track-add-status").textContent = `Error: ${e.message}`;
+  }
 }
 
 function selectedItems() {
@@ -2110,6 +2135,8 @@ document.addEventListener("DOMContentLoaded", () => {
     boxes.forEach((b) => { b.checked = !allChecked; });
   });
   $("#approve-btn").addEventListener("click", approveSelected);
+  $("#track-add-movie-btn").addEventListener("click", () => openTrackAddModal("movie"));
+  $("#track-add-tv-btn").addEventListener("click", () => openTrackAddModal("tv"));
   $("#match-cancel-btn").addEventListener("click", closeMatchPicker);
   $("#match-search-btn").addEventListener("click", () => runMatchSearch($("#match-search-input").value));
   $("#match-search-input").addEventListener("keydown", (e) => {
