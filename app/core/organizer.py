@@ -14,6 +14,7 @@ import logging
 import shutil
 from datetime import datetime, timezone
 
+from app.core.archiver import sha256
 from app.core.renamer import RenamePlan, write_nfo
 from app.core.subtitle_purger import SUBTITLE_EXTENSIONS
 from app.core.tmdb_client import MediaResult
@@ -31,13 +32,26 @@ def organize_file(db: Database, plan: RenamePlan) -> int:
     the same path -- just a metadata refresh then), and updates the
     media_items row tracking that file by its previous final_path in place,
     or creates one if it wasn't tracked yet. Returns the media_item id.
+
+    The move itself is copy-verify-delete (same sha256 check as
+    archiver.archive_file()), not shutil.move: a bare move can partially
+    succeed on Windows if something (Plex, an open handle) locks the source
+    just long enough for the rename-fallback copy to finish but the
+    subsequent unlink of the source to fail, leaving the file duplicated in
+    both the old and new locations instead of moved.
     """
     existing = db.get_media_item_by_final_path(str(plan.source_path))
 
     if plan.source_path != plan.dest_path:
         plan.dest_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            shutil.move(str(plan.source_path), str(plan.dest_path))
+            shutil.copy2(plan.source_path, plan.dest_path)
+            source_hash = sha256(plan.source_path)
+            dest_hash = sha256(plan.dest_path)
+            if source_hash != dest_hash:
+                plan.dest_path.unlink(missing_ok=True)
+                raise OSError(f"Checksum mismatch after copy (source={source_hash}, dest={dest_hash})")
+            plan.source_path.unlink()
             _move_sibling_subtitles(plan.source_path, plan.dest_path.parent)
         except OSError as exc:
             db.log_operation(

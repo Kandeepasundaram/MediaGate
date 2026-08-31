@@ -19,7 +19,7 @@ class ArchiveError(Exception):
     pass
 
 
-def _sha256(path) -> str:
+def sha256(path) -> str:
     digest = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(_HASH_CHUNK_SIZE), b""):
@@ -64,8 +64,8 @@ def archive_file(db: Database, plan: RenamePlan) -> int:
 
     try:
         shutil.copy2(plan.source_path, plan.dest_path)
-        source_hash = _sha256(plan.source_path)
-        dest_hash = _sha256(plan.dest_path)
+        source_hash = sha256(plan.source_path)
+        dest_hash = sha256(plan.dest_path)
         if source_hash != dest_hash:
             plan.dest_path.unlink(missing_ok=True)
             raise OSError(f"Checksum mismatch after copy (source={source_hash}, dest={dest_hash})")
