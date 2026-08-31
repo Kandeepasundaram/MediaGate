@@ -5,10 +5,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.config_loader import AppConfig
+from app.core.fs_watcher import NewFileTracker
 from app.core.scanner import scan_directory, scan_targets
 from app.database import Database
-from app.dependencies import get_config, get_database
-from app.models import ScanDirectoryRequest, ScannedFileOut, ScanResponse
+from app.dependencies import get_config, get_database, get_new_file_tracker
+from app.models import NewFilesStatusOut, ScanDirectoryRequest, ScannedFileOut, ScanResponse
 
 router = APIRouter(prefix="/api/scan", tags=["scan"])
 
@@ -34,6 +35,7 @@ def _to_out(scanned) -> list[ScannedFileOut]:
 def scan_library(
     config: AppConfig = Depends(get_config),
     db: Database = Depends(get_database),
+    new_file_tracker: NewFileTracker = Depends(get_new_file_tracker),
 ) -> ScanResponse:
     """Scans both incoming directories plus both archive roots as one library.
 
@@ -51,7 +53,21 @@ def scan_library(
     ]
     scanned = scan_targets(roots, known_paths=db.list_known_paths())
     unique_dirs = list(dict.fromkeys(str(r) for r in roots))
+    # A scan has now happened, so whatever the filesystem watcher (if
+    # enabled) had queued up is handled -- clear it so the "N new file(s)"
+    # badge doesn't keep counting files the user has just been shown.
+    new_file_tracker.clear()
     return ScanResponse(directories=unique_dirs, files=_to_out(scanned))
+
+
+@router.get("/new-files", response_model=NewFilesStatusOut)
+def new_files_status(new_file_tracker: NewFileTracker = Depends(get_new_file_tracker)) -> NewFilesStatusOut:
+    """Count of video files the filesystem watcher has seen since the last
+    scan -- 0 always when watcher.enabled is off, since nothing ever feeds
+    the tracker in that case. Polled by the dashboard to show a
+    "N new file(s) -- Scan Library" prompt instead of a manual-only check.
+    """
+    return NewFilesStatusOut(count=new_file_tracker.count())
 
 
 @router.post("/directory", response_model=ScanResponse)

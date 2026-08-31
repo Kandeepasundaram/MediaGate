@@ -1355,6 +1355,7 @@ async function scanAndPreview() {
   $("#scan-status").textContent = "Scanning...";
   try {
     const scan = await api("/api/scan");
+    refreshNewFilesBadge(); // the scan itself just cleared the watcher's queue server-side
     if (scan.files.length === 0) {
       $("#scan-status").textContent = `No new media files found in ${scan.directories.join(", ")}`;
       $("#archive-table tbody").innerHTML = "";
@@ -2059,6 +2060,29 @@ function pollNotifications() {
   setInterval(tick, 30000);
 }
 
+// Polls for files the filesystem watcher has seen since the last scan
+// (see app/core/fs_watcher.py) -- always 0/hidden when watcher.enabled is
+// off, since nothing ever feeds the tracker in that case, so this is cheap
+// to poll unconditionally rather than checking Settings first.
+async function refreshNewFilesBadge() {
+  const badge = $("#new-files-badge");
+  if (!badge) return;
+  try {
+    const data = await api("/api/scan/new-files");
+    if (data.count > 0) {
+      badge.textContent = `${data.count} new file(s) detected — Scan Library to pick them up`;
+      badge.classList.remove("hidden");
+    } else {
+      badge.classList.add("hidden");
+    }
+  } catch (e) { /* offline or server restarting, retry on next tick */ }
+}
+
+function pollNewFiles() {
+  refreshNewFilesBadge();
+  setInterval(refreshNewFilesBadge, 20000);
+}
+
 // ---- History tab ----
 async function loadHistory() {
   const tbody = $("#history-table tbody");
@@ -2179,6 +2203,7 @@ async function loadSettings() {
     $("#setting-auto-track-new").checked = !!s.auto_track_new;
     $("#setting-digest-mode").checked = !!s.digest_mode;
     $("#setting-digest-interval-days").value = s.digest_interval_days || 1;
+    $("#setting-watcher-enabled").checked = !!s.watcher_enabled;
     $("#omdb-key-note").textContent = s.omdb_api_key_set
       ? "A key is currently set. Leave blank to keep it. Powers IMDb/Rotten Tomatoes ratings in the detail pane."
       : "Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.";
@@ -2213,6 +2238,7 @@ async function saveSettings(e) {
     auto_track_new: $("#setting-auto-track-new").checked,
     digest_mode: $("#setting-digest-mode").checked,
     digest_interval_days: Number($("#setting-digest-interval-days").value) || 1,
+    watcher_enabled: $("#setting-watcher-enabled").checked,
     subtitle_keep_languages: $("#setting-subtitle-languages").value.split(",").map((s) => s.trim()).filter(Boolean),
   };
   const keyValue = $("#setting-tmdb-key").value;
@@ -2456,6 +2482,7 @@ document.addEventListener("DOMContentLoaded", () => {
   loadMoviesGallery();
   requestNotificationPermission();
   pollNotifications();
+  pollNewFiles();
 
   $("#scan-btn").addEventListener("click", scanAndPreview);
   $("#select-all-btn").addEventListener("click", () => {

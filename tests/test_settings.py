@@ -216,6 +216,21 @@ def test_save_settings_clamps_digest_interval_to_at_least_one_day(client):
     assert resp.json()["digest_interval_days"] == 1
 
 
+def test_get_settings_reflects_default_watcher_enabled(client):
+    c, _ = client
+    assert c.get("/api/settings").json()["watcher_enabled"] is False
+
+
+def test_save_settings_updates_watcher_enabled(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"watcher_enabled": True})
+    assert resp.status_code == 200
+    assert resp.json()["watcher_enabled"] is True
+
+    resp2 = c.get("/api/settings")
+    assert resp2.json()["watcher_enabled"] is True
+
+
 def test_permissions_check_reports_writable_dirs(client):
     c, _ = client
     resp = c.get("/api/settings/permissions-check")

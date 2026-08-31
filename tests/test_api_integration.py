@@ -19,10 +19,11 @@ from app.config_loader import (
     TMDBConfig,
     TrackerConfig,
 )
+from app.core.fs_watcher import NewFileTracker
 from app.core.omdb_client import OMDbClient
 from app.core.tmdb_client import MediaResult
 from app.database import Database
-from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client
+from app.dependencies import get_config, get_database, get_new_file_tracker, get_omdb_client, get_tmdb_client
 from app.main import app
 
 
@@ -84,6 +85,28 @@ def test_status_endpoint(client):
     assert isinstance(body["ffprobe_available"], bool)
     assert body["uptime_seconds"] >= 0
     assert body["next_tracker_check_in_seconds"] > 0
+
+
+def test_new_files_status_reflects_tracker_count(client):
+    c, _ = client
+    tracker = NewFileTracker()
+    app.dependency_overrides[get_new_file_tracker] = lambda: tracker
+
+    assert c.get("/api/scan/new-files").json()["count"] == 0
+
+    tracker.add(Path("/incoming/movies/New.Movie.mkv"))
+    assert c.get("/api/scan/new-files").json()["count"] == 1
+
+
+def test_scan_clears_new_files_tracker(client):
+    c, incoming_movies = client
+    tracker = NewFileTracker()
+    app.dependency_overrides[get_new_file_tracker] = lambda: tracker
+    tracker.add(incoming_movies / "watched-in.mkv")
+
+    c.get("/api/scan")
+
+    assert tracker.count() == 0
 
 
 def test_background_tasks_status_defaults(client):

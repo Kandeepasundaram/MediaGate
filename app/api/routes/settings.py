@@ -46,6 +46,7 @@ def _to_out(config: AppConfig) -> SettingsOut:
         auto_track_new=config.tracker.auto_track_new,
         digest_mode=config.tracker.digest_mode,
         digest_interval_days=config.tracker.digest_interval_days,
+        watcher_enabled=config.watcher.enabled,
         api_token_set=bool(config.server.api_token),
         plex_url=config.media_server.plex_url,
         plex_token_set=bool(config.media_server.plex_token),
@@ -68,7 +69,7 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
     updates: dict[str, dict] = {
         "paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tracker": {}, "media_server": {},
-        "subtitles": {}, "renaming": {},
+        "subtitles": {}, "renaming": {}, "watcher": {},
     }
 
     if payload.incoming_movies is not None:
@@ -103,6 +104,8 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["tracker"]["digest_mode"] = payload.digest_mode
     if payload.digest_interval_days is not None:
         updates["tracker"]["digest_interval_days"] = max(1, payload.digest_interval_days)
+    if payload.watcher_enabled is not None:
+        updates["watcher"]["enabled"] = payload.watcher_enabled
     if payload.api_token is not None:
         updates["server"]["api_token"] = payload.api_token
     if payload.plex_url is not None:

@@ -14,6 +14,7 @@ def test_load_config_creates_default_file_if_missing(tmp_path):
     assert cfg.server.port == 8000
     assert cfg.subtitles.keep_languages == ["en", "eng", "english"]
     assert cfg.renaming.movie_folder == "{title}{year_suffix}"
+    assert cfg.watcher.enabled is False
     assert cfg.paths.incoming_movies.exists()  # create_dirs defaults to True
     assert cfg.paths.incoming_tv.exists()
 

@@ -9,8 +9,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import archive, library, scan, settings, status, tracker, webhooks
-from app.core import metadata_backfill, scheduler
-from app.dependencies import get_config, get_database, require_api_token
+from app.core import fs_watcher, metadata_backfill, scheduler
+from app.dependencies import get_config, get_database, get_new_file_tracker, require_api_token
 
 logger = logging.getLogger("media_manager")
 
@@ -22,6 +22,17 @@ async def lifespan(app: FastAPI):
     maintenance_task = scheduler.start_maintenance()
     backup_task = scheduler.start_backup()
     backfill_task = metadata_backfill.start()
+
+    watcher_observer = None
+    config = get_config()
+    if config.watcher.enabled:
+        watcher_observer = fs_watcher.start_watching(
+            [config.paths.incoming_movies, config.paths.incoming_tv,
+             config.paths.archive_movies, config.paths.archive_tv],
+            get_new_file_tracker(),
+        )
+        logger.info("Filesystem watcher enabled for incoming/archive folders")
+
     logger.info(
         "Media Manager started (daily tracker check + weekly DB maintenance + daily backup + "
         "metadata backfill scheduled in-process)"
@@ -31,6 +42,8 @@ async def lifespan(app: FastAPI):
     await scheduler.stop_maintenance(maintenance_task)
     await scheduler.stop_backup(backup_task)
     await metadata_backfill.stop(backfill_task)
+    if watcher_observer is not None:
+        fs_watcher.stop_watching(watcher_observer)
 
 
 def create_app() -> FastAPI:

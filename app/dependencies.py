@@ -7,6 +7,7 @@ from functools import lru_cache
 from fastapi import Depends, Header, HTTPException
 
 from app.config_loader import AppConfig, load_config
+from app.core.fs_watcher import NewFileTracker
 from app.core.omdb_client import OMDbClient
 from app.core.tmdb_client import TMDBClient
 from app.database import Database
@@ -39,6 +40,14 @@ def get_omdb_client() -> OMDbClient:
     return OMDbClient(api_key=cfg.omdb.api_key)
 
 
+@lru_cache
+def get_new_file_tracker() -> NewFileTracker:
+    """One process-lifetime tracker of video files the filesystem watcher
+    has seen but no scan has picked up yet -- see app/core/fs_watcher.py.
+    Exists even when watcher.enabled is off; it just never gets fed."""
+    return NewFileTracker()
+
+
 def require_api_token(
     config: AppConfig = Depends(get_config), x_api_token: str | None = Header(default=None)
 ) -> None:
@@ -60,3 +69,4 @@ def reset_singletons() -> None:
     get_database.cache_clear()
     get_tmdb_client.cache_clear()
     get_omdb_client.cache_clear()
+    get_new_file_tracker.cache_clear()

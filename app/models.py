@@ -25,6 +25,10 @@ class ScanResponse(BaseModel):
     files: list[ScannedFileOut]
 
 
+class NewFilesStatusOut(BaseModel):
+    count: int = 0
+
+
 class ScanDirectoryRequest(BaseModel):
     directory: str
 
@@ -466,6 +470,7 @@ class SettingsOut(BaseModel):
     auto_track_new: bool = False
     digest_mode: bool = False
     digest_interval_days: int = 1
+    watcher_enabled: bool = False
     api_token_set: bool = False
     plex_url: str = ""
     plex_token_set: bool = False
@@ -495,6 +500,7 @@ class SettingsUpdateRequest(BaseModel):
     auto_track_new: bool | None = None
     digest_mode: bool | None = None
     digest_interval_days: int | None = None
+    watcher_enabled: bool | None = None
     api_token: str | None = None
     plex_url: str | None = None
     plex_token: str | None = None

@@ -36,6 +36,7 @@ _DEFAULT_CONFIG: dict = {
     },
     "omdb": {"api_key": ""},
     "backup": {"enabled": True, "retention_days": 14},
+    "watcher": {"enabled": False},
     "media_server": {"plex_url": "", "plex_token": "", "jellyfin_url": "", "jellyfin_api_key": ""},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
     "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"], "api_token": ""},
@@ -107,6 +108,16 @@ class BackupConfig:
 
 
 @dataclass
+class WatcherConfig:
+    # Off by default: a native OS filesystem watch (inotify/ReadDirectoryChangesW)
+    # can behave oddly on some network-mounted volumes (NFS/SMB), which is a
+    # common homelab setup for incoming/archive folders -- opt-in avoids
+    # surprising a deploy that doesn't need it. Never auto-archives anything;
+    # see app/core/fs_watcher.py.
+    enabled: bool = False
+
+
+@dataclass
 class MediaServerConfig:
     plex_url: str = ""
     plex_token: str = ""
@@ -164,6 +175,7 @@ class AppConfig:
     logging: LoggingConfig
     server: ServerConfig
     renaming: RenamingConfig = field(default_factory=RenamingConfig)
+    watcher: WatcherConfig = field(default_factory=WatcherConfig)
     config_path: Path = Path("config.yaml")
     tmdb_api_key_from_env: bool = False
 
@@ -213,6 +225,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         ),
         server=ServerConfig(**raw["server"]),
         renaming=RenamingConfig(**raw["renaming"]),
+        watcher=WatcherConfig(**raw["watcher"]),
         config_path=path,
         tmdb_api_key_from_env=bool(env_api_key),
     )
@@ -244,6 +257,7 @@ _EDITABLE_KEYS = {
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key"},
     "subtitles": {"keep_languages"},
     "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy"},
+    "watcher": {"enabled"},
 }
 
 
