@@ -147,6 +147,7 @@
     <div id="library-health-card" class="card hidden">
       <span id="library-health-summary"></span>
       <button id="cleanup-orphans-btn" class="hidden">Clean Up Orphans</button>
+      <button id="review-duplicates-btn" class="hidden">Review Duplicates</button>
     </div>
     <div class="toolbar">
       <input type="text" id="browse-search" placeholder="Search filename or parsed title…" class="search-input">
@@ -336,6 +337,14 @@
     </div>
   </section>
 </main>
+
+<div id="duplicates-modal" class="modal hidden">
+  <div class="modal-content duplicates-modal-content">
+    <p>Duplicate groups (same TMDB title/season/episode tracked by more than one file). Keep the copy you want and delete the rest.</p>
+    <div id="duplicates-list"></div>
+    <button id="duplicates-close-btn">Close</button>
+  </div>
+</div>
 
 <div id="confirm-modal" class="modal hidden">
   <div class="modal-content">

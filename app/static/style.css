@@ -311,6 +311,34 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   overflow-y: auto;
 }
 
+.duplicates-modal-content {
+  max-width: 700px;
+  max-height: 75vh;
+  overflow-y: auto;
+}
+
+.duplicate-group {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.duplicate-group h4 { margin: 0 0 0.5rem; font-size: 0.9rem; }
+
+.duplicate-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+.duplicate-row:first-of-type { border-top: none; }
+.duplicate-row-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
 .match-result-row {
   display: flex;
   justify-content: space-between;

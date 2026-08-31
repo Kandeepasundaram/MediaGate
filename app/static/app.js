@@ -1637,8 +1637,10 @@ async function loadLibraryHealth() {
   const card = $("#library-health-card");
   const summary = $("#library-health-summary");
   const cleanupBtn = $("#cleanup-orphans-btn");
+  const reviewBtn = $("#review-duplicates-btn");
   try {
     const data = await api("/api/library/health");
+    state.libraryDuplicates = data.duplicates;
     const orphanCount = data.orphans.length;
     const duplicateCount = data.duplicates.length;
     if (orphanCount === 0 && duplicateCount === 0) {
@@ -1651,8 +1653,59 @@ async function loadLibraryHealth() {
     if (duplicateCount > 0) parts.push(`${duplicateCount} duplicate group(s)`);
     summary.textContent = parts.join(" — ");
     cleanupBtn.classList.toggle("hidden", orphanCount === 0);
+    reviewBtn.classList.toggle("hidden", duplicateCount === 0);
   } catch (e) {
     card.classList.add("hidden");
+  }
+}
+
+function openDuplicatesModal() {
+  renderDuplicatesList();
+  $("#duplicates-modal").classList.remove("hidden");
+}
+
+function renderDuplicatesList() {
+  const groups = state.libraryDuplicates || [];
+  const container = $("#duplicates-list");
+  if (groups.length === 0) {
+    container.innerHTML = "<p>No duplicate groups remaining.</p>";
+    return;
+  }
+  container.innerHTML = groups.map((group) => {
+    const first = group[0];
+    const label = first.media_type === "tv" && first.season_number != null
+      ? `${first.title} S${String(first.season_number).padStart(2, "0")}E${String(first.episode_number).padStart(2, "0")}`
+      : `${first.title}${first.year ? ` (${first.year})` : ""}`;
+    return `
+      <div class="duplicate-group">
+        <h4>${label}</h4>
+        ${group.map((item) => `
+          <div class="duplicate-row">
+            <span class="duplicate-row-path" title="${item.final_path || ""}">${item.final_path || "(no file)"}</span>
+            <span class="hint">${formatBytes(item.size_bytes)}${item.resolution ? ` · ${item.resolution}` : ""}</span>
+            <button class="danger duplicate-delete-btn" data-path="${item.final_path || ""}">Delete This Copy</button>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }).join("");
+  container.querySelectorAll(".duplicate-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", () => deleteDuplicateCopy(btn.dataset.path));
+  });
+}
+
+async function deleteDuplicateCopy(path) {
+  if (!path) return;
+  const ok = await showConfirm(`Permanently delete "${path}"? This cannot be undone.`);
+  if (!ok) return;
+  try {
+    await api("/api/library/delete-file", { method: "POST", body: JSON.stringify({ path }) });
+    await loadLibraryHealth();
+    renderDuplicatesList();
+    loadMoviesGallery();
+    loadTvGallery();
+  } catch (e) {
+    $("#duplicates-list").insertAdjacentHTML("afterbegin", `<p>Error: ${e.message}</p>`);
   }
 }
 
@@ -2243,6 +2296,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#browse-refresh-btn").addEventListener("click", loadBrowse);
   $("#cleanup-orphans-btn").addEventListener("click", cleanupOrphans);
+  $("#review-duplicates-btn").addEventListener("click", openDuplicatesModal);
+  $("#duplicates-close-btn").addEventListener("click", () => $("#duplicates-modal").classList.add("hidden"));
   $("#browse-type").addEventListener("change", loadBrowse);
   $("#browse-filter").addEventListener("change", renderBrowseTable);
   $("#browse-search").addEventListener("input", renderBrowseTable);
