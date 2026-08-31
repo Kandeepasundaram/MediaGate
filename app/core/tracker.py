@@ -183,8 +183,19 @@ def check_for_updates(
     telegram_chat_id: str | None = None,
     pushover_api_token: str | None = None,
     pushover_user_key: str | None = None,
+    digest_mode: bool = False,
 ) -> int:
-    """Main tracker entry point. Returns the number of items now pending notification."""
+    """Main tracker entry point. Returns the number of items now pending notification.
+
+    digest_mode=False (default) fires a notification the moment a title
+    newly becomes pending -- real-time, one push per check_for_updates run
+    that found something new. digest_mode=True instead sends nothing here
+    per newly-pending title; the caller (the scheduler's own periodic loop)
+    is expected to call send_digest() separately on whatever cadence it
+    wants (daily/weekly), covering every title still pending, not just
+    ones that changed in this particular run -- so a user who ignores a
+    push still gets reminded on the next digest instead of only once.
+    """
     tracked = db.list_tracked()
     now = datetime.now(timezone.utc)
     newly_pending_rows: list[dict] = []
@@ -209,14 +220,55 @@ def check_for_updates(
                 error_message=str(exc),
             )
 
-    if newly_pending_rows:
-        if webhook_url:
-            _fire_webhook(webhook_url, newly_pending_rows)
-        if discord_webhook_url:
-            _send_discord(discord_webhook_url, newly_pending_rows)
-        if telegram_bot_token and telegram_chat_id:
-            _send_telegram(telegram_bot_token, telegram_chat_id, newly_pending_rows)
-        if pushover_api_token and pushover_user_key:
-            _send_pushover(pushover_api_token, pushover_user_key, newly_pending_rows)
+    if newly_pending_rows and not digest_mode:
+        _fire_all_channels(
+            newly_pending_rows, webhook_url, discord_webhook_url,
+            telegram_bot_token, telegram_chat_id, pushover_api_token, pushover_user_key,
+        )
 
     return len(db.list_pending_notifications())
+
+
+def _fire_all_channels(
+    rows: list[dict],
+    webhook_url: str | None,
+    discord_webhook_url: str | None,
+    telegram_bot_token: str | None,
+    telegram_chat_id: str | None,
+    pushover_api_token: str | None,
+    pushover_user_key: str | None,
+) -> None:
+    if webhook_url:
+        _fire_webhook(webhook_url, rows)
+    if discord_webhook_url:
+        _send_discord(discord_webhook_url, rows)
+    if telegram_bot_token and telegram_chat_id:
+        _send_telegram(telegram_bot_token, telegram_chat_id, rows)
+    if pushover_api_token and pushover_user_key:
+        _send_pushover(pushover_api_token, pushover_user_key, rows)
+
+
+def send_digest(
+    db: Database,
+    webhook_url: str | None = None,
+    discord_webhook_url: str | None = None,
+    telegram_bot_token: str | None = None,
+    telegram_chat_id: str | None = None,
+    pushover_api_token: str | None = None,
+    pushover_user_key: str | None = None,
+) -> int:
+    """Sends one batch notification covering every currently-pending (muted
+    titles already excluded by list_pending_notifications), unacknowledged
+    title -- the digest-mode counterpart to check_for_updates()'s real-time
+    per-newly-pending push. Meant to be called on its own periodic cadence
+    (see scheduler.py), independent of how often check_for_updates() itself
+    runs. Returns the number of titles the digest covered (0 sends nothing).
+    """
+    pending = db.list_pending_notifications()
+    if not pending:
+        return 0
+    _fire_all_channels(
+        pending, webhook_url, discord_webhook_url,
+        telegram_bot_token, telegram_chat_id, pushover_api_token, pushover_user_key,
+    )
+    return len(pending)

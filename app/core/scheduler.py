@@ -9,13 +9,19 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core import backup
-from app.core.tracker import check_for_updates
+from app.core.tracker import check_for_updates, send_digest
 from app.dependencies import get_config, get_database, get_tmdb_client
 
 logger = logging.getLogger(__name__)
+
+# In-memory only -- a container restart just means the next digest fires on
+# the next cron_time wake instead of waiting out the rest of the interval,
+# which is an acceptable reset for a homelab reminder feature, not worth a
+# DB column or a migration to persist.
+_last_digest_sent: datetime | None = None
 
 
 def _seconds_until(hhmm: str) -> float:
@@ -41,7 +47,9 @@ async def run_daily_tracker_check() -> None:
 
             db = get_database()
             tmdb = get_tmdb_client()
-            notifications = get_config().notifications
+            config = get_config()
+            notifications = config.notifications
+            digest_mode = config.tracker.digest_mode
             pending = await asyncio.to_thread(
                 check_for_updates,
                 db,
@@ -52,8 +60,28 @@ async def run_daily_tracker_check() -> None:
                 notifications.telegram_chat_id or None,
                 notifications.pushover_api_token or None,
                 notifications.pushover_user_key or None,
+                digest_mode,
             )
             logger.info("Scheduled tracker check complete: %d item(s) pending notification", pending)
+
+            global _last_digest_sent
+            if digest_mode:
+                now = datetime.now(timezone.utc)
+                due = _last_digest_sent is None or (now - _last_digest_sent).days >= config.tracker.digest_interval_days
+                if due:
+                    sent_count = await asyncio.to_thread(
+                        send_digest,
+                        db,
+                        notifications.webhook_url or None,
+                        notifications.discord_webhook_url or None,
+                        notifications.telegram_bot_token or None,
+                        notifications.telegram_chat_id or None,
+                        notifications.pushover_api_token or None,
+                        notifications.pushover_user_key or None,
+                    )
+                    if sent_count:
+                        _last_digest_sent = now
+                        logger.info("Sent digest covering %d pending title(s)", sent_count)
         except asyncio.CancelledError:
             raise
         except Exception:

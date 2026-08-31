@@ -22,7 +22,10 @@ _DEFAULT_CONFIG: dict = {
         "keep_languages": ["en", "eng", "english"],
         "delete_extensions": [".srt", ".ass", ".ssa"],
     },
-    "tracker": {"cron_time": "06:00", "notification_ttl_days": 30, "auto_track_new": False},
+    "tracker": {
+        "cron_time": "06:00", "notification_ttl_days": 30, "auto_track_new": False,
+        "digest_mode": False, "digest_interval_days": 1,
+    },
     "notifications": {
         "webhook_url": "",
         "discord_webhook_url": "",
@@ -70,6 +73,13 @@ class TrackerConfig:
     cron_time: str = "06:00"
     notification_ttl_days: int = 30
     auto_track_new: bool = False
+    # False (default): a notification fires the moment a title newly
+    # becomes pending -- real-time, one push per event. True: no real-time
+    # push at all; instead a single batch digest covering everything still
+    # pending fires every digest_interval_days, at cron_time, from the same
+    # scheduler loop that already runs the tracker check.
+    digest_mode: bool = False
+    digest_interval_days: int = 1
 
 
 @dataclass
@@ -230,7 +240,7 @@ _EDITABLE_KEYS = {
         "pushover_api_token", "pushover_user_key",
     },
     "omdb": {"api_key"},
-    "tracker": {"auto_track_new"},
+    "tracker": {"auto_track_new", "digest_mode", "digest_interval_days"},
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key"},
     "subtitles": {"keep_languages"},
     "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy"},

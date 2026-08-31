@@ -2150,6 +2150,8 @@ async function loadSettings() {
     $("#pushover-token-note").textContent = s.pushover_api_token_set ? "A token is currently set. Leave blank to keep it." : "";
     $("#pushover-user-note").textContent = s.pushover_user_key_set ? "A key is currently set. Leave blank to keep it." : "";
     $("#setting-auto-track-new").checked = !!s.auto_track_new;
+    $("#setting-digest-mode").checked = !!s.digest_mode;
+    $("#setting-digest-interval-days").value = s.digest_interval_days || 1;
     $("#omdb-key-note").textContent = s.omdb_api_key_set
       ? "A key is currently set. Leave blank to keep it. Powers IMDb/Rotten Tomatoes ratings in the detail pane."
       : "Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.";
@@ -2182,6 +2184,8 @@ async function saveSettings(e) {
     discord_webhook_url: $("#setting-discord-webhook-url").value.trim(),
     telegram_chat_id: $("#setting-telegram-chat-id").value.trim(),
     auto_track_new: $("#setting-auto-track-new").checked,
+    digest_mode: $("#setting-digest-mode").checked,
+    digest_interval_days: Number($("#setting-digest-interval-days").value) || 1,
     subtitle_keep_languages: $("#setting-subtitle-languages").value.split(",").map((s) => s.trim()).filter(Boolean),
   };
   const keyValue = $("#setting-tmdb-key").value;

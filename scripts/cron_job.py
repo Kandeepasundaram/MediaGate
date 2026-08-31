@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.config_loader import load_config
 from app.core.tmdb_client import TMDBClient
-from app.core.tracker import check_for_updates
+from app.core.tracker import check_for_updates, send_digest
 from app.database import Database
 
 logger = logging.getLogger("cron_job")
@@ -36,13 +36,28 @@ def main() -> int:
     tmdb = TMDBClient(api_key=config.tmdb.api_key, language=config.tmdb.language)
 
     n = config.notifications
+    digest_mode = config.tracker.digest_mode
     pending_count = check_for_updates(
         db, tmdb,
         n.webhook_url or None, n.discord_webhook_url or None,
         n.telegram_bot_token or None, n.telegram_chat_id or None,
         n.pushover_api_token or None, n.pushover_user_key or None,
+        digest_mode,
     )
     logger.info("Tracker check complete: %d item(s) pending notification", pending_count)
+
+    if digest_mode:
+        # digest_interval_days doesn't apply here -- this script only runs
+        # when external cron invokes it, so cron's own schedule is the
+        # cadence; every invocation sends the digest.
+        sent_count = send_digest(
+            db,
+            n.webhook_url or None, n.discord_webhook_url or None,
+            n.telegram_bot_token or None, n.telegram_chat_id or None,
+            n.pushover_api_token or None, n.pushover_user_key or None,
+        )
+        logger.info("Sent digest covering %d pending title(s)", sent_count)
+
     return 0
 
 

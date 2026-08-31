@@ -440,6 +440,8 @@ class SettingsOut(BaseModel):
     pushover_user_key_set: bool = False
     omdb_api_key_set: bool = False
     auto_track_new: bool = False
+    digest_mode: bool = False
+    digest_interval_days: int = 1
     api_token_set: bool = False
     plex_url: str = ""
     plex_token_set: bool = False
@@ -467,6 +469,8 @@ class SettingsUpdateRequest(BaseModel):
     pushover_user_key: str | None = None
     omdb_api_key: str | None = None
     auto_track_new: bool | None = None
+    digest_mode: bool | None = None
+    digest_interval_days: int | None = None
     api_token: str | None = None
     plex_url: str | None = None
     plex_token: str | None = None

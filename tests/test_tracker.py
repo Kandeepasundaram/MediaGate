@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from app.core.tmdb_client import MediaResult
-from app.core.tracker import check_for_updates, maybe_auto_track
+from app.core.tracker import check_for_updates, maybe_auto_track, send_digest
 
 
 def test_check_for_updates_flags_new_tv_season(db):
@@ -165,6 +165,67 @@ def test_check_for_updates_fires_all_configured_channels_together(db):
     with patch("app.core.tracker.requests.post") as mock_post:
         check_for_updates(
             db, tmdb,
+            webhook_url="https://example.com/hook",
+            discord_webhook_url="https://discord.com/api/webhooks/x",
+            telegram_bot_token="bot-token", telegram_chat_id="12345",
+            pushover_api_token="app-token", pushover_user_key="user-key",
+        )
+
+    assert mock_post.call_count == 4
+
+
+def test_check_for_updates_digest_mode_suppresses_realtime_notification(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={"number_of_seasons": 3})
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        pending = check_for_updates(db, tmdb, webhook_url="https://example.com/hook", digest_mode=True)
+
+    mock_post.assert_not_called()
+    assert pending == 1  # still flagged as pending -- just not pushed in real time
+    row = db.get_tracker(1, "tv")
+    assert row["pending_notification"] == 1
+
+
+def test_send_digest_covers_all_pending_titles(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show A", current_season_archived=1, pending_notification=1)
+    db.upsert_tracker(tmdb_id=2, media_type="movie", title="Movie B", pending_notification=1, movie_release_status="new release detected")
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        count = send_digest(db, webhook_url="https://example.com/hook")
+
+    assert count == 2
+    mock_post.assert_called_once()
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["count"] == 2
+    assert set(payload["titles"]) == {"Show A", "Movie B"}
+
+
+def test_send_digest_excludes_muted_titles(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1, pending_notification=1)
+    row = db.get_tracker(1, "tv")
+    db.set_tracker_muted(row["id"], True)
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        count = send_digest(db, webhook_url="https://example.com/hook")
+
+    assert count == 0
+    mock_post.assert_not_called()
+
+
+def test_send_digest_returns_zero_and_sends_nothing_when_no_pending(db):
+    with patch("app.core.tracker.requests.post") as mock_post:
+        assert send_digest(db, webhook_url="https://example.com/hook") == 0
+    mock_post.assert_not_called()
+
+
+def test_send_digest_fires_all_configured_channels(db):
+    db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1, pending_notification=1)
+
+    with patch("app.core.tracker.requests.post") as mock_post:
+        send_digest(
+            db,
             webhook_url="https://example.com/hook",
             discord_webhook_url="https://discord.com/api/webhooks/x",
             telegram_bot_token="bot-token", telegram_chat_id="12345",

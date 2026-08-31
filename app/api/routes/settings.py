@@ -44,6 +44,8 @@ def _to_out(config: AppConfig) -> SettingsOut:
         pushover_user_key_set=bool(config.notifications.pushover_user_key),
         omdb_api_key_set=bool(config.omdb.api_key),
         auto_track_new=config.tracker.auto_track_new,
+        digest_mode=config.tracker.digest_mode,
+        digest_interval_days=config.tracker.digest_interval_days,
         api_token_set=bool(config.server.api_token),
         plex_url=config.media_server.plex_url,
         plex_token_set=bool(config.media_server.plex_token),
@@ -97,6 +99,10 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["omdb"]["api_key"] = payload.omdb_api_key
     if payload.auto_track_new is not None:
         updates["tracker"]["auto_track_new"] = payload.auto_track_new
+    if payload.digest_mode is not None:
+        updates["tracker"]["digest_mode"] = payload.digest_mode
+    if payload.digest_interval_days is not None:
+        updates["tracker"]["digest_interval_days"] = max(1, payload.digest_interval_days)
     if payload.api_token is not None:
         updates["server"]["api_token"] = payload.api_token
     if payload.plex_url is not None:

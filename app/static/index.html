@@ -309,6 +309,14 @@
         <input type="checkbox" id="setting-auto-track-new">
         Automatically track newly-archived titles for season/sequel alerts
       </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="setting-digest-mode">
+        Batch notifications into a periodic digest instead of firing one immediately per title
+      </label>
+      <label>Digest interval (days)
+        <input type="number" id="setting-digest-interval-days" min="1" step="1" placeholder="1">
+      </label>
+      <p class="hint">Only applies when digest mode is on: one batch notification covering every still-pending title, sent at most once per this many days.</p>
       <label>Subtitle languages to keep (comma-separated)
         <input type="text" id="setting-subtitle-languages" placeholder="en, eng, english">
       </label>

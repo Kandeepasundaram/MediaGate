@@ -194,6 +194,28 @@ def test_save_settings_pushover_credentials_are_never_echoed_back(client):
     assert resp.json()["pushover_user_key_set"] is True
 
 
+def test_get_settings_reflects_default_digest_mode(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["digest_mode"] is False
+    assert body["digest_interval_days"] == 1
+
+
+def test_save_settings_updates_digest_mode_and_interval(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"digest_mode": True, "digest_interval_days": 7})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["digest_mode"] is True
+    assert body["digest_interval_days"] == 7
+
+
+def test_save_settings_clamps_digest_interval_to_at_least_one_day(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"digest_interval_days": 0})
+    assert resp.json()["digest_interval_days"] == 1
+
+
 def test_permissions_check_reports_writable_dirs(client):
     c, _ = client
     resp = c.get("/api/settings/permissions-check")
