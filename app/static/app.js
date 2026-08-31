@@ -1176,7 +1176,7 @@ function renderArchiveTable(items) {
       <td><input type="checkbox" class="row-check" data-index="${i}" ${checkedBefore[i] === false ? "" : "checked"}></td>
       <td>${item.duplicate ? `<span class="duplicate-badge" title="A matching title already exists in the library">⚠</span>` : ""}</td>
       <td title="${item.source_path}">${item.source_path.split(/[\\/]/).pop()}</td>
-      <td><input type="text" class="dest-name-input" data-index="${i}" data-dir="${escapeAttr(dirOf(item.dest_path))}" title="${item.dest_path}" value="${escapeAttr(item.dest_path.split(/[\\/]/).pop())}"></td>
+      <td><input type="text" class="dest-name-input" data-index="${i}" title="${item.dest_path}" value="${escapeAttr(item.dest_path.split(/[\\/]/).pop())}"></td>
       <td>${item.media_type}</td>
       <td>${formatBytes(state.sizeByPath[item.source_path])}</td>
       <td title="${item.overview}">${item.overview.slice(0, 80)}</td>
@@ -1190,13 +1190,26 @@ function renderArchiveTable(items) {
     input.addEventListener("change", () => {
       const idx = Number(input.dataset.index);
       const item = state.previewItems[idx];
-      const dir = input.dataset.dir;
-      const name = input.value.trim();
-      if (!name) {
+      const raw = input.value.trim();
+      if (!raw) {
         input.value = item.dest_path.split(/[\\/]/).pop();
         return;
       }
-      item.dest_path = dir ? `${dir}/${name}` : name;
+      const extMatch = raw.match(/\.[^./\\]+$/);
+      const ext = extMatch ? extMatch[0] : "";
+      const stem = ext ? raw.slice(0, -ext.length) : raw;
+      if (item.media_type === "movie") {
+        // Movie convention: the containing folder shares the file's base
+        // name (see renamer.py::plan_movie_rename) -- rename both together
+        // so an edited title doesn't leave the file inside a stale folder.
+        const root = dirOf(dirOf(item.dest_path));
+        item.dest_path = root ? `${root}/${stem}/${stem}${ext}` : `${stem}/${stem}${ext}`;
+      } else {
+        // TV convention: the "Season NN" folder is independent of the
+        // episode's file name -- only the file itself is renamed.
+        const dir = dirOf(item.dest_path);
+        item.dest_path = dir ? `${dir}/${raw}` : raw;
+      }
       input.title = item.dest_path;
     });
   });
