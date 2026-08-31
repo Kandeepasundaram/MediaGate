@@ -202,6 +202,7 @@ tr:hover td { background: var(--bg-elevated); }
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 1rem;
+  margin-bottom: 1rem;
 }
 
 .notification-item {
