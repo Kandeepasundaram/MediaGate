@@ -13,7 +13,7 @@ import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.config_loader import AppConfig, update_settings
 from app.dependencies import get_config, reset_singletons
@@ -48,6 +48,7 @@ def _to_out(config: AppConfig) -> SettingsOut:
         movie_folder_template=config.renaming.movie_folder,
         tv_season_folder_template=config.renaming.tv_season_folder,
         tv_file_template=config.renaming.tv_file,
+        collision_policy=config.renaming.collision_policy,
     )
 
 
@@ -101,6 +102,10 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["renaming"]["tv_season_folder"] = payload.tv_season_folder_template
     if payload.tv_file_template is not None:
         updates["renaming"]["tv_file"] = payload.tv_file_template
+    if payload.collision_policy is not None:
+        if payload.collision_policy not in ("suffix", "overwrite", "skip"):
+            raise HTTPException(status_code=400, detail="collision_policy must be 'suffix', 'overwrite', or 'skip'")
+        updates["renaming"]["collision_policy"] = payload.collision_policy
 
     updates = {k: v for k, v in updates.items() if v}
     new_config = update_settings(config.config_path, updates)

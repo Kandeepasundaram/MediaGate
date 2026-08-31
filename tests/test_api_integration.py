@@ -108,6 +108,24 @@ def test_archive_confirm_purge_subtitles_honors_configured_keep_languages(client
     assert fr_sub.exists()  # configured keep language -- kept
 
 
+def test_archive_preview_skip_collision_policy_reports_error(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.renaming.collision_policy = "skip"
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+    existing_dest = config.paths.archive_movies / "Sample Movie (2020)" / "Sample Movie (2020).mkv"
+    existing_dest.parent.mkdir(parents=True)
+    existing_dest.write_bytes(b"already archived")
+
+    resp = c.post("/api/archive/preview", json={"paths": [str(video)]})
+    body = resp.json()
+    assert body["items"] == []
+    assert len(body["errors"]) == 1
+    assert "collision policy is 'skip'" in body["errors"][0]
+
+
 def test_scan_preview_confirm_flow(client):
     c, incoming_movies = client
 

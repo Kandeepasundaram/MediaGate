@@ -2044,6 +2044,7 @@ async function loadSettings() {
     $("#setting-movie-folder-template").value = s.movie_folder_template || "";
     $("#setting-tv-season-folder-template").value = s.tv_season_folder_template || "";
     $("#setting-tv-file-template").value = s.tv_file_template || "";
+    $("#setting-collision-policy").value = s.collision_policy || "suffix";
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
   }
@@ -2096,6 +2097,7 @@ async function saveNamingTemplates(e) {
     movie_folder_template: $("#setting-movie-folder-template").value.trim() || DEFAULT_NAMING_TEMPLATES.movie_folder_template,
     tv_season_folder_template: $("#setting-tv-season-folder-template").value.trim() || DEFAULT_NAMING_TEMPLATES.tv_season_folder_template,
     tv_file_template: $("#setting-tv-file-template").value.trim() || DEFAULT_NAMING_TEMPLATES.tv_file_template,
+    collision_policy: $("#setting-collision-policy").value,
   };
   $("#naming-templates-status").textContent = "Saving...";
   try {

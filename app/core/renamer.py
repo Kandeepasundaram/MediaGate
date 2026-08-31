@@ -13,6 +13,14 @@ from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, vote_avera
 
 logger = logging.getLogger(__name__)
 
+
+class CollisionSkipped(Exception):
+    """Raised for collision_policy="skip" when the computed destination
+    already exists -- callers (the /api/archive/preview route) already
+    catch per-file exceptions and surface them as a preview error, so this
+    needs no special handling beyond a clear message."""
+
+
 _DEFAULT_RENAMING = RenamingConfig()
 
 
@@ -64,7 +72,7 @@ def plan_movie_rename(
     folder_name = sanitize_filename(_format_template(renaming.movie_folder, _DEFAULT_RENAMING.movie_folder, context))
     file_name = f"{folder_name}{ext}"
     dest = archive_root / folder_name / file_name
-    dest = _avoid_collision(dest)
+    dest = _avoid_collision(dest, renaming.collision_policy)
     return RenamePlan(
         source_path=source,
         dest_path=dest,
@@ -102,7 +110,7 @@ def plan_tv_rename(
     season_folder = sanitize_filename(_format_template(renaming.tv_season_folder, _DEFAULT_RENAMING.tv_season_folder, context))
     file_name = sanitize_filename(_format_template(renaming.tv_file, _DEFAULT_RENAMING.tv_file, context)) + ext
     dest = archive_root / show_name / season_folder / file_name
-    dest = _avoid_collision(dest)
+    dest = _avoid_collision(dest, renaming.collision_policy)
     return RenamePlan(
         source_path=source,
         dest_path=dest,
@@ -119,9 +127,13 @@ def plan_tv_rename(
     )
 
 
-def _avoid_collision(dest: Path) -> Path:
+def _avoid_collision(dest: Path, policy: str = "suffix") -> Path:
     if not dest.exists():
         return dest
+    if policy == "overwrite":
+        return dest
+    if policy == "skip":
+        raise CollisionSkipped(f"Destination already exists (collision policy is 'skip'): {dest}")
     stem, suffix, parent = dest.stem, dest.suffix, dest.parent
     counter = 2
     while True:

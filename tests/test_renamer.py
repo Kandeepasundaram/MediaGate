@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.config_loader import RenamingConfig
-from app.core.renamer import plan_movie_rename, plan_tv_rename, sanitize_filename
+from app.core.renamer import CollisionSkipped, plan_movie_rename, plan_tv_rename, sanitize_filename
 from app.core.tmdb_client import MediaResult
 
 
@@ -83,6 +85,40 @@ def test_plan_movie_rename_falls_back_to_default_on_bad_template(tmp_path):
     plan = plan_movie_rename(source, archive_root, media, renaming=renaming)
 
     assert plan.dest_path == archive_root / "Movie (2020)" / "Movie (2020).mkv"
+
+
+def test_plan_movie_rename_overwrite_policy_reuses_existing_path(tmp_path):
+    archive_root = tmp_path / "archive"
+    existing_dir = archive_root / "Movie (2020)"
+    existing_dir.mkdir(parents=True)
+    (existing_dir / "Movie (2020).mkv").write_text("existing")
+
+    source = tmp_path / "incoming" / "movie.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("new")
+
+    media = MediaResult(tmdb_id=7, title="Movie", media_type="movie", year=2020)
+    renaming = RenamingConfig(collision_policy="overwrite")
+    plan = plan_movie_rename(source, archive_root, media, renaming=renaming)
+
+    assert plan.dest_path == existing_dir / "Movie (2020).mkv"
+
+
+def test_plan_movie_rename_skip_policy_raises_on_collision(tmp_path):
+    archive_root = tmp_path / "archive"
+    existing_dir = archive_root / "Movie (2020)"
+    existing_dir.mkdir(parents=True)
+    (existing_dir / "Movie (2020).mkv").write_text("existing")
+
+    source = tmp_path / "incoming" / "movie.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("new")
+
+    media = MediaResult(tmdb_id=8, title="Movie", media_type="movie", year=2020)
+    renaming = RenamingConfig(collision_policy="skip")
+
+    with pytest.raises(CollisionSkipped):
+        plan_movie_rename(source, archive_root, media, renaming=renaming)
 
 
 def test_plan_tv_rename_honors_custom_templates(tmp_path):

@@ -134,6 +134,27 @@ def test_save_settings_updates_naming_templates(client):
     assert resp2.json()["tv_file_template"] == "{show_name} - {code}{episode_title_suffix}"
 
 
+def test_get_settings_reflects_default_collision_policy(client):
+    c, _ = client
+    assert c.get("/api/settings").json()["collision_policy"] == "suffix"
+
+
+def test_save_settings_updates_collision_policy(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"collision_policy": "overwrite"})
+    assert resp.status_code == 200
+    assert resp.json()["collision_policy"] == "overwrite"
+
+    resp2 = c.get("/api/settings")
+    assert resp2.json()["collision_policy"] == "overwrite"
+
+
+def test_save_settings_rejects_invalid_collision_policy(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"collision_policy": "explode"})
+    assert resp.status_code == 400
+
+
 def test_permissions_check_reports_writable_dirs(client):
     c, _ = client
     resp = c.get("/api/settings/permissions-check")

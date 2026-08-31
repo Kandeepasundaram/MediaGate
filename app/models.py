@@ -406,6 +406,7 @@ class SettingsOut(BaseModel):
     movie_folder_template: str = ""
     tv_season_folder_template: str = ""
     tv_file_template: str = ""
+    collision_policy: str = "suffix"
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -427,6 +428,7 @@ class SettingsUpdateRequest(BaseModel):
     movie_folder_template: str | None = None
     tv_season_folder_template: str | None = None
     tv_file_template: str | None = None
+    collision_policy: str | None = None
 
 
 class PathCheck(BaseModel):

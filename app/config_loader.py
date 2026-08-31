@@ -33,6 +33,7 @@ _DEFAULT_CONFIG: dict = {
         "movie_folder": "{title}{year_suffix}",
         "tv_season_folder": "Season {season:02d}",
         "tv_file": "{show_name} - {code}{episode_title_suffix}",
+        "collision_policy": "suffix",
     },
 }
 
@@ -116,6 +117,12 @@ class RenamingConfig:
     movie_folder: str = "{title}{year_suffix}"
     tv_season_folder: str = "Season {season:02d}"
     tv_file: str = "{show_name} - {code}{episode_title_suffix}"
+    # What to do when the computed destination path already exists:
+    # "suffix" appends " (2)", " (3)", ... (the historical default);
+    # "overwrite" reuses the exact path, replacing whatever's there;
+    # "skip" excludes the file from the preview with an error message
+    # instead of silently creating or clobbering anything.
+    collision_policy: str = "suffix"
 
 
 @dataclass
@@ -208,7 +215,7 @@ _EDITABLE_KEYS = {
     "tracker": {"auto_track_new"},
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key"},
     "subtitles": {"keep_languages"},
-    "renaming": {"movie_folder", "tv_season_folder", "tv_file"},
+    "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy"},
 }
 
 

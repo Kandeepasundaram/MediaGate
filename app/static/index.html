@@ -313,6 +313,13 @@
         <input type="text" id="setting-tv-file-template" placeholder="{show_name} - {code}{episode_title_suffix}">
       </label>
       <p class="hint">Tokens: {show_name}, {season}, {episode}, {code} ("S01E02"), {episode_title}, {episode_title_suffix} (" - Title" or "" if unknown).</p>
+      <label>When the computed destination already exists
+        <select id="setting-collision-policy">
+          <option value="suffix">Add a number -- "Name (2).ext"</option>
+          <option value="overwrite">Overwrite the existing file</option>
+          <option value="skip">Skip the file (leave it out of the preview)</option>
+        </select>
+      </label>
       <button type="submit" class="primary">Save Naming Templates</button>
       <span id="naming-templates-status"></span>
     </form>
