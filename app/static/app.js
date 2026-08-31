@@ -91,7 +91,7 @@ function setupTabs() {
       if (btn.dataset.tab === "browse") loadBrowse();
       if (btn.dataset.tab === "notifications") { loadNotifications(); loadTrackedList(); loadNotificationHistory(); }
       if (btn.dataset.tab === "history") loadHistory();
-      if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); }
+      if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); loadBackgroundTaskStatus(); }
     });
   });
 }
@@ -2125,6 +2125,33 @@ async function loadStats() {
     `;
   } catch (e) {
     card.textContent = `Error: ${e.message}`;
+  }
+}
+
+function taskStatusLine(label, task) {
+  if (task.last_run_at == null) return `${label}: no run recorded yet since last restart`;
+  const when = new Date(task.last_run_at).toLocaleString();
+  return task.last_error
+    ? `${label}: failed at ${when} -- ${task.last_error}`
+    : `${label}: last ran ${when}`;
+}
+
+async function loadBackgroundTaskStatus() {
+  const card = $("#background-tasks-card");
+  card.textContent = "Loading...";
+  try {
+    const t = await api("/api/status/tasks");
+    const lines = [
+      t.tracker.last_check_at
+        ? `Tracker check: last ran ${new Date(t.tracker.last_check_at).toLocaleString()} (${t.tracker.last_check_status})`
+        : "Tracker check: no run recorded yet",
+      `Metadata backfill: ${t.backfill.pending} pending, ${t.backfill.failed} failed to match`,
+      t.backup.enabled ? taskStatusLine("Backup", t.backup) : "Backup: disabled",
+      taskStatusLine("Maintenance", t.maintenance),
+    ];
+    card.innerHTML = `<h4>Background Tasks</h4>${lines.map((l) => `<p class="hint">${l}</p>`).join("")}`;
+  } catch (e) {
+    card.textContent = `Error loading task status: ${e.message}`;
   }
 }
 

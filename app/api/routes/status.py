@@ -7,11 +7,19 @@ from fastapi import APIRouter, Depends
 
 from app.config_loader import AppConfig
 from app.core import media_probe
-from app.core.scheduler import _seconds_until
+from app.core.scheduler import _seconds_until, get_task_status
 from app.database import Database
 from app.dependencies import START_TIME, get_config, get_database, get_tmdb_client
 from app.core.tmdb_client import TMDBClient
-from app.models import LogEntryOut, StatsResponse, StatusResponse
+from app.models import (
+    BackfillTaskStatusOut,
+    BackgroundTasksStatusOut,
+    LogEntryOut,
+    SimpleTaskStatusOut,
+    StatsResponse,
+    StatusResponse,
+    TrackerTaskStatusOut,
+)
 
 router = APIRouter(prefix="/api", tags=["status"])
 
@@ -29,6 +37,45 @@ def get_status(
         database_size_bytes=db_path.stat().st_size if db_path.exists() else 0,
         uptime_seconds=time.monotonic() - START_TIME,
         next_tracker_check_in_seconds=_seconds_until(config.tracker.cron_time),
+    )
+
+
+@router.get("/status/tasks", response_model=BackgroundTasksStatusOut)
+def get_background_tasks_status(
+    config: AppConfig = Depends(get_config), db: Database = Depends(get_database)
+) -> BackgroundTasksStatusOut:
+    """Health widget for the background tasks main.py's lifespan starts --
+    tracker check, metadata backfill, weekly maintenance, daily backup --
+    none of which otherwise surfaces "is this actually running" anywhere.
+    Tracker/backfill both have real signal already (operation_log rows,
+    the unmatched-items queue depth); backup/maintenance don't have their
+    own operation_log entry type, so those two come from scheduler.py's
+    in-memory _task_status instead (reset on restart -- an honest "unknown
+    yet" is better than a stale claim survived from before the restart).
+    """
+    last_checks = db.list_operations(operation_type="tracker_check", limit=1)
+    last_check = last_checks[0] if last_checks else None
+    task_status = get_task_status()
+
+    return BackgroundTasksStatusOut(
+        tracker=TrackerTaskStatusOut(
+            last_check_at=last_check["created_at"] if last_check else None,
+            last_check_status=last_check["status"] if last_check else None,
+            next_check_in_seconds=_seconds_until(config.tracker.cron_time),
+        ),
+        backfill=BackfillTaskStatusOut(
+            pending=db.count_unmatched_media_items(None),
+            failed=db.count_failed_match_items(None),
+        ),
+        backup=SimpleTaskStatusOut(
+            last_run_at=task_status["backup"]["last_run_at"],
+            last_error=task_status["backup"]["last_error"],
+            enabled=config.backup.enabled,
+        ),
+        maintenance=SimpleTaskStatusOut(
+            last_run_at=task_status["maintenance"]["last_run_at"],
+            last_error=task_status["maintenance"]["last_error"],
+        ),
     )
 
 

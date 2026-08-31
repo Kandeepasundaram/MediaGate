@@ -86,6 +86,51 @@ def test_status_endpoint(client):
     assert body["next_tracker_check_in_seconds"] > 0
 
 
+def test_background_tasks_status_defaults(client):
+    c, _ = client
+    resp = c.get("/api/status/tasks")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tracker"]["last_check_at"] is None
+    assert body["tracker"]["next_check_in_seconds"] > 0
+    assert body["backfill"] == {"pending": 0, "failed": 0}
+    assert body["backup"]["enabled"] is True
+    assert body["backup"]["last_run_at"] is None
+    assert body["maintenance"]["last_run_at"] is None
+
+
+def test_background_tasks_status_reflects_last_tracker_check(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.log_operation(operation_type="tracker_check", status="success", details={"tmdb_id": 1})
+
+    body = c.get("/api/status/tasks").json()
+    assert body["tracker"]["last_check_at"] is not None
+    assert body["tracker"]["last_check_status"] == "success"
+
+
+def test_background_tasks_status_reflects_pending_backfill(client):
+    c, incoming_movies = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = []
+    video = incoming_movies / "Unmatched.File.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    body = c.get("/api/status/tasks").json()
+    assert body["backfill"]["pending"] == 1  # no tmdb_id yet, not attempted by the backfill loop in this test
+
+
+def test_background_tasks_status_reflects_backup_run(client, monkeypatch):
+    from app.core import scheduler
+
+    monkeypatch.setitem(scheduler._task_status, "backup", {"last_run_at": "2026-01-01T00:00:00+00:00", "last_error": None})
+    c, _ = client
+    body = c.get("/api/status/tasks").json()
+    assert body["backup"]["last_run_at"] == "2026-01-01T00:00:00+00:00"
+
+
 def test_archive_confirm_purge_subtitles_honors_configured_keep_languages(client):
     c, incoming_movies = client
     # Override the fixture's default config to keep only French subtitles --

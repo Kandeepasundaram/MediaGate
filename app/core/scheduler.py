@@ -23,6 +23,20 @@ logger = logging.getLogger(__name__)
 # DB column or a migration to persist.
 _last_digest_sent: datetime | None = None
 
+# Last-run bookkeeping for the health widget (GET /api/status/tasks) --
+# in-memory only, same tradeoff as _last_digest_sent above: neither backup
+# nor maintenance has its own operation_log entry type, and a restart
+# resetting "last ran" to unknown is a fine, honest answer for a homelab
+# dashboard (it really doesn't know until the next cycle completes).
+_task_status: dict[str, dict] = {
+    "backup": {"last_run_at": None, "last_error": None},
+    "maintenance": {"last_run_at": None, "last_error": None},
+}
+
+
+def get_task_status() -> dict[str, dict]:
+    return _task_status
+
 
 def _seconds_until(hhmm: str) -> float:
     try:
@@ -112,10 +126,12 @@ async def run_weekly_maintenance() -> None:
             db = get_database()
             await asyncio.to_thread(db.maintenance_checkpoint_and_vacuum)
             logger.info("Weekly DB maintenance (WAL checkpoint + VACUUM) complete")
+            _task_status["maintenance"] = {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_error": None}
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Weekly DB maintenance failed; retrying next cycle")
+            _task_status["maintenance"] = {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_error": str(exc)}
 
 
 def start_maintenance() -> asyncio.Task:
@@ -146,10 +162,12 @@ async def run_daily_backup() -> None:
                 await asyncio.to_thread(backup.run_backup, config)
                 removed = await asyncio.to_thread(backup.prune_old_backups, config, config.backup.retention_days)
                 logger.info("Daily backup complete (pruned %d expired backup(s))", removed)
+                _task_status["backup"] = {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_error": None}
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Daily backup failed; retrying next cycle")
+            _task_status["backup"] = {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_error": str(exc)}
 
 
 def start_backup() -> asyncio.Task:

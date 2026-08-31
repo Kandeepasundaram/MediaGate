@@ -188,6 +188,30 @@ class StatusResponse(BaseModel):
     next_tracker_check_in_seconds: float | None = None
 
 
+class TrackerTaskStatusOut(BaseModel):
+    last_check_at: str | None = None
+    last_check_status: str | None = None
+    next_check_in_seconds: float | None = None
+
+
+class BackfillTaskStatusOut(BaseModel):
+    pending: int = 0
+    failed: int = 0
+
+
+class SimpleTaskStatusOut(BaseModel):
+    last_run_at: str | None = None
+    last_error: str | None = None
+    enabled: bool = True
+
+
+class BackgroundTasksStatusOut(BaseModel):
+    tracker: TrackerTaskStatusOut
+    backfill: BackfillTaskStatusOut
+    backup: SimpleTaskStatusOut
+    maintenance: SimpleTaskStatusOut
+
+
 class StatsResponse(BaseModel):
     total_media_items: int
     total_movies: int
