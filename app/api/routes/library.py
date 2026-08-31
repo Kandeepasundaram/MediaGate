@@ -14,6 +14,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.routes.archive import _dry_run_result
 from app.config_loader import AppConfig
 from app.core import media_probe
 from app.core.library_adopt import adopt_new_files
@@ -557,6 +558,11 @@ def organize_selected(
     for item in payload.items:
         source = Path(item.source_path)
         dest = Path(item.dest_path)
+
+        if payload.dry_run:
+            results.append(_dry_run_result(source, dest))
+            continue
+
         plan = RenamePlan(
             source_path=source,
             dest_path=dest,
@@ -582,7 +588,7 @@ def organize_selected(
         except OrganizeError as exc:
             results.append(ArchiveConfirmResult(source_path=str(source), status="failed", error=str(exc)))
 
-    if any(r.status == "success" for r in results):
+    if not payload.dry_run and any(r.status == "success" for r in results):
         notify_media_servers(config)
 
     return ArchiveConfirmResponse(results=results)

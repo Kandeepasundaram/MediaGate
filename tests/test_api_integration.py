@@ -126,6 +126,24 @@ def test_archive_preview_skip_collision_policy_reports_error(client):
     assert "collision policy is 'skip'" in body["errors"][0]
 
 
+def test_archive_confirm_dry_run_does_not_touch_disk_or_db(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    dest = Path(preview["items"][0]["dest_path"])
+
+    resp = c.post("/api/archive/confirm", json={"items": preview["items"], "dry_run": True})
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["media_id"] is None
+
+    assert video.exists()  # untouched
+    assert not dest.exists()  # never created
+    assert c.get("/api/archive/history").json()["operations"] == []
+
+
 def test_scan_preview_confirm_flow(client):
     c, incoming_movies = client
 

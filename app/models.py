@@ -75,6 +75,10 @@ class ArchivePreviewResponse(BaseModel):
 class ArchiveConfirmRequest(BaseModel):
     items: list[ArchivePreviewItem]
     purge_subtitles: bool = True
+    # When true, neither archive/organize route touches the filesystem, the
+    # database, subtitles, the tracker, or media-server notification -- just
+    # reports what would happen (a source-exists/non-empty check) per item.
+    dry_run: bool = False
 
 
 class ArchiveConfirmResult(BaseModel):

@@ -413,6 +413,36 @@ def test_organize_moves_untracked_file_and_creates_one_row(client):
     assert items[0]["final_path"] == str(dest)
 
 
+def test_organize_dry_run_reports_success_without_touching_anything(client):
+    c, db = client
+    archive_dir = _archive_movies_dir(c)
+    source = archive_dir / "Movie.2020.720p.mkv"
+    source.write_bytes(b"data")
+    dest = archive_dir / "Movie (2020)" / "Movie (2020).mkv"
+
+    resp = c.post("/api/library/organize", json={"items": [_organize_item(source, dest)], "dry_run": True})
+    assert resp.status_code == 200
+    result = resp.json()["results"][0]
+    assert result["status"] == "success"
+    assert result["media_id"] is None
+
+    assert source.exists()  # untouched
+    assert not dest.exists()
+    assert db.list_media_items(media_type="movie") == []
+
+
+def test_organize_dry_run_reports_failure_for_missing_source(client):
+    c, _ = client
+    archive_dir = _archive_movies_dir(c)
+    source = archive_dir / "does_not_exist.mkv"
+    dest = archive_dir / "Movie (2020)" / "Movie (2020).mkv"
+
+    resp = c.post("/api/library/organize", json={"items": [_organize_item(source, dest)], "dry_run": True})
+    result = resp.json()["results"][0]
+    assert result["status"] == "failed"
+    assert "not found" in result["error"].lower()
+
+
 def test_organize_updates_existing_tracked_row_without_duplicating(client):
     c, db = client
     archive_dir = _archive_movies_dir(c)

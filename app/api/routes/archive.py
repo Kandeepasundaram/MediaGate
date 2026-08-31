@@ -161,6 +161,10 @@ def confirm_archive(
         source = Path(item.source_path)
         dest = Path(item.dest_path)
 
+        if payload.dry_run:
+            results.append(_dry_run_result(source, dest))
+            continue
+
         if payload.purge_subtitles:
             purge_subtitles(source.parent, keep_languages=config.subtitles.keep_languages, dry_run=False)
 
@@ -190,10 +194,22 @@ def confirm_archive(
         except ArchiveError as exc:
             results.append(ArchiveConfirmResult(source_path=str(source), status="failed", error=str(exc)))
 
-    if any(r.status == "success" for r in results):
+    if not payload.dry_run and any(r.status == "success" for r in results):
         notify_media_servers(config)
 
     return ArchiveConfirmResponse(results=results)
+
+
+def _dry_run_result(source: Path, dest: Path) -> ArchiveConfirmResult:
+    """What archive/organize would report for `source` without actually
+    touching the filesystem, DB, subtitles, tracker, or media server --
+    only the source-exists/non-empty checks are predictable in advance;
+    a copy/checksum failure or an overwrite conflict can't be."""
+    if not source.exists():
+        return ArchiveConfirmResult(source_path=str(source), status="failed", error="Source file not found")
+    if source.stat().st_size == 0:
+        return ArchiveConfirmResult(source_path=str(source), status="failed", error="Source file is 0 bytes")
+    return ArchiveConfirmResult(source_path=str(source), dest_path=str(dest), status="success")
 
 
 @router.get("/history", response_model=ArchiveHistoryResponse)

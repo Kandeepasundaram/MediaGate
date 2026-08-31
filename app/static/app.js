@@ -1536,18 +1536,31 @@ async function approveSelected() {
   if (items.length === 0) return;
 
   const isOrganize = state.previewMode === "organize";
-  const confirmMsg = isOrganize
-    ? `Organize ${items.length} file(s)? This moves them to their correct name/folder in place — no duplicate is created.`
-    : `Archive ${items.length} file(s)? This copies them to the archive location.`;
-  const ok = await showConfirm(confirmMsg);
-  if (!ok) return;
+  const dryRun = $("#dry-run-toggle").checked;
+  const endpoint = isOrganize ? "/api/library/organize" : "/api/archive/confirm";
+  const body = isOrganize ? { items, dry_run: dryRun } : { items, purge_subtitles: true, dry_run: dryRun };
 
-  $("#scan-status").textContent = isOrganize ? "Organizing..." : "Archiving...";
+  if (!dryRun) {
+    const confirmMsg = isOrganize
+      ? `Organize ${items.length} file(s)? This moves them to their correct name/folder in place — no duplicate is created.`
+      : `Archive ${items.length} file(s)? This copies them to the archive location.`;
+    const ok = await showConfirm(confirmMsg);
+    if (!ok) return;
+  }
+
+  $("#scan-status").textContent = dryRun ? "Checking (dry run, nothing will change)..." : (isOrganize ? "Organizing..." : "Archiving...");
   try {
-    const endpoint = isOrganize ? "/api/library/organize" : "/api/archive/confirm";
-    const body = isOrganize ? { items } : { items, purge_subtitles: true };
     const result = await api(endpoint, { method: "POST", body: JSON.stringify(body) });
     const failures = result.results.filter((r) => r.status === "failed");
+
+    if (dryRun) {
+      const okCount = result.results.length - failures.length;
+      $("#scan-status").textContent = failures.length
+        ? `Dry run: ${okCount} would succeed, ${failures.length} would fail (${failures.map((f) => f.error).join("; ")})`
+        : `Dry run: all ${okCount} file(s) would succeed. Nothing was changed.`;
+      return; // preview table untouched -- nothing on disk/DB changed
+    }
+
     $("#scan-status").textContent = failures.length
       ? `Done with ${failures.length} failure(s)`
       : isOrganize ? "Organized successfully" : "Archived successfully";
