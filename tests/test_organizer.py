@@ -75,7 +75,22 @@ def test_organize_file_moves_sibling_subtitles(db, tmp_path):
     organize_file(db, plan)
 
     assert not sub.exists()
-    assert (plan.dest_path.parent / sub.name).exists()
+    # Renamed to match the video's new base name, not left under its old
+    # one -- Plex/Jellyfin match subtitles to a video by shared file stem.
+    assert (plan.dest_path.parent / f"{plan.dest_path.stem}.en.srt").exists()
+
+
+def test_organize_file_renames_multiple_sibling_subtitles(db, tmp_path):
+    plan = _plan(tmp_path)
+    en_sub = plan.source_path.parent / f"{plan.source_path.stem}.en.srt"
+    en_sub.write_text("subtitle")
+    plain_sub = plan.source_path.parent / f"{plan.source_path.stem}.srt"
+    plain_sub.write_text("subtitle")
+
+    organize_file(db, plan)
+
+    assert (plan.dest_path.parent / f"{plan.dest_path.stem}.en.srt").exists()
+    assert (plan.dest_path.parent / f"{plan.dest_path.stem}.srt").exists()
 
 
 def test_organize_file_writes_nfo_alongside_dest(db, tmp_path):

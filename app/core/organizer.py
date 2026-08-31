@@ -52,7 +52,7 @@ def organize_file(db: Database, plan: RenamePlan) -> int:
                 plan.dest_path.unlink(missing_ok=True)
                 raise OSError(f"Checksum mismatch after copy (source={source_hash}, dest={dest_hash})")
             plan.source_path.unlink()
-            _move_sibling_subtitles(plan.source_path, plan.dest_path.parent)
+            _move_sibling_subtitles(plan.source_path, plan.dest_path)
         except OSError as exc:
             db.log_operation(
                 operation_type="rename",
@@ -102,10 +102,16 @@ def organize_file(db: Database, plan: RenamePlan) -> int:
     return media_id
 
 
-def _move_sibling_subtitles(source, dest_folder) -> None:
+def _move_sibling_subtitles(source, dest) -> None:
+    """Moves subtitles matching `source`'s base name alongside it, renamed
+    to match `dest`'s base name (preserving any language-tag suffix, e.g.
+    "Movie.en.srt") -- a subtitle left under the video's old name doesn't
+    get picked up by Plex/Jellyfin once the video itself has been renamed.
+    """
     for sub in source.parent.glob(f"{source.stem}*"):
         if sub.suffix.lower() in SUBTITLE_EXTENSIONS:
-            shutil.move(str(sub), str(dest_folder / sub.name))
+            tail = sub.name[len(source.stem):]
+            shutil.move(str(sub), str(dest.parent / f"{dest.stem}{tail}"))
 
 
 def _write_nfo_best_effort(plan: RenamePlan) -> None:

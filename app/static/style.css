@@ -249,7 +249,7 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
 
 .hint { font-size: 0.78rem; color: var(--text-dim); margin: -0.3rem 0 0; }
 
-.dest-name-input {
+.dest-name-input, .dest-stem-input {
   width: 100%;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -259,7 +259,21 @@ h3 { font-size: 0.95rem; margin: 1.5rem 0 0.6rem; color: var(--text-dim); }
   font-size: 0.85rem;
 }
 
-.dest-name-input:focus { outline: none; border-color: var(--accent, var(--text-dim)); }
+.dest-name-input:focus, .dest-stem-input:focus { outline: none; border-color: var(--accent, var(--text-dim)); }
+
+.dest-name-cell { display: flex; flex-direction: column; gap: 0.25rem; }
+.dest-name-cell .dest-stem-input { width: 100%; }
+
+.dest-rename-file-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dest-rename-file-toggle input { cursor: pointer; }
 
 .path-check-row {
   display: flex;

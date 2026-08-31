@@ -1176,7 +1176,7 @@ function renderArchiveTable(items) {
       <td><input type="checkbox" class="row-check" data-index="${i}" ${checkedBefore[i] === false ? "" : "checked"}></td>
       <td>${item.duplicate ? `<span class="duplicate-badge" title="A matching title already exists in the library">⚠</span>` : ""}</td>
       <td title="${item.source_path}">${item.source_path.split(/[\\/]/).pop()}</td>
-      <td><input type="text" class="dest-name-input" data-index="${i}" title="${item.dest_path}" value="${escapeAttr(item.dest_path.split(/[\\/]/).pop())}"></td>
+      <td>${item.media_type === "movie" ? renderMovieNameCell(item, i) : renderTvNameCell(item, i)}</td>
       <td>${item.media_type}</td>
       <td>${formatBytes(state.sizeByPath[item.source_path])}</td>
       <td title="${item.overview}">${item.overview.slice(0, 80)}</td>
@@ -1186,6 +1186,38 @@ function renderArchiveTable(items) {
   $all(".change-match-btn").forEach((btn) => {
     btn.addEventListener("click", () => openMatchPicker(Number(btn.dataset.index)));
   });
+
+  // Movies: the folder shares the file's base name by convention
+  // (renamer.py::plan_movie_rename), but the "also rename file" checkbox
+  // lets a folder-name fix be made without touching the video's own
+  // filename -- unchecked, only the folder segment of dest_path changes.
+  $all(".dest-stem-input, .dest-rename-file-checkbox").forEach((el) => {
+    el.addEventListener("change", () => {
+      const idx = Number(el.dataset.index);
+      const item = state.previewItems[idx];
+      const row = el.closest("td");
+      const stemInput = row.querySelector(".dest-stem-input");
+      const renameFileBox = row.querySelector(".dest-rename-file-checkbox");
+      const stem = stemInput.value.trim();
+      if (!stem) {
+        stemInput.value = extBaseOf(item.dest_path.split(/[\\/]/).pop())[0];
+        return;
+      }
+      const root = dirOf(dirOf(item.dest_path));
+      const folder = root ? `${root}/${stem}` : stem;
+      if (renameFileBox.checked) {
+        const [, ext] = extBaseOf(item.dest_path.split(/[\\/]/).pop());
+        item.dest_path = `${folder}/${stem}${ext}`;
+      } else {
+        const currentFileName = item.dest_path.split(/[\\/]/).pop();
+        item.dest_path = `${folder}/${currentFileName}`;
+      }
+      stemInput.title = item.dest_path;
+    });
+  });
+
+  // TV: the "Season NN" folder is independent of the episode's file name --
+  // only the file itself is ever renamed here.
   $all(".dest-name-input").forEach((input) => {
     input.addEventListener("change", () => {
       const idx = Number(input.dataset.index);
@@ -1195,24 +1227,34 @@ function renderArchiveTable(items) {
         input.value = item.dest_path.split(/[\\/]/).pop();
         return;
       }
-      const extMatch = raw.match(/\.[^./\\]+$/);
-      const ext = extMatch ? extMatch[0] : "";
-      const stem = ext ? raw.slice(0, -ext.length) : raw;
-      if (item.media_type === "movie") {
-        // Movie convention: the containing folder shares the file's base
-        // name (see renamer.py::plan_movie_rename) -- rename both together
-        // so an edited title doesn't leave the file inside a stale folder.
-        const root = dirOf(dirOf(item.dest_path));
-        item.dest_path = root ? `${root}/${stem}/${stem}${ext}` : `${stem}/${stem}${ext}`;
-      } else {
-        // TV convention: the "Season NN" folder is independent of the
-        // episode's file name -- only the file itself is renamed.
-        const dir = dirOf(item.dest_path);
-        item.dest_path = dir ? `${dir}/${raw}` : raw;
-      }
+      const dir = dirOf(item.dest_path);
+      item.dest_path = dir ? `${dir}/${raw}` : raw;
       input.title = item.dest_path;
     });
   });
+}
+
+function renderMovieNameCell(item, i) {
+  const [stem] = extBaseOf(item.dest_path.split(/[\\/]/).pop());
+  return `
+    <div class="dest-name-cell">
+      <input type="text" class="dest-stem-input" data-index="${i}" title="${item.dest_path}" value="${escapeAttr(stem)}">
+      <label class="dest-rename-file-toggle">
+        <input type="checkbox" class="dest-rename-file-checkbox" data-index="${i}" checked> also rename file
+      </label>
+    </div>
+  `;
+}
+
+function renderTvNameCell(item, i) {
+  return `<input type="text" class="dest-name-input" data-index="${i}" title="${item.dest_path}" value="${escapeAttr(item.dest_path.split(/[\\/]/).pop())}">`;
+}
+
+function extBaseOf(fileName) {
+  const extMatch = fileName.match(/\.[^./\\]+$/);
+  const ext = extMatch ? extMatch[0] : "";
+  const stem = ext ? fileName.slice(0, -ext.length) : fileName;
+  return [stem, ext];
 }
 
 function dirOf(path) {
