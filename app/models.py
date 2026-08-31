@@ -403,6 +403,9 @@ class SettingsOut(BaseModel):
     jellyfin_url: str = ""
     jellyfin_api_key_set: bool = False
     subtitle_keep_languages: list[str] = Field(default_factory=list)
+    movie_folder_template: str = ""
+    tv_season_folder_template: str = ""
+    tv_file_template: str = ""
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -421,6 +424,9 @@ class SettingsUpdateRequest(BaseModel):
     jellyfin_url: str | None = None
     jellyfin_api_key: str | None = None
     subtitle_keep_languages: list[str] | None = None
+    movie_folder_template: str | None = None
+    tv_season_folder_template: str | None = None
+    tv_file_template: str | None = None
 
 
 class PathCheck(BaseModel):

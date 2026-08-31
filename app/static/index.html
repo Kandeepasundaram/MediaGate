@@ -299,6 +299,24 @@
       <p class="hint">A backup of the previous config.yaml is kept as config.yaml.bak on every save.</p>
     </form>
 
+    <h3>Naming Templates</h3>
+    <form id="naming-templates-form" class="card">
+      <p class="hint">Blank resets to the default. A bad template (unknown token, bad format spec) silently falls back to the default for that file rather than failing the archive.</p>
+      <label>Movie folder &amp; file name
+        <input type="text" id="setting-movie-folder-template" placeholder="{title}{year_suffix}">
+      </label>
+      <p class="hint">Tokens: {title}, {year}, {year_suffix} (" (2020)" or "" if unknown). The file always shares this name (extension appended automatically) -- see the "also rename file" option in Ready to Archive.</p>
+      <label>TV season folder
+        <input type="text" id="setting-tv-season-folder-template" placeholder="Season {season:02d}">
+      </label>
+      <label>TV episode file name
+        <input type="text" id="setting-tv-file-template" placeholder="{show_name} - {code}{episode_title_suffix}">
+      </label>
+      <p class="hint">Tokens: {show_name}, {season}, {episode}, {code} ("S01E02"), {episode_title}, {episode_title_suffix} (" - Title" or "" if unknown).</p>
+      <button type="submit" class="primary">Save Naming Templates</button>
+      <span id="naming-templates-status"></span>
+    </form>
+
     <h3>Media Server Refresh (optional)</h3>
     <form id="media-server-form" class="card">
       <p class="hint">Best-effort "rescan library" ping after archiving or organizing a file. Leave a section blank to skip it.</p>

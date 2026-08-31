@@ -29,6 +29,11 @@ _DEFAULT_CONFIG: dict = {
     "media_server": {"plex_url": "", "plex_token": "", "jellyfin_url": "", "jellyfin_api_key": ""},
     "logging": {"level": "INFO", "file": "./logs/media_manager.log"},
     "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"], "api_token": ""},
+    "renaming": {
+        "movie_folder": "{title}{year_suffix}",
+        "tv_season_folder": "Season {season:02d}",
+        "tv_file": "{show_name} - {code}{episode_title_suffix}",
+    },
 }
 
 
@@ -98,6 +103,22 @@ class ServerConfig:
 
 
 @dataclass
+class RenamingConfig:
+    """User-configurable str.format() templates for archive.py's rename
+    plans. Movies have no separate file template -- the file always shares
+    the folder's base name by convention (see renamer.py::plan_movie_rename
+    and the "also rename file" UI, which both depend on that). Available
+    tokens: movie_folder gets {title}, {year}, {year_suffix} (" (YYYY)" or
+    "" when year is unknown); tv_season_folder gets {season}; tv_file gets
+    {show_name}, {season}, {episode}, {code} ("S01E02"), {episode_title},
+    {episode_title_suffix} (" - Title" or "" when there's no episode title).
+    """
+    movie_folder: str = "{title}{year_suffix}"
+    tv_season_folder: str = "Season {season:02d}"
+    tv_file: str = "{show_name} - {code}{episode_title_suffix}"
+
+
+@dataclass
 class AppConfig:
     paths: PathsConfig
     database_path: Path
@@ -110,6 +131,7 @@ class AppConfig:
     media_server: MediaServerConfig
     logging: LoggingConfig
     server: ServerConfig
+    renaming: RenamingConfig = field(default_factory=RenamingConfig)
     config_path: Path = Path("config.yaml")
     tmdb_api_key_from_env: bool = False
 
@@ -158,6 +180,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
             file=Path(raw["logging"]["file"]),
         ),
         server=ServerConfig(**raw["server"]),
+        renaming=RenamingConfig(**raw["renaming"]),
         config_path=path,
         tmdb_api_key_from_env=bool(env_api_key),
     )
@@ -185,6 +208,7 @@ _EDITABLE_KEYS = {
     "tracker": {"auto_track_new"},
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key"},
     "subtitles": {"keep_languages"},
+    "renaming": {"movie_folder", "tv_season_folder", "tv_file"},
 }
 
 

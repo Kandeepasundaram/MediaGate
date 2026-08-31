@@ -13,6 +13,7 @@ def test_load_config_creates_default_file_if_missing(tmp_path):
     assert config_path.exists()
     assert cfg.server.port == 8000
     assert cfg.subtitles.keep_languages == ["en", "eng", "english"]
+    assert cfg.renaming.movie_folder == "{title}{year_suffix}"
     assert cfg.paths.incoming_movies.exists()  # create_dirs defaults to True
     assert cfg.paths.incoming_tv.exists()
 
@@ -84,6 +85,17 @@ def test_update_settings_backs_up_previous_file(tmp_path):
     backup_path = config_path.with_suffix(".yaml.bak")
     assert backup_path.exists()
     assert backup_path.read_bytes() == original_contents
+
+
+def test_update_settings_renaming_template_round_trips(tmp_path):
+    config_path = tmp_path / "config.yaml"
+    load_config(config_path)
+
+    cfg = update_settings(config_path, {"renaming": {"movie_folder": "[{year}] {title}"}})
+
+    assert cfg.renaming.movie_folder == "[{year}] {title}"
+    # untouched sibling templates keep their previous values
+    assert cfg.renaming.tv_file == "{show_name} - {code}{episode_title_suffix}"
 
 
 def test_load_config_no_create_dirs(tmp_path):

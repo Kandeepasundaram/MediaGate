@@ -45,6 +45,9 @@ def _to_out(config: AppConfig) -> SettingsOut:
         jellyfin_url=config.media_server.jellyfin_url,
         jellyfin_api_key_set=bool(config.media_server.jellyfin_api_key),
         subtitle_keep_languages=config.subtitles.keep_languages,
+        movie_folder_template=config.renaming.movie_folder,
+        tv_season_folder_template=config.renaming.tv_season_folder,
+        tv_file_template=config.renaming.tv_file,
     )
 
 
@@ -57,7 +60,7 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
     updates: dict[str, dict] = {
         "paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tracker": {}, "media_server": {},
-        "subtitles": {},
+        "subtitles": {}, "renaming": {},
     }
 
     if payload.incoming_movies is not None:
@@ -92,6 +95,12 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["subtitles"]["keep_languages"] = [
             lang.strip().lower() for lang in payload.subtitle_keep_languages if lang.strip()
         ]
+    if payload.movie_folder_template is not None:
+        updates["renaming"]["movie_folder"] = payload.movie_folder_template
+    if payload.tv_season_folder_template is not None:
+        updates["renaming"]["tv_season_folder"] = payload.tv_season_folder_template
+    if payload.tv_file_template is not None:
+        updates["renaming"]["tv_file"] = payload.tv_file_template
 
     updates = {k: v for k, v in updates.items() if v}
     new_config = update_settings(config.config_path, updates)

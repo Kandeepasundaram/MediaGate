@@ -8,9 +8,24 @@ from pathlib import Path
 
 import requests
 
+from app.config_loader import RenamingConfig
 from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, vote_average_for
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_RENAMING = RenamingConfig()
+
+
+def _format_template(template: str, default: str, context: dict) -> str:
+    """Renders a user-configurable naming template, falling back to the
+    built-in default on any bad token/format-spec rather than failing the
+    whole preview -- a typo'd Settings template shouldn't block archiving."""
+    try:
+        return template.format(**context)
+    except (KeyError, ValueError, IndexError) as exc:
+        logger.warning("Invalid naming template %r (%s); using default", template, exc)
+        return default.format(**context)
+
 
 _INVALID_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 TMDB_IMAGE_BASE = "https://image.tmdb.org/t/p/original"
@@ -38,11 +53,15 @@ class RenamePlan:
     genres: list[str] = field(default_factory=list)
 
 
-def plan_movie_rename(source: Path, archive_root: Path, media: MediaResult, ext: str | None = None) -> RenamePlan:
+def plan_movie_rename(
+    source: Path, archive_root: Path, media: MediaResult, ext: str | None = None, renaming: RenamingConfig | None = None
+) -> RenamePlan:
+    renaming = renaming or _DEFAULT_RENAMING
     ext = ext or source.suffix
     title = sanitize_filename(media.title)
     year = media.year
-    folder_name = f"{title} ({year})" if year else title
+    context = {"title": title, "year": year or "", "year_suffix": f" ({year})" if year else ""}
+    folder_name = sanitize_filename(_format_template(renaming.movie_folder, _DEFAULT_RENAMING.movie_folder, context))
     file_name = f"{folder_name}{ext}"
     dest = archive_root / folder_name / file_name
     dest = _avoid_collision(dest)
@@ -68,15 +87,20 @@ def plan_tv_rename(
     episode: int,
     episode_title: str | None = None,
     ext: str | None = None,
+    renaming: RenamingConfig | None = None,
 ) -> RenamePlan:
+    renaming = renaming or _DEFAULT_RENAMING
     ext = ext or source.suffix
     show_name = sanitize_filename(media.title)
-    season_folder = f"Season {season:02d}"
     code = f"S{season:02d}E{episode:02d}"
-    if episode_title:
-        file_name = f"{show_name} - {code} - {sanitize_filename(episode_title)}{ext}"
-    else:
-        file_name = f"{show_name} - {code}{ext}"
+    clean_episode_title = sanitize_filename(episode_title) if episode_title else ""
+    context = {
+        "show_name": show_name, "season": season, "episode": episode, "code": code,
+        "episode_title": clean_episode_title,
+        "episode_title_suffix": f" - {clean_episode_title}" if clean_episode_title else "",
+    }
+    season_folder = sanitize_filename(_format_template(renaming.tv_season_folder, _DEFAULT_RENAMING.tv_season_folder, context))
+    file_name = sanitize_filename(_format_template(renaming.tv_file, _DEFAULT_RENAMING.tv_file, context)) + ext
     dest = archive_root / show_name / season_folder / file_name
     dest = _avoid_collision(dest)
     return RenamePlan(

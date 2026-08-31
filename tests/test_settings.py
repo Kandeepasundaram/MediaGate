@@ -114,6 +114,26 @@ def test_save_settings_updates_subtitle_languages(client):
     assert resp2.json()["subtitle_keep_languages"] == ["fr", "es"]
 
 
+def test_get_settings_reflects_default_naming_templates(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["movie_folder_template"] == "{title}{year_suffix}"
+    assert body["tv_season_folder_template"] == "Season {season:02d}"
+    assert body["tv_file_template"] == "{show_name} - {code}{episode_title_suffix}"
+
+
+def test_save_settings_updates_naming_templates(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"movie_folder_template": "[{year}] {title}"})
+    assert resp.status_code == 200
+    assert resp.json()["movie_folder_template"] == "[{year}] {title}"
+
+    resp2 = c.get("/api/settings")
+    assert resp2.json()["movie_folder_template"] == "[{year}] {title}"
+    # untouched fields keep their previous value
+    assert resp2.json()["tv_file_template"] == "{show_name} - {code}{episode_title_suffix}"
+
+
 def test_permissions_check_reports_writable_dirs(client):
     c, _ = client
     resp = c.get("/api/settings/permissions-check")

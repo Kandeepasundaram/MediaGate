@@ -78,10 +78,11 @@ def preview_archive(
                     media,
                     season=parsed.season or 1,
                     episode=parsed.episode or 1,
+                    renaming=config.renaming,
                 )
             else:
                 media = _resolve_movie_match(tmdb, parsed, override_id)
-                plan = plan_movie_rename(source, config.paths.archive_movies, media)
+                plan = plan_movie_rename(source, config.paths.archive_movies, media, renaming=config.renaming)
 
             items.append(
                 ArchivePreviewItem(

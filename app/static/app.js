@@ -2041,6 +2041,9 @@ async function loadSettings() {
     $("#setting-jellyfin-url").value = s.jellyfin_url || "";
     $("#jellyfin-key-note").textContent = s.jellyfin_api_key_set ? "A key is currently set. Leave blank to keep it." : "";
     $("#setting-subtitle-languages").value = (s.subtitle_keep_languages || []).join(", ");
+    $("#setting-movie-folder-template").value = s.movie_folder_template || "";
+    $("#setting-tv-season-folder-template").value = s.tv_season_folder_template || "";
+    $("#setting-tv-file-template").value = s.tv_file_template || "";
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
   }
@@ -2078,6 +2081,29 @@ async function saveSettings(e) {
     checkPermissions(); // catches a typo'd path immediately instead of waiting for a manual "Test Permissions" click
   } catch (e) {
     $("#settings-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+const DEFAULT_NAMING_TEMPLATES = {
+  movie_folder_template: "{title}{year_suffix}",
+  tv_season_folder_template: "Season {season:02d}",
+  tv_file_template: "{show_name} - {code}{episode_title_suffix}",
+};
+
+async function saveNamingTemplates(e) {
+  e.preventDefault();
+  const payload = {
+    movie_folder_template: $("#setting-movie-folder-template").value.trim() || DEFAULT_NAMING_TEMPLATES.movie_folder_template,
+    tv_season_folder_template: $("#setting-tv-season-folder-template").value.trim() || DEFAULT_NAMING_TEMPLATES.tv_season_folder_template,
+    tv_file_template: $("#setting-tv-file-template").value.trim() || DEFAULT_NAMING_TEMPLATES.tv_file_template,
+  };
+  $("#naming-templates-status").textContent = "Saving...";
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
+    $("#naming-templates-status").textContent = "Saved.";
+    loadSettings();
+  } catch (e) {
+    $("#naming-templates-status").textContent = `Error: ${e.message}`;
   }
 }
 
@@ -2288,6 +2314,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
   $("#disable-api-token-btn").addEventListener("click", disableApiToken);
+  $("#naming-templates-form").addEventListener("submit", saveNamingTemplates);
   $("#media-server-form").addEventListener("submit", saveMediaServerSettings);
   $("#export-library-btn").addEventListener("click", exportLibrary);
   $("#import-library-input").addEventListener("change", (e) => {

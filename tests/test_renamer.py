@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.config_loader import RenamingConfig
 from app.core.renamer import plan_movie_rename, plan_tv_rename, sanitize_filename
 from app.core.tmdb_client import MediaResult
 
@@ -56,3 +57,42 @@ def test_plan_movie_rename_avoids_collision(tmp_path):
     plan = plan_movie_rename(source, archive_root, media)
 
     assert plan.dest_path.name == "Movie (2020) (2).mkv"
+
+
+def test_plan_movie_rename_honors_custom_template(tmp_path):
+    source = tmp_path / "incoming" / "movie.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=4, title="Movie", media_type="movie", year=2020)
+    renaming = RenamingConfig(movie_folder="[{year}] {title}")
+    plan = plan_movie_rename(source, archive_root, media, renaming=renaming)
+
+    assert plan.dest_path == archive_root / "[2020] Movie" / "[2020] Movie.mkv"
+
+
+def test_plan_movie_rename_falls_back_to_default_on_bad_template(tmp_path):
+    source = tmp_path / "incoming" / "movie.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=5, title="Movie", media_type="movie", year=2020)
+    renaming = RenamingConfig(movie_folder="{not_a_real_token}")
+    plan = plan_movie_rename(source, archive_root, media, renaming=renaming)
+
+    assert plan.dest_path == archive_root / "Movie (2020)" / "Movie (2020).mkv"
+
+
+def test_plan_tv_rename_honors_custom_templates(tmp_path):
+    source = tmp_path / "incoming" / "show.s01e02.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=6, title="Show", media_type="tv")
+    renaming = RenamingConfig(tv_season_folder="S{season:02d}", tv_file="{code} - {show_name}")
+    plan = plan_tv_rename(source, archive_root, media, season=1, episode=2, renaming=renaming)
+
+    assert plan.dest_path == archive_root / "Show" / "S01" / "S01E02 - Show.mkv"
