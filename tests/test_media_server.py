@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from app.config_loader import MediaServerConfig
-from app.core.media_server import notify_media_servers
+from app.core.media_server import notify_media_servers, sync_watched_from_media_servers
 
 
 class _FakeConfig:
@@ -51,3 +51,81 @@ def test_notify_media_servers_swallows_request_errors():
     config = _FakeConfig(plex_url="http://plex.local:32400", plex_token="tok")
     with patch("app.core.media_server.requests.get", side_effect=requests.RequestException("down")):
         notify_media_servers(config)  # must not raise
+
+
+def _seed_movie(db, imdb_id=None, watched=0, title="Movie"):
+    return db.create_media_item(
+        original_path="x", final_path=f"/archive/{title}.mkv", title=title, media_type="movie",
+        watched=watched, imdb_id=imdb_id,
+    )
+
+
+def test_sync_watched_marks_movies_plex_reports_as_viewed(db):
+    config = _FakeConfig(plex_url="http://plex.local:32400", plex_token="tok")
+    watched_id = _seed_movie(db, imdb_id="tt0000001")
+    already_watched_id = _seed_movie(db, imdb_id="tt0000002", watched=1, title="Already")
+    unwatched_id = _seed_movie(db, imdb_id="tt0000003", title="Unwatched")
+
+    plex_resp = MagicMock()
+    plex_resp.json.return_value = {
+        "MediaContainer": {
+            "Metadata": [
+                {"viewCount": 1, "Guid": [{"id": "imdb://tt0000001"}]},
+                {"viewCount": 0, "Guid": [{"id": "imdb://tt0000003"}]},
+            ]
+        }
+    }
+    with patch("app.core.media_server.requests.get", return_value=plex_resp):
+        updated = sync_watched_from_media_servers(config, db)
+
+    assert updated == 1
+    assert db.get_media_item(watched_id)["watched"] == 1
+    assert db.get_media_item(already_watched_id)["watched"] == 1
+    assert db.get_media_item(unwatched_id)["watched"] == 0
+
+
+def test_sync_watched_never_unwatches(db):
+    config = _FakeConfig(plex_url="http://plex.local:32400", plex_token="tok")
+    item_id = _seed_movie(db, imdb_id="tt0000009", watched=1)
+
+    plex_resp = MagicMock()
+    plex_resp.json.return_value = {"MediaContainer": {"Metadata": []}}
+    with patch("app.core.media_server.requests.get", return_value=plex_resp):
+        updated = sync_watched_from_media_servers(config, db)
+
+    assert updated == 0
+    assert db.get_media_item(item_id)["watched"] == 1
+
+
+def test_sync_watched_reads_jellyfin_provider_ids(db):
+    config = _FakeConfig(jellyfin_url="http://jf.local:8096", jellyfin_api_key="key")
+    item_id = _seed_movie(db, imdb_id="tt0000005")
+
+    users_resp = MagicMock()
+    users_resp.json.return_value = [{"Id": "user-1"}]
+    items_resp = MagicMock()
+    items_resp.json.return_value = {"Items": [{"ProviderIds": {"Imdb": "tt0000005"}}]}
+    with patch("app.core.media_server.requests.get", side_effect=[users_resp, items_resp]):
+        updated = sync_watched_from_media_servers(config, db)
+
+    assert updated == 1
+    assert db.get_media_item(item_id)["watched"] == 1
+
+
+def test_sync_watched_noop_when_no_server_configured(db):
+    config = _FakeConfig()
+    _seed_movie(db, imdb_id="tt0000001")
+    with patch("app.core.media_server.requests.get") as mock_get:
+        updated = sync_watched_from_media_servers(config, db)
+    mock_get.assert_not_called()
+    assert updated == 0
+
+
+def test_sync_watched_swallows_request_errors(db):
+    import requests
+
+    config = _FakeConfig(plex_url="http://plex.local:32400", plex_token="tok")
+    _seed_movie(db, imdb_id="tt0000001")
+    with patch("app.core.media_server.requests.get", side_effect=requests.RequestException("down")):
+        updated = sync_watched_from_media_servers(config, db)  # must not raise
+    assert updated == 0

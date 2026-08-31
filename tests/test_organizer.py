@@ -102,6 +102,14 @@ def test_organize_file_writes_nfo_alongside_dest(db, tmp_path):
     assert "Movie" in nfo.read_text(encoding="utf-8")
 
 
+def test_organize_file_skips_nfo_when_disabled(db, tmp_path):
+    plan = _plan(tmp_path)
+    organize_file(db, plan, write_nfo_files=False)
+
+    nfo = plan.dest_path.parent / "movie.nfo"
+    assert not nfo.exists()
+
+
 def test_organize_file_raises_and_logs_on_missing_source(db, tmp_path):
     plan = _plan(tmp_path, source_path=tmp_path / "does_not_exist.mkv")
 

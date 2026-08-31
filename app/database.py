@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 14
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     match_attempted_at TEXT,
     imdb_id TEXT,
     manual_override INTEGER NOT NULL DEFAULT 0,
+    tags TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -82,13 +83,36 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     name TEXT NOT NULL,
     token TEXT NOT NULL UNIQUE,
     created_at TEXT NOT NULL,
-    last_used_at TEXT
+    last_used_at TEXT,
+    scope TEXT NOT NULL DEFAULT 'read_write'
+);
+
+CREATE TABLE IF NOT EXISTS storage_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    label TEXT NOT NULL,
+    used_bytes INTEGER NOT NULL,
+    total_bytes INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS viewers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS viewer_watched_items (
+    viewer_id INTEGER NOT NULL REFERENCES viewers(id) ON DELETE CASCADE,
+    media_item_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+    watched_at TEXT NOT NULL,
+    PRIMARY KEY (viewer_id, media_item_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id ON media_items(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_media_items_final_path ON media_items(final_path);
 CREATE INDEX IF NOT EXISTS idx_media_items_media_type ON media_items(media_type);
 CREATE INDEX IF NOT EXISTS idx_operation_log_created_at ON operation_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_storage_snapshots_label_created ON storage_snapshots(label, created_at);
 """
 
 
@@ -190,8 +214,9 @@ class Database:
     def update_media_item(self, item_id: int, **fields: Any) -> None:
         if not fields:
             return
-        if "metadata" in fields and not isinstance(fields["metadata"], str):
-            fields["metadata"] = json.dumps(fields["metadata"])
+        for json_field in ("metadata", "tags"):
+            if json_field in fields and not isinstance(fields[json_field], (str, type(None))):
+                fields[json_field] = json.dumps(fields[json_field])
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         self.execute_query(
             f"UPDATE media_items SET {set_clause} WHERE id = ?",
@@ -203,6 +228,63 @@ class Database:
 
     def get_media_item_by_final_path(self, path: str) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM media_items WHERE final_path = ?", (path,))
+
+    def list_all_tags(self) -> list[str]:
+        """Distinct tag values across the whole library, for the gallery
+        tag-filter dropdown -- computed in Python rather than SQL since
+        tags is a JSON array column, not a normalized table (a personal
+        library's tag set is small; no need for a join table)."""
+        tags: set[str] = set()
+        for row in self.fetch_all("SELECT tags FROM media_items WHERE tags IS NOT NULL"):
+            try:
+                values = json.loads(row["tags"])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(values, list):
+                tags.update(str(v) for v in values)
+        return sorted(tags)
+
+    def record_storage_snapshot(self, label: str, used_bytes: int, total_bytes: int) -> None:
+        """At most one row per label per calendar day (UTC) -- the storage
+        forecast only needs a daily resolution, and this is called on every
+        /api/status/storage request (each Settings tab load), so without
+        the dedup a heavily-refreshed dashboard would flood the table."""
+        today = _now()[:10]
+        existing = self.fetch_one(
+            "SELECT id FROM storage_snapshots WHERE label = ? AND substr(created_at, 1, 10) = ?",
+            (label, today),
+        )
+        if existing:
+            self.execute_query(
+                "UPDATE storage_snapshots SET used_bytes = ?, total_bytes = ?, created_at = ? WHERE id = ?",
+                (used_bytes, total_bytes, _now(), existing["id"]),
+            )
+        else:
+            self.execute_query(
+                "INSERT INTO storage_snapshots (label, used_bytes, total_bytes, created_at) VALUES (?, ?, ?, ?)",
+                (label, used_bytes, total_bytes, _now()),
+            )
+
+    def list_storage_snapshots(self, label: str, since_days: int = 90) -> list[dict[str, Any]]:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=since_days)).isoformat()
+        return self.fetch_all(
+            "SELECT * FROM storage_snapshots WHERE label = ? AND created_at >= ? ORDER BY created_at ASC",
+            (label, cutoff),
+        )
+
+    def search_media_items(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Cross-type (movie + tv) title search for the header's global
+        search box -- unlike list_media_items (full table, client-side
+        filtered per gallery tab), this runs server-side so a match can be
+        found and jumped to without first loading every item into the page.
+        """
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        like = f"%{escaped}%"
+        return self.fetch_all(
+            "SELECT * FROM media_items WHERE title LIKE ? ESCAPE '\\' "
+            "ORDER BY (watched = 0) DESC, title ASC LIMIT ?",
+            (like, limit),
+        )
 
     def list_unmatched_media_items(self, retry_cooldown_hours: float = 6.0, limit: int = 1) -> list[dict[str, Any]]:
         """Auto-adopted items with no TMDB match yet, for the metadata
@@ -362,20 +444,42 @@ class Database:
     def get_operation(self, operation_id: int) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM operation_log WHERE id = ?", (operation_id,))
 
-    def list_operations(self, operation_type: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    def list_operations(
+        self,
+        operation_type: str | None = None,
+        limit: int = 100,
+        status: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """since/until are inclusive ISO date/datetime strings (e.g. "2026-01-01"
+        or a full created_at timestamp) -- plain string comparison works
+        because created_at is always stored as an ISO 8601 string, which
+        sorts lexicographically the same as chronologically."""
+        clauses = []
+        params: list[Any] = []
         if operation_type:
-            return self.fetch_all(
-                "SELECT * FROM operation_log WHERE operation_type = ? ORDER BY created_at DESC LIMIT ?",
-                (operation_type, limit),
-            )
-        return self.fetch_all("SELECT * FROM operation_log ORDER BY created_at DESC LIMIT ?", (limit,))
+            clauses.append("operation_type = ?")
+            params.append(operation_type)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if since:
+            clauses.append("created_at >= ?")
+            params.append(since)
+        if until:
+            clauses.append("created_at <= ?")
+            params.append(until)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(limit)
+        return self.fetch_all(f"SELECT * FROM operation_log {where} ORDER BY created_at DESC LIMIT ?", tuple(params))
 
     # ---- API tokens ----
 
-    def create_api_token(self, name: str, token: str) -> int:
+    def create_api_token(self, name: str, token: str, scope: str = "read_write") -> int:
         return self.execute_query(
-            "INSERT INTO api_tokens (name, token, created_at) VALUES (?, ?, ?)",
-            (name, token, _now()),
+            "INSERT INTO api_tokens (name, token, created_at, scope) VALUES (?, ?, ?, ?)",
+            (name, token, _now(), scope),
         )
 
     def list_api_tokens(self) -> list[dict[str, Any]]:
@@ -389,6 +493,45 @@ class Database:
 
     def delete_api_token(self, token_id: int) -> None:
         self.execute_query("DELETE FROM api_tokens WHERE id = ?", (token_id,))
+
+    # ---- viewers (per-viewer watch state) ----
+
+    def create_viewer(self, name: str) -> int:
+        return self.execute_query("INSERT INTO viewers (name, created_at) VALUES (?, ?)", (name, _now()))
+
+    def list_viewers(self) -> list[dict[str, Any]]:
+        return self.fetch_all("SELECT * FROM viewers ORDER BY name ASC")
+
+    def get_viewer(self, viewer_id: int) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM viewers WHERE id = ?", (viewer_id,))
+
+    def delete_viewer(self, viewer_id: int) -> None:
+        # viewer_watched_items rows cascade via their own FK (ON DELETE
+        # CASCADE, honored since connect() turns PRAGMA foreign_keys on).
+        self.execute_query("DELETE FROM viewers WHERE id = ?", (viewer_id,))
+
+    def set_viewer_watched(self, viewer_id: int, media_item_id: int, watched: bool) -> None:
+        if watched:
+            self.execute_query(
+                "INSERT OR IGNORE INTO viewer_watched_items (viewer_id, media_item_id, watched_at) VALUES (?, ?, ?)",
+                (viewer_id, media_item_id, _now()),
+            )
+        else:
+            self.execute_query(
+                "DELETE FROM viewer_watched_items WHERE viewer_id = ? AND media_item_id = ?",
+                (viewer_id, media_item_id),
+            )
+
+    def list_viewer_watched_ids(self, viewer_id: int) -> set[int]:
+        rows = self.fetch_all("SELECT media_item_id FROM viewer_watched_items WHERE viewer_id = ?", (viewer_id,))
+        return {r["media_item_id"] for r in rows}
+
+    def is_viewer_watched(self, viewer_id: int, media_item_id: int) -> bool:
+        row = self.fetch_one(
+            "SELECT 1 FROM viewer_watched_items WHERE viewer_id = ? AND media_item_id = ?",
+            (viewer_id, media_item_id),
+        )
+        return row is not None
 
     # ---- maintenance ----
 
@@ -537,6 +680,72 @@ def _migration_v10(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v11(conn: sqlite3.Connection) -> None:
+    """Add media_items.tags -- free-form user labels (JSON array of strings)
+    for the Movies/TV galleries' tag filter, distinct from TMDB genres
+    (which come from the API/scraper, not the user) and from
+    library.py's existing manual_override (a title correction, not a
+    label). Plain nullable column add, no rebuild needed."""
+    conn.execute("ALTER TABLE media_items ADD COLUMN tags TEXT")
+
+
+def _migration_v12(conn: sqlite3.Connection) -> None:
+    """Add storage_snapshots -- one row per configured media path per day
+    it's checked, for the Settings storage card's days-to-full forecast.
+    Recorded opportunistically by GET /api/status/storage itself (at most
+    once per label per day) rather than a new scheduler task, since the
+    dashboard already polls that endpoint on every Settings tab load --
+    no extra background thread needed for a number that only needs to
+    change daily."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS storage_snapshots (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            label TEXT NOT NULL,
+            used_bytes INTEGER NOT NULL,
+            total_bytes INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_storage_snapshots_label_created ON storage_snapshots(label, created_at);
+        """
+    )
+
+
+def _migration_v13(conn: sqlite3.Connection) -> None:
+    """Add api_tokens.scope -- 'read_write' (default, matches every token
+    created before this migration) or 'read_only', enforced in
+    dependencies.py's require_api_token() against the request method.
+    Plain column add with a default, no rebuild needed."""
+    conn.execute("ALTER TABLE api_tokens ADD COLUMN scope TEXT NOT NULL DEFAULT 'read_write'")
+
+
+def _migration_v14(conn: sqlite3.Connection) -> None:
+    """Add viewers + viewer_watched_items -- lightweight per-viewer watch
+    state for a household sharing one LAN dashboard with no login system
+    (see dependencies.require_api_token's own "no login system" note).
+    Named profiles, no password -- deliberately not real accounts, just
+    enough to let "has Alex watched this" differ from "has Sam watched
+    this" without a real multi-user auth system. The existing
+    media_items.watched stays as the single global flag every other
+    feature (filters, Continue Watching, CSV export, badges) already reads;
+    this is an additive, opt-in layer on top, not a replacement."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS viewers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS viewer_watched_items (
+            viewer_id INTEGER NOT NULL REFERENCES viewers(id) ON DELETE CASCADE,
+            media_item_id INTEGER NOT NULL REFERENCES media_items(id) ON DELETE CASCADE,
+            watched_at TEXT NOT NULL,
+            PRIMARY KEY (viewer_id, media_item_id)
+        );
+        """
+    )
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -548,4 +757,8 @@ _MIGRATIONS = {
     8: _migration_v8,
     9: _migration_v9,
     10: _migration_v10,
+    11: _migration_v11,
+    12: _migration_v12,
+    13: _migration_v13,
+    14: _migration_v14,
 }

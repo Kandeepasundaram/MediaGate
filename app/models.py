@@ -182,6 +182,67 @@ class NotificationHistoryResponse(BaseModel):
     history: list[NotificationHistoryEntryOut]
 
 
+class UpcomingReleaseOut(BaseModel):
+    tmdb_id: int
+    media_type: MediaType
+    title: str
+    release_date: str
+    label: str  # "Release" for a movie, "Episode N" for a TV air date
+
+
+class UpcomingReleasesResponse(BaseModel):
+    items: list[UpcomingReleaseOut]
+
+
+class RecommendationOut(BaseModel):
+    tmdb_id: int
+    media_type: MediaType
+    title: str
+    year: int | None = None
+    poster_path: str | None = None
+    score: int  # how many owned titles TMDB's "similar" endpoint linked this to
+
+
+class RecommendationsResponse(BaseModel):
+    items: list[RecommendationOut]
+    tmdb_configured: bool = False
+
+
+class SyncWatchedResponse(BaseModel):
+    updated: int
+
+
+class ViewerOut(BaseModel):
+    id: int
+    name: str
+    created_at: str
+
+
+class ViewersListResponse(BaseModel):
+    viewers: list[ViewerOut] = Field(default_factory=list)
+
+
+class ViewerCreateRequest(BaseModel):
+    name: str
+
+
+class ViewerWatchedUpdateRequest(BaseModel):
+    watched: bool
+
+
+class NoteSaveResponse(BaseModel):
+    path: str
+
+
+class RefreshMetadataRequest(BaseModel):
+    ids: list[int]
+
+
+class RefreshMetadataResponse(BaseModel):
+    updated: int
+    failed: int
+
+
 class StatusResponse(BaseModel):
     status: Literal["ok"] = "ok"
     tmdb_mode: str
@@ -223,6 +284,8 @@ class StoragePathOut(BaseModel):
     total_bytes: int | None = None
     used_bytes: int | None = None
     free_bytes: int | None = None
+    days_to_full: float | None = None  # None: not enough history yet, or usage isn't trending upward
+    history_days: int = 0  # how many days of snapshot history days_to_full is based on
 
 
 class StorageStatusOut(BaseModel):
@@ -236,6 +299,28 @@ class StatsResponse(BaseModel):
     total_size_bytes: int
     movies_size_bytes: int = 0
     tv_size_bytes: int = 0
+
+
+class GenreCountOut(BaseModel):
+    genre: str
+    count: int
+
+
+class ResolutionStatOut(BaseModel):
+    resolution: str
+    count: int
+    avg_size_bytes: int
+
+
+class GrowthPointOut(BaseModel):
+    month: str  # "YYYY-MM"
+    count: int  # items archived that month
+
+
+class StatsInsightsResponse(BaseModel):
+    top_genres: list[GenreCountOut] = Field(default_factory=list)
+    resolution_breakdown: list[ResolutionStatOut] = Field(default_factory=list)
+    growth_by_month: list[GrowthPointOut] = Field(default_factory=list)
 
 
 class LibraryItemOut(BaseModel):
@@ -260,6 +345,21 @@ class LibraryItemOut(BaseModel):
     resolution: str | None = None
     hdr: bool = False
     audio_channels: int | None = None
+    tags: list[str] = Field(default_factory=list)
+    viewer_watched: bool | None = None  # only set when a ?viewer_id= is passed; reflects that viewer's own state
+
+
+class TagsUpdateRequest(BaseModel):
+    tags: list[str]
+
+
+class TagsListResponse(BaseModel):
+    tags: list[str]
+
+
+class TvSeasonSummaryOut(BaseModel):
+    season_number: int
+    episode_count: int
 
 
 class TvStatusOut(BaseModel):
@@ -269,6 +369,7 @@ class TvStatusOut(BaseModel):
     latest_season_episode_count: int | None = None
     total_episodes: int | None = None
     data_available: bool = False
+    seasons: list[TvSeasonSummaryOut] = Field(default_factory=list)
 
 
 class MovieRelatedTitleOut(BaseModel):
@@ -496,6 +597,15 @@ class SettingsOut(BaseModel):
     tv_season_folder_template: str = ""
     tv_file_template: str = ""
     collision_policy: str = "suffix"
+    low_disk_alert_enabled: bool = False
+    low_disk_threshold_gb: float = 10.0
+    webdav_url: str = ""
+    webdav_username: str = ""
+    webdav_password_set: bool = False
+    webdav_remote_path: str = "media-manager-backups"
+    opensubtitles_api_key_set: bool = False
+    auto_fetch_missing_subtitles: bool = False
+    write_nfo_files: bool = True
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -528,6 +638,29 @@ class SettingsUpdateRequest(BaseModel):
     tv_season_folder_template: str | None = None
     tv_file_template: str | None = None
     collision_policy: str | None = None
+    low_disk_alert_enabled: bool | None = None
+    low_disk_threshold_gb: float | None = None
+    webdav_url: str | None = None
+    webdav_username: str | None = None
+    webdav_password: str | None = None
+    webdav_remote_path: str | None = None
+    opensubtitles_api_key: str | None = None
+    auto_fetch_missing_subtitles: bool | None = None
+    write_nfo_files: bool | None = None
+
+
+class ConfigHistoryEntryOut(BaseModel):
+    version: str
+    timestamp: str
+    size_bytes: int
+
+
+class ConfigHistoryListResponse(BaseModel):
+    versions: list[ConfigHistoryEntryOut]
+
+
+class ConfigHistoryDiffResponse(BaseModel):
+    diff: list[str]
 
 
 class PathCheck(BaseModel):
@@ -551,10 +684,12 @@ class ApiTokenOut(BaseModel):
     name: str
     created_at: str
     last_used_at: str | None = None
+    scope: str = "read_write"
 
 
 class ApiTokenCreateRequest(BaseModel):
     name: str
+    scope: str = "read_write"
 
 
 class ApiTokenCreateResponse(BaseModel):
@@ -562,6 +697,7 @@ class ApiTokenCreateResponse(BaseModel):
     name: str
     token: str  # shown once -- not retrievable again after this response
     created_at: str
+    scope: str = "read_write"
 
 
 class ApiTokensListResponse(BaseModel):

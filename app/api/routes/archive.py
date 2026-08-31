@@ -9,12 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from app.config_loader import AppConfig, keep_languages_for
 from app.core.archiver import ArchiveError, archive_file
 from app.core.renamer import RenamePlan, plan_movie_rename, plan_tv_rename
-from app.core.subtitle_purger import SUBTITLE_EXTENSIONS, purge_subtitles
+from app.core.subtitle_purger import SUBTITLE_EXTENSIONS, fetch_missing_subtitle, missing_keep_language, purge_subtitles
 from app.core.media_server import notify_media_servers
-from app.core.tmdb_client import MediaResult, TMDBClient, parse_filename
+from app.core.opensubtitles_client import OpenSubtitlesClient
+from app.core.tmdb_client import MediaResult, TMDBClient, compute_absolute_episode, parse_filename
 from app.core.tracker import maybe_auto_track
 from app.database import Database
-from app.dependencies import get_config, get_database, get_tmdb_client
+from app.dependencies import get_config, get_database, get_opensubtitles_client, get_tmdb_client
 from app.models import (
     ArchiveConfirmRequest,
     ArchiveConfirmResponse,
@@ -72,17 +73,23 @@ def preview_archive(
         try:
             if parsed.media_type == "tv":
                 media = _resolve_tv_match(tmdb, parsed, override_id)
+                season = parsed.season or 1
+                episode = parsed.episode or 1
                 plan = plan_tv_rename(
                     source,
                     config.paths.archive_tv,
                     media,
-                    season=parsed.season or 1,
-                    episode=parsed.episode or 1,
+                    season=season,
+                    episode=episode,
                     renaming=config.renaming,
+                    absolute_episode=_resolve_absolute_episode(tmdb, config.renaming, media, season, episode),
+                    part=parsed.part,
                 )
             else:
                 media = _resolve_movie_match(tmdb, parsed, override_id)
-                plan = plan_movie_rename(source, config.paths.archive_movies, media, renaming=config.renaming)
+                plan = plan_movie_rename(
+                    source, config.paths.archive_movies, media, renaming=config.renaming, part=parsed.part
+                )
 
             items.append(
                 ArchivePreviewItem(
@@ -105,6 +112,30 @@ def preview_archive(
             errors.append(f"{raw_path}: {exc}")
 
     return ArchivePreviewResponse(items=items, errors=errors)
+
+
+def _resolve_absolute_episode(
+    tmdb: TMDBClient, renaming, media: MediaResult, season: int, episode: int
+) -> int | None:
+    """Only fetches full TV details (an extra TMDB request beyond the
+    title search _resolve_tv_match already did) when the configured
+    naming templates actually reference {absolute_episode} -- most
+    libraries use plain SxxExx and shouldn't pay for a lookup whose result
+    would never be used. get_tv_details is cached per tmdb_id, so this
+    costs nothing extra for a season with multiple episodes already
+    matched to the same show in this request/process."""
+    if media.tmdb_id is None:
+        return None
+    # "{absolute_episode" (no closing brace) so a format spec like
+    # "{absolute_episode:03d}" still matches -- a plain "in" check for the
+    # full "{absolute_episode}" token would miss that, the exact form the
+    # anime-style naming example in the Settings hint text recommends.
+    if "{absolute_episode" not in renaming.tv_file and "{absolute_episode" not in renaming.tv_season_folder:
+        return None
+    full_media = tmdb.get_tv_details(media.tmdb_id)
+    if full_media is None:
+        return None
+    return compute_absolute_episode(full_media, season, episode)
 
 
 def _resolve_tv_match(tmdb: TMDBClient, parsed, override_id: int | None) -> MediaResult:
@@ -154,6 +185,7 @@ def confirm_archive(
     payload: ArchiveConfirmRequest,
     config: AppConfig = Depends(get_config),
     db: Database = Depends(get_database),
+    opensubtitles: OpenSubtitlesClient = Depends(get_opensubtitles_client),
 ) -> ArchiveConfirmResponse:
     results: list[ArchiveConfirmResult] = []
 
@@ -165,8 +197,21 @@ def confirm_archive(
             results.append(_dry_run_result(source, dest))
             continue
 
+        keep_languages = keep_languages_for(config.subtitles, item.media_type)
+
+        # Fetch before purge -- a subtitle downloaded after the purge step
+        # would immediately be at risk of getting purged again on the next
+        # run if its language tag doesn't match exactly, and there's no
+        # reason to purge first anyway.
+        if config.subtitles.auto_fetch_missing_subtitles and opensubtitles.enabled and item.tmdb_id is not None:
+            missing = missing_keep_language(source.parent, source.stem, keep_languages)
+            if missing:
+                fetch_missing_subtitle(
+                    opensubtitles, source.parent, source.stem, item.tmdb_id, item.media_type, missing,
+                    season=item.season, episode=item.episode,
+                )
+
         if payload.purge_subtitles:
-            keep_languages = keep_languages_for(config.subtitles, item.media_type)
             purge_subtitles(source.parent, keep_languages=keep_languages, dry_run=False)
 
         plan = RenamePlan(
@@ -184,7 +229,7 @@ def confirm_archive(
             genres=item.genres,
         )
         try:
-            media_id = archive_file(db, plan)
+            media_id = archive_file(db, plan, write_nfo_files=config.media_server.write_nfo_files)
             _copy_sibling_subtitles(source, dest.parent)
             maybe_auto_track(
                 db, config.tracker.auto_track_new, item.tmdb_id, item.media_type, item.title, item.season
@@ -215,11 +260,20 @@ def _dry_run_result(source: Path, dest: Path) -> ArchiveConfirmResult:
 
 @router.get("/history", response_model=ArchiveHistoryResponse)
 def archive_history(
-    operation_type: str | None = None, limit: int = 100, db: Database = Depends(get_database)
+    operation_type: str | None = None,
+    status: str | None = None,
+    since: str | None = None,
+    until: str | None = None,
+    limit: int = 100,
+    db: Database = Depends(get_database),
 ) -> ArchiveHistoryResponse:
     """Defaults to every operation type (the History tab's "All" filter);
-    pass operation_type to narrow to one, e.g. for the tracker-check-only view."""
-    ops = db.list_operations(operation_type=operation_type, limit=limit)
+    pass operation_type to narrow to one, e.g. for the tracker-check-only
+    view. status/since/until back the History tab's own filter row; a
+    higher limit (the tab's "Export View (CSV)" button uses one) exports
+    everything currently matching the filters, not just what's on screen.
+    """
+    ops = db.list_operations(operation_type=operation_type, status=status, since=since, until=until, limit=limit)
     for op in ops:
         if op.get("details"):
             op["details"] = json.loads(op["details"])

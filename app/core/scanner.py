@@ -1,6 +1,7 @@
 """Recursively scans a directory for media files and groups them for review."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -8,6 +9,29 @@ from app.core.tmdb_client import ParsedFilename, parse_filename
 
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm"}
 SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa"}
+
+# Standard Plex/Jellyfin/Kodi "extras" subfolder names -- a video sitting in
+# one of these is a featurette/trailer/etc, not the main title, and would
+# otherwise get scanned and TMDB-matched as if it were its own movie/episode.
+EXTRAS_DIR_NAMES = {
+    "extras", "featurettes", "behind the scenes", "deleted scenes",
+    "interviews", "scenes", "shorts", "trailers", "other",
+}
+
+# A promotional sample clip bundled with some releases (e.g.
+# "Movie.Name.2020.sample.mkv") -- junk to archive, not the movie itself.
+# Anchored to the *end* of the filename specifically: "sample" bounded
+# anywhere in the string (e.g. also matching at the start) would misfire
+# on a real title that happens to start with the word, like "Sample Movie
+# (2020)" -- real releases tag a sample clip as a trailing marker, not a
+# leading one.
+_SAMPLE_PATTERN = re.compile(r"[.\s_-]sample$", re.IGNORECASE)
+
+
+def is_extra_or_sample(path: Path) -> bool:
+    if path.parent.name.lower() in EXTRAS_DIR_NAMES:
+        return True
+    return bool(_SAMPLE_PATTERN.search(path.stem))
 
 
 @dataclass
@@ -34,7 +58,10 @@ def scan_directory(root: Path | str) -> list[ScannedFile]:
     if not root.exists():
         return []
 
-    video_paths = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS]
+    video_paths = [
+        p for p in root.rglob("*")
+        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS and not is_extra_or_sample(p)
+    ]
     subtitle_paths = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in SUBTITLE_EXTENSIONS]
 
     results: list[ScannedFile] = []

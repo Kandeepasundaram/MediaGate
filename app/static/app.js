@@ -9,6 +9,7 @@ const state = {
   movieStatusCache: {}, // tmdb_id -> MovieStatusOut (or null on failure) -- shared by gallery badges and the detail pane banner
   pendingGenreRestore: { movies: null, tv: null }, // saved genre filter value applied on the first gallery load only
   pendingYearRestore: { movies: null, tv: null }, // saved year filter value applied on the first gallery load only
+  pendingTagRestore: { movies: null, tv: null }, // saved tag filter value applied on the first gallery load only
   moviesRenderLimit: 60,
   moviesFilterSignature: "",
   tvRenderLimit: 60,
@@ -79,21 +80,110 @@ async function api(path, options = {}) {
 }
 
 // ---- Tabs ----
+function activateTab(tabName) {
+  $all(".tab-btn").forEach((b) => b.classList.remove("active"));
+  $all(".tab-panel").forEach((p) => p.classList.remove("active"));
+  $(`.tab-btn[data-tab="${tabName}"]`).classList.add("active");
+  $(`#tab-${tabName}`).classList.add("active");
+  if (tabName === "movies") loadMoviesGallery();
+  if (tabName === "tv") loadTvGallery();
+  if (tabName === "browse") loadBrowse();
+  if (tabName === "notifications") { loadNotifications(); loadUpcomingReleases(); loadTrackedList(); loadNotificationHistory(); }
+  if (tabName === "history") loadHistory();
+  if (tabName === "settings") { loadStats(); loadInsights(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); loadApiTokensList(); loadConfigHistory(); loadViewers(); }
+}
+
 function setupTabs() {
   $all(".tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      $all(".tab-btn").forEach((b) => b.classList.remove("active"));
-      $all(".tab-panel").forEach((p) => p.classList.remove("active"));
-      btn.classList.add("active");
-      $(`#tab-${btn.dataset.tab}`).classList.add("active");
-      if (btn.dataset.tab === "movies") loadMoviesGallery();
-      if (btn.dataset.tab === "tv") loadTvGallery();
-      if (btn.dataset.tab === "browse") loadBrowse();
-      if (btn.dataset.tab === "notifications") { loadNotifications(); loadTrackedList(); loadNotificationHistory(); }
-      if (btn.dataset.tab === "history") loadHistory();
-      if (btn.dataset.tab === "settings") { loadStats(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); loadApiTokensList(); }
-    });
+    btn.addEventListener("click", () => activateTab(btn.dataset.tab));
   });
+}
+
+// ---- Global search ----
+let globalSearchDebounce = null;
+
+function setupGlobalSearch() {
+  const input = $("#global-search");
+  const results = $("#global-search-results");
+  if (!input || !results) return;
+
+  input.addEventListener("input", () => {
+    const query = input.value.trim();
+    clearTimeout(globalSearchDebounce);
+    if (query.length < 2) {
+      results.classList.add("hidden");
+      results.innerHTML = "";
+      return;
+    }
+    globalSearchDebounce = setTimeout(() => runGlobalSearch(query), 250);
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".topbar-search")) results.classList.add("hidden");
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { results.classList.add("hidden"); input.blur(); }
+  });
+}
+
+async function runGlobalSearch(query) {
+  const results = $("#global-search-results");
+  try {
+    const data = await api(`/api/library/search?q=${encodeURIComponent(query)}`);
+    renderGlobalSearchResults(data.items || []);
+  } catch (e) {
+    results.innerHTML = `<div class="global-search-empty">Search failed: ${e.message}</div>`;
+    results.classList.remove("hidden");
+  }
+}
+
+function renderGlobalSearchResults(rawItems) {
+  const results = $("#global-search-results");
+  // Collapse to one row per title -- a TV show search hit returns one
+  // media_items row per episode, and the jump target is the show as a
+  // whole (jumpToGlobalSearchResult filters the TV tab by title), so
+  // showing every episode row separately would just repeat the same title.
+  const seen = new Set();
+  const items = rawItems.filter((item) => {
+    const key = `${item.media_type}:${item.title}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  if (items.length === 0) {
+    results.innerHTML = `<div class="global-search-empty">No matches</div>`;
+    results.classList.remove("hidden");
+    return;
+  }
+  results.innerHTML = items
+    .slice(0, 20)
+    .map(
+      (item) => `
+      <div class="global-search-result" data-id="${item.id}" data-type="${item.media_type}" data-title="${escapeAttr(item.title)}">
+        <span class="gsr-type">${item.media_type === "movie" ? "Movie" : "TV"}</span>
+        <span class="gsr-title">${escapeAttr(item.title)}</span>
+        <span class="gsr-year">${item.year || ""}</span>
+      </div>`
+    )
+    .join("");
+  results.classList.remove("hidden");
+
+  results.querySelectorAll(".global-search-result").forEach((row) => {
+    row.addEventListener("click", () => jumpToGlobalSearchResult(row.dataset.type, row.dataset.title));
+  });
+}
+
+function jumpToGlobalSearchResult(mediaType, title) {
+  const tab = mediaType === "movie" ? "movies" : "tv";
+  activateTab(tab);
+  const searchInput = $(`#${tab}-search`);
+  if (searchInput) {
+    searchInput.value = title;
+    searchInput.dispatchEvent(new Event("input"));
+  }
+  $("#global-search-results").classList.add("hidden");
+  $("#global-search").value = "";
 }
 
 // ---- Theme ----
@@ -143,7 +233,108 @@ function posterMarkup(title, posterPath) {
     : `<div class="gallery-poster-placeholder">${title}</div>`;
 }
 
+// Per-viewer watch state: state.activeViewerId (null = "All viewers", the
+// original single-flag behavior every other feature -- filters, Continue
+// Watching, CSV export -- still reads). When a viewer is active,
+// toggleWatched writes to that viewer's own record instead of the shared
+// media_items.watched flag, and effectiveWatched() reads it back the same
+// way. See viewers/viewer_watched_items in database.py.
+const ACTIVE_VIEWER_KEY = "media-manager:active-viewer-id";
+
+function getActiveViewerId() {
+  if (state.activeViewerId !== undefined) return state.activeViewerId;
+  try {
+    const stored = localStorage.getItem(ACTIVE_VIEWER_KEY);
+    state.activeViewerId = stored ? Number(stored) : null;
+  } catch (e) {
+    state.activeViewerId = null;
+  }
+  return state.activeViewerId;
+}
+
+function setActiveViewerId(id) {
+  state.activeViewerId = id;
+  try {
+    if (id == null) localStorage.removeItem(ACTIVE_VIEWER_KEY);
+    else localStorage.setItem(ACTIVE_VIEWER_KEY, String(id));
+  } catch (e) { /* private browsing / storage disabled -- selection just won't persist */ }
+}
+
+// Per-item watched state honoring the active viewer -- movies and
+// individual TV episode rows carry an accurate per-viewer viewer_watched
+// field from the API (see library.py::_to_out); aggregate "whole show/
+// season watched" badges are deliberately left reading the global flag
+// (see renderTvBody/groupEpisodesByShow), not recomputed per viewer.
+function effectiveWatched(item) {
+  return getActiveViewerId() != null ? !!item.viewer_watched : !!item.watched;
+}
+
+async function downloadMovieNote(itemId) {
+  const status = $("#detail-note-status");
+  status.textContent = "Generating…";
+  try {
+    const headers = {};
+    const token = getStoredApiToken();
+    if (token) headers["X-API-Token"] = token;
+    const resp = await fetch(`/api/library/${itemId}/note`, { headers });
+    if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text().catch(() => resp.statusText)}`);
+    const filename = parseDownloadFilename(resp.headers.get("Content-Disposition"), "movie-note.md");
+    const text = await resp.text();
+    downloadTextFile(filename, text, "text/markdown;charset=utf-8;");
+    status.textContent = "";
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function saveMovieNote(itemId) {
+  const status = $("#detail-note-status");
+  status.textContent = "Saving…";
+  try {
+    const data = await api(`/api/library/${itemId}/note/save`, { method: "POST" });
+    status.textContent = `Saved to ${data.path}`;
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function downloadTvNote(tmdbId) {
+  const status = $("#detail-note-status");
+  status.textContent = "Generating…";
+  try {
+    const headers = {};
+    const token = getStoredApiToken();
+    if (token) headers["X-API-Token"] = token;
+    const resp = await fetch(`/api/library/tv-shows/${tmdbId}/note`, { headers });
+    if (!resp.ok) throw new Error(`${resp.status}: ${await resp.text().catch(() => resp.statusText)}`);
+    const filename = parseDownloadFilename(resp.headers.get("Content-Disposition"), "show-note.md");
+    const text = await resp.text();
+    downloadTextFile(filename, text, "text/markdown;charset=utf-8;");
+    status.textContent = "";
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function saveTvNote(tmdbId) {
+  const status = $("#detail-note-status");
+  status.textContent = "Saving…";
+  try {
+    const data = await api(`/api/library/tv-shows/${tmdbId}/note/save`, { method: "POST" });
+    status.textContent = `Saved to ${data.path}`;
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
 async function toggleWatched(itemId, watched) {
+  const viewerId = getActiveViewerId();
+  if (viewerId != null) {
+    return api(`/api/library/${itemId}/watched-by/${viewerId}`, {
+      method: "POST",
+      body: JSON.stringify({ watched }),
+    });
+  }
   return api(`/api/library/${itemId}/watched`, {
     method: "POST",
     body: JSON.stringify({ watched }),
@@ -158,7 +349,10 @@ function wireWatchedToggles(container, items) {
         await toggleWatched(Number(input.dataset.id), input.checked);
         if (items) {
           const item = items.find((i) => i.id === Number(input.dataset.id));
-          if (item) item.watched = input.checked;
+          if (item) {
+            if (getActiveViewerId() != null) item.viewer_watched = input.checked;
+            else item.watched = input.checked;
+          }
         }
         setWatchedBadge(input.closest(".gallery-card"), input.checked);
       } catch (e) {
@@ -255,10 +449,11 @@ function matchesAddedWithin(item, addedFilter) {
 }
 
 function filterAndSort(items, opts) {
-  const { query, sortMode, titleKey, filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter } = opts;
+  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter } = opts;
   let out = items;
   if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
   if (genreFilter) out = out.filter((i) => (i.genres || []).includes(genreFilter));
+  if (tagFilter) out = out.filter((i) => (i.tags || []).includes(tagFilter));
   if (resolutionFilter) out = out.filter((i) => matchesResolution(i, resolutionFilter));
   if (watchFilter) out = out.filter((i) => matchesWatch(i, watchFilter));
   if (yearFilter) out = out.filter((i) => String(i.year) === yearFilter);
@@ -308,16 +503,18 @@ function setupFilterPersistence() {
   const savedMovies = restoreFilterState("movies", MOVIE_FILTER_IDS);
   state.pendingGenreRestore.movies = savedMovies["movies-genre"] || null;
   state.pendingYearRestore.movies = savedMovies["movies-year"] || null;
+  state.pendingTagRestore.movies = savedMovies["movies-tag"] || null;
   const savedTv = restoreFilterState("tv", TV_FILTER_IDS);
   state.pendingGenreRestore.tv = savedTv["tv-genre"] || null;
   state.pendingYearRestore.tv = savedTv["tv-year"] || null;
+  state.pendingTagRestore.tv = savedTv["tv-tag"] || null;
 
-  const movieIds = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year"];
+  const movieIds = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year", "movies-tag"];
   movieIds.forEach((id) => {
     const el = document.getElementById(id);
     el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("movies", movieIds));
   });
-  const tvIds = [...TV_FILTER_IDS, "tv-genre", "tv-year"];
+  const tvIds = [...TV_FILTER_IDS, "tv-genre", "tv-year", "tv-tag"];
   tvIds.forEach((id) => {
     const el = document.getElementById(id);
     el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("tv", tvIds));
@@ -334,6 +531,16 @@ function populateGenreOptions(selectEl, items, previousValue) {
   if (previousValue && genres.includes(previousValue)) selectEl.value = previousValue;
 }
 
+function distinctTags(items) {
+  return Array.from(new Set(items.flatMap((i) => i.tags || []))).sort();
+}
+
+function populateTagOptions(selectEl, items, previousValue) {
+  const tags = distinctTags(items);
+  selectEl.innerHTML = `<option value="">All tags</option>` + tags.map((t) => `<option value="${escapeAttr(t)}">${escapeAttr(t)}</option>`).join("");
+  if (previousValue && tags.includes(previousValue)) selectEl.value = previousValue;
+}
+
 function distinctYears(items) {
   return Array.from(new Set(items.map((i) => i.year).filter((y) => y != null))).sort((a, b) => b - a);
 }
@@ -342,6 +549,21 @@ function populateYearOptions(selectEl, items, previousValue) {
   const years = distinctYears(items);
   selectEl.innerHTML = `<option value="">All years</option>` + years.map((y) => `<option value="${y}">${y}</option>`).join("");
   if (previousValue && years.includes(Number(previousValue))) selectEl.value = previousValue;
+}
+
+async function refreshMetadataBatch(ids, statusEl) {
+  if (ids.length === 0) return;
+  if (statusEl) statusEl.textContent = "Refreshing metadata…";
+  try {
+    const data = await api("/api/library/refresh-metadata", { method: "POST", body: JSON.stringify({ ids }) });
+    if (statusEl) {
+      statusEl.textContent = data.failed > 0
+        ? `Refreshed ${data.updated}, ${data.failed} failed (unmatched or TMDB lookup failed).`
+        : `Refreshed ${data.updated} item(s).`;
+    }
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Error: ${e.message}`;
+  }
 }
 
 async function markWatchedBatch(ids, watched) {
@@ -355,13 +577,14 @@ function renderMoviesGallery() {
   const sortMode = $("#movies-sort").value;
   const filterMode = $("#movies-filter").value;
   const genreFilter = $("#movies-genre").value;
+  const tagFilter = $("#movies-tag").value;
   const resolutionFilter = $("#movies-resolution").value;
   const watchFilter = $("#movies-watch").value;
   const yearFilter = $("#movies-year").value;
   const ratingFilter = $("#movies-rating").value;
   const addedFilter = $("#movies-added").value;
-  const items = filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter });
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
+  const items = filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter });
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
@@ -380,7 +603,7 @@ function renderMoviesGallery() {
       <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
       <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
         ${(item.tmdb_id == null && !item.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
-        ${item.watched ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
+        ${effectiveWatched(item) ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
         ${mediaBadges(item)}
       </div>
       ${posterMarkup(item.title, item.poster_path)}
@@ -389,7 +612,7 @@ function renderMoviesGallery() {
         <div class="gallery-meta">
           <span>${item.year || ""}${item.vote_average ? ` · ★ ${item.vote_average.toFixed(1)}` : ""}</span>
           <label class="watched-toggle">
-            <input type="checkbox" data-id="${item.id}" ${item.watched ? "checked" : ""}>
+            <input type="checkbox" data-id="${item.id}" ${effectiveWatched(item) ? "checked" : ""}>
             Watched
           </label>
         </div>
@@ -417,8 +640,8 @@ function rowsToCsv(header, rows) {
   return [header, ...rows].map((row) => row.map(csvEscape).join(",")).join("\r\n");
 }
 
-function downloadCsv(filename, csvText) {
-  const blob = new Blob([csvText], { type: "text/csv;charset=utf-8;" });
+function downloadTextFile(filename, text, mimeType) {
+  const blob = new Blob([text], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -429,6 +652,26 @@ function downloadCsv(filename, csvText) {
   URL.revokeObjectURL(url);
 }
 
+function downloadCsv(filename, csvText) {
+  downloadTextFile(filename, csvText, "text/csv;charset=utf-8;");
+}
+
+// Prefers the RFC 5987 filename*=UTF-8''... part of a Content-Disposition
+// header (the real name, e.g. with an en dash or accented character) over
+// the plain filename="..." part (an ASCII-safe fallback the server sends
+// alongside it -- see library.py::_content_disposition) -- otherwise a
+// title with any non-ASCII character would download named with literal
+// "?" placeholders instead of the real characters.
+function parseDownloadFilename(disposition, fallback) {
+  if (!disposition) return fallback;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try { return decodeURIComponent(utf8Match[1]); } catch (e) { /* fall through to the plain name */ }
+  }
+  const plainMatch = disposition.match(/filename="([^"]+)"/);
+  return plainMatch ? plainMatch[1] : fallback;
+}
+
 function currentMovieFilters() {
   return {
     query: $("#movies-search").value.trim(),
@@ -436,6 +679,7 @@ function currentMovieFilters() {
     titleKey: "title",
     filterMode: $("#movies-filter").value,
     genreFilter: $("#movies-genre").value,
+    tagFilter: $("#movies-tag").value,
     resolutionFilter: $("#movies-resolution").value,
     watchFilter: $("#movies-watch").value,
     yearFilter: $("#movies-year").value,
@@ -451,6 +695,7 @@ function currentTvFilters() {
     titleKey: "title",
     filterMode: $("#tv-filter").value,
     genreFilter: $("#tv-genre").value,
+    tagFilter: $("#tv-tag").value,
     resolutionFilter: $("#tv-resolution").value,
     watchFilter: $("#tv-watch").value,
     yearFilter: $("#tv-year").value,
@@ -461,21 +706,21 @@ function currentTvFilters() {
 
 function exportMoviesView() {
   const items = filterAndSort(state.movieItems, currentMovieFilters());
-  const header = ["Title", "Year", "Rating", "Resolution", "Watched", "Genres", "TMDB ID", "Path"];
+  const header = ["Title", "Year", "Rating", "Resolution", "Watched", "Genres", "Tags", "TMDB ID", "Path"];
   const rows = items.map((i) => [
     i.title, i.year ?? "", i.vote_average ?? "", i.resolution ?? "",
-    i.watched ? "yes" : "no", (i.genres || []).join("; "), i.tmdb_id ?? "", i.final_path ?? "",
+    i.watched ? "yes" : "no", (i.genres || []).join("; "), (i.tags || []).join("; "), i.tmdb_id ?? "", i.final_path ?? "",
   ]);
   downloadCsv(`movies-export-${new Date().toISOString().slice(0, 10)}.csv`, rowsToCsv(header, rows));
 }
 
 function exportTvView() {
   const shows = filterAndSort(groupEpisodesByShow(state.tvItems), currentTvFilters());
-  const header = ["Show", "Year", "Rating", "Season", "Episode", "Episode Title", "Resolution", "Watched", "Genres", "TMDB ID", "Path"];
+  const header = ["Show", "Year", "Rating", "Season", "Episode", "Episode Title", "Resolution", "Watched", "Genres", "Tags", "TMDB ID", "Path"];
   const rows = shows.flatMap((show) => show.episodes.map((ep) => [
     show.title, show.year ?? "", show.vote_average ?? "", ep.season_number ?? "", ep.episode_number ?? "",
     ep.episode_title ?? "", ep.resolution ?? "", ep.watched ? "yes" : "no",
-    (show.genres || []).join("; "), show.tmdb_id ?? "", ep.final_path ?? "",
+    (show.genres || []).join("; "), (show.tags || []).join("; "), show.tmdb_id ?? "", ep.final_path ?? "",
   ]));
   downloadCsv(`tv-export-${new Date().toISOString().slice(0, 10)}.csv`, rowsToCsv(header, rows));
 }
@@ -547,16 +792,21 @@ async function loadMoviesGallery() {
   const gallery = $("#movies-gallery");
   gallery.innerHTML = "Loading...";
   try {
-    const data = await api("/api/library/movies");
+    const viewerId = getActiveViewerId();
+    const data = await api(`/api/library/movies${viewerId != null ? `?viewer_id=${viewerId}` : ""}`);
     state.movieItems = data.items;
     const previousGenre = state.pendingGenreRestore.movies ?? $("#movies-genre").value;
     state.pendingGenreRestore.movies = null;
     populateGenreOptions($("#movies-genre"), state.movieItems, previousGenre);
+    const previousTag = state.pendingTagRestore.movies ?? $("#movies-tag").value;
+    state.pendingTagRestore.movies = null;
+    populateTagOptions($("#movies-tag"), state.movieItems, previousTag);
     const previousYear = state.pendingYearRestore.movies ?? $("#movies-year").value;
     state.pendingYearRestore.movies = null;
     populateYearOptions($("#movies-year"), state.movieItems, previousYear);
     checkBackfillProgress("movie", "movies", loadMoviesGallery);
     renderMoviesGallery();
+    loadRecommendations("movie", "movies-recommendations-row", "movies-recommendations-cards");
   } catch (e) {
     gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
   }
@@ -569,7 +819,7 @@ function groupEpisodesByShow(items) {
     if (!shows.has(key)) {
       shows.set(key, {
         title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview,
-        manual_override: item.manual_override, vote_average: item.vote_average, genres: item.genres, year: item.year, episodes: [],
+        manual_override: item.manual_override, vote_average: item.vote_average, genres: item.genres, tags: item.tags, year: item.year, episodes: [],
       });
     }
     shows.get(key).episodes.push(item);
@@ -582,20 +832,118 @@ function groupEpisodesByShow(items) {
   return Array.from(shows.values());
 }
 
+// A show is "in progress" (not "not started", not "finished") when its
+// sorted episode list has at least one watched episode before the first
+// unwatched one -- episodes are pre-sorted by season/episode in
+// groupEpisodesByShow, so the first unwatched entry is the true "next up"
+// regardless of watch order the user actually clicked them in.
+function computeUpNext(shows) {
+  return shows
+    .map((show) => {
+      const nextIndex = show.episodes.findIndex((e) => !e.watched);
+      if (nextIndex <= 0) return null; // -1: fully watched; 0: not started yet
+      return { show, nextEpisode: show.episodes[nextIndex], watchedCount: nextIndex, totalCount: show.episodes.length };
+    })
+    .filter(Boolean);
+}
+
+function renderContinueWatching(allShows) {
+  const row = $("#continue-watching-row");
+  const cards = $("#continue-watching-cards");
+  if (!row || !cards) return;
+
+  const upNext = computeUpNext(allShows);
+  if (upNext.length === 0) {
+    row.classList.add("hidden");
+    cards.innerHTML = "";
+    return;
+  }
+  row.classList.remove("hidden");
+  cards.innerHTML = upNext.map(({ show, nextEpisode, watchedCount, totalCount }, i) => `
+    <div class="continue-watching-card" data-up-next-index="${i}">
+      ${posterMarkup(show.title, show.poster_path)}
+      <div class="continue-watching-info">
+        <div class="gallery-title" title="${show.title}">${show.title}</div>
+        <div class="gallery-meta">S${nextEpisode.season_number}E${nextEpisode.episode_number}${nextEpisode.episode_title ? ` — ${nextEpisode.episode_title}` : ""}</div>
+        <div class="hint">${watchedCount} of ${totalCount} watched</div>
+      </div>
+    </div>
+  `).join("");
+  cards.querySelectorAll(".continue-watching-card").forEach((card, i) => {
+    card.addEventListener("click", () => {
+      const { show, nextEpisode } = upNext[i];
+      openDetailPane("tv", show);
+      state.detailPane.selectedSeason = nextEpisode.season_number;
+      renderTvBody();
+    });
+  });
+}
+
+// "Recommended for You" row shared by Movies and TV tabs -- pulls
+// GET /api/library/recommendations (TMDB "similar" results pooled across
+// recently-archived titles, already-owned candidates excluded server-side)
+// and renders it as a horizontal row with a one-click "+ Track" per card,
+// same interaction shape as Continue Watching.
+async function loadRecommendations(mediaType, rowId, cardsId) {
+  const row = $(`#${rowId}`);
+  const cards = $(`#${cardsId}`);
+  if (!row || !cards) return;
+  try {
+    const data = await api(`/api/library/recommendations?media_type=${mediaType}`);
+    if (!data.tmdb_configured || data.items.length === 0) {
+      row.classList.add("hidden");
+      cards.innerHTML = "";
+      return;
+    }
+    row.classList.remove("hidden");
+    cards.innerHTML = data.items.map((item) => `
+      <div class="continue-watching-card">
+        ${posterMarkup(item.title, item.poster_path)}
+        <div class="continue-watching-info">
+          <div class="gallery-title" title="${escapeAttr(item.title)}">${escapeAttr(item.title)}</div>
+          <div class="hint">${item.year || ""}</div>
+          <button class="recommendation-track-btn" data-tmdb-id="${item.tmdb_id}" data-title="${escapeAttr(item.title)}">+ Track</button>
+        </div>
+      </div>
+    `).join("");
+    cards.querySelectorAll(".recommendation-track-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.textContent = "Tracking…";
+        try {
+          await api("/api/tracker/add", {
+            method: "POST",
+            body: JSON.stringify({ tmdb_id: Number(btn.dataset.tmdbId), media_type: mediaType, title: btn.dataset.title }),
+          });
+          btn.textContent = "Tracked ✓";
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = "+ Track";
+        }
+      });
+    });
+  } catch (e) {
+    row.classList.add("hidden");
+    cards.innerHTML = "";
+  }
+}
+
 function renderTvGallery() {
   const gallery = $("#tv-gallery");
   const query = $("#tv-search").value.trim();
   const sortMode = $("#tv-sort").value;
   const filterMode = $("#tv-filter").value;
   const genreFilter = $("#tv-genre").value;
+  const tagFilter = $("#tv-tag").value;
   const resolutionFilter = $("#tv-resolution").value;
   const watchFilter = $("#tv-watch").value;
   const yearFilter = $("#tv-year").value;
   const ratingFilter = $("#tv-rating").value;
   const addedFilter = $("#tv-added").value;
   const allShows = groupEpisodesByShow(state.tvItems);
-  const shows = filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter });
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
+  renderContinueWatching(allShows);
+  const shows = filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter });
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
@@ -656,16 +1004,21 @@ async function loadTvGallery() {
   const gallery = $("#tv-gallery");
   gallery.innerHTML = "Loading...";
   try {
-    const data = await api("/api/library/tv");
+    const viewerId = getActiveViewerId();
+    const data = await api(`/api/library/tv${viewerId != null ? `?viewer_id=${viewerId}` : ""}`);
     state.tvItems = data.items;
     const previousGenre = state.pendingGenreRestore.tv ?? $("#tv-genre").value;
     state.pendingGenreRestore.tv = null;
     populateGenreOptions($("#tv-genre"), state.tvItems, previousGenre);
+    const previousTag = state.pendingTagRestore.tv ?? $("#tv-tag").value;
+    state.pendingTagRestore.tv = null;
+    populateTagOptions($("#tv-tag"), state.tvItems, previousTag);
     const previousYear = state.pendingYearRestore.tv ?? $("#tv-year").value;
     state.pendingYearRestore.tv = null;
     populateYearOptions($("#tv-year"), state.tvItems, previousYear);
     checkBackfillProgress("tv", "tv", loadTvGallery);
     renderTvGallery();
+    loadRecommendations("tv", "tv-recommendations-row", "tv-recommendations-cards");
   } catch (e) {
     gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
   }
@@ -688,9 +1041,10 @@ function renderDetailPane() {
       <div class="detail-title">${item.title}</div>
       <div class="detail-year">${item.year || ""}</div>
       <label class="watched-toggle">
-        <input type="checkbox" id="detail-watched-toggle" data-id="${item.id}" ${item.watched ? "checked" : ""}>
-        Watched
+        <input type="checkbox" id="detail-watched-toggle" data-id="${item.id}" ${effectiveWatched(item) ? "checked" : ""}>
+        Watched${getActiveViewerId() != null ? ` (${escapeAttr(state.viewers?.find((v) => v.id === getActiveViewerId())?.name || "viewer")})` : ""}
       </label>
+      ${detailTagsMarkup(item.tags)}
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
       <p class="detail-overview">${item.overview || "No overview available."}</p>
@@ -701,12 +1055,20 @@ function renderDetailPane() {
         <div class="detail-file-row"><span>Path</span><span class="detail-file-value" title="${item.final_path || ""}">${item.final_path || "—"}</span></div>
         <div id="detail-file-extra" class="hint">Loading file details…</div>
       </div>
+      <div class="detail-note-actions">
+        <button id="detail-note-download-btn">Download Note (.md)</button>
+        <button id="detail-note-save-btn">Save Note to Movie Folder</button>
+        <span id="detail-note-status" class="hint"></span>
+      </div>
       ${detailFixMarkup()}
     `;
+    $("#detail-note-download-btn").addEventListener("click", () => downloadMovieNote(item.id));
+    $("#detail-note-save-btn").addEventListener("click", () => saveMovieNote(item.id));
     $("#detail-watched-toggle").addEventListener("change", async (e) => {
       try {
         await toggleWatched(item.id, e.target.checked);
-        item.watched = e.target.checked;
+        if (getActiveViewerId() != null) item.viewer_watched = e.target.checked;
+        else item.watched = e.target.checked;
         renderMoviesGallery(); // syncs the same checkbox shown on the gallery card
       } catch (err) {
         e.target.checked = !e.target.checked;
@@ -717,6 +1079,7 @@ function renderDetailPane() {
     loadMoreInfo(item.id);
     loadFileInfo(item.id, "#detail-file-extra");
     if (item.tmdb_id != null) loadMovieStatus(item.tmdb_id);
+    wireDetailTags([item.id], (tags) => { item.tags = tags; renderMoviesGallery(); });
   } else {
     const show = pane.data;
     content.innerHTML = `
@@ -725,18 +1088,35 @@ function renderDetailPane() {
       ${posterMarkupLarge(show.title, show.poster_path)}
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
+      ${detailTagsMarkup(show.tags)}
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
       <p class="detail-overview">${show.overview || "No overview available."}</p>
       <div id="detail-more-info"></div>
       <div id="detail-tv-body"></div>
+      ${show.tmdb_id != null ? `
+        <div class="detail-note-actions">
+          <button id="detail-note-download-btn">Download Note (.md)</button>
+          <button id="detail-note-save-btn">Save Note to Show Folder</button>
+          <span id="detail-note-status" class="hint"></span>
+        </div>
+      ` : `<p class="hint">Notes need a TMDB match first.</p>`}
       ${detailFixMarkup()}
     `;
+    if (show.tmdb_id != null) {
+      $("#detail-note-download-btn").addEventListener("click", () => downloadTvNote(show.tmdb_id));
+      $("#detail-note-save-btn").addEventListener("click", () => saveTvNote(show.tmdb_id));
+    }
     renderTvBody();
     loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
     loadTrailer(show.episodes[0].id);
     loadMoreInfo(show.episodes[0].id);
     if (show.tmdb_id != null) loadTvStatus(show.tmdb_id, show.episodes);
+    wireDetailTags(show.episodes.map((e) => e.id), (tags) => {
+      show.tags = tags;
+      show.episodes.forEach((e) => { e.tags = tags; });
+      renderTvGallery();
+    });
   }
 
   wireDetailFix();
@@ -786,7 +1166,7 @@ function renderTvBody() {
           <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
           <span class="detail-ep-file hint" title="${ep.file_name || ""}">${(pane.nameMode === "episode" && ep.episode_title) ? ep.episode_title : (ep.file_name || "")}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
           <label class="watched-toggle">
-            <input type="checkbox" class="detail-ep-watched" data-id="${ep.id}" ${ep.watched ? "checked" : ""}>
+            <input type="checkbox" class="detail-ep-watched" data-id="${ep.id}" ${effectiveWatched(ep) ? "checked" : ""}>
             Watched
           </label>
           <button class="ep-details-btn" data-id="${ep.id}">Details</button>
@@ -850,7 +1230,10 @@ function renderTvBody() {
       try {
         await toggleWatched(Number(input.dataset.id), input.checked);
         const ep = show.episodes.find((e) => e.id === Number(input.dataset.id));
-        if (ep) ep.watched = input.checked;
+        if (ep) {
+          if (getActiveViewerId() != null) ep.viewer_watched = input.checked;
+          else ep.watched = input.checked;
+        }
         renderTvBody(); // keeps the "Mark Season Watched" button label in sync
         renderTvGallery(); // keeps the gallery card's "all watched" badge in sync
       } catch (err) {
@@ -914,22 +1297,50 @@ function computeTvStatusInfo(status, episodes) {
   };
 }
 
+// Per-season gap detector: unlike computeTvStatusInfo (which only flags the
+// latest season), this diffs every season TMDB knows about against what's
+// actually archived -- catches a hole left in an already-"complete" earlier
+// season (e.g. S1E1-E2,E4 archived, E3 never downloaded), which a
+// max-season/count-only check would never surface.
+function computeMissingEpisodes(status, episodes) {
+  if (!status || !status.data_available || !status.seasons || status.seasons.length === 0) return [];
+  const ownedBySeason = new Map();
+  episodes.forEach((e) => ownedBySeason.set(e.season_number, (ownedBySeason.get(e.season_number) || 0) + 1));
+
+  return status.seasons
+    .map((s) => ({
+      season: s.season_number,
+      owned: ownedBySeason.get(s.season_number) || 0,
+      expected: s.episode_count,
+    }))
+    .filter((s) => s.owned > 0 && s.expected > s.owned) // only seasons already started -- an unstarted season is "not archived yet", not a gap
+    .map((s) => ({ ...s, missing: s.expected - s.owned }));
+}
+
 async function loadTvStatus(tmdbId, episodes) {
   const el = $("#detail-tv-status");
   if (!el) return;
   const status = await getTvStatus(tmdbId);
   const info = computeTvStatusInfo(status, episodes);
-  if (!info) {
+  const missingEpisodes = computeMissingEpisodes(status, episodes);
+  if (!info && missingEpisodes.length === 0) {
     el.innerHTML = "";
     return;
   }
-  const fraction = info.totalEpisodes != null
-    ? `${info.totalArchived} of ${info.totalEpisodes} episodes archived`
-    : `${info.totalArchived} episode(s) archived`;
-  const parts = info.hasGap ? [info.gapMessage, fraction] : [fraction];
-  const cls = info.hasGap ? "status-banner" : "status-banner status-banner-ok";
-  const icon = info.hasGap ? "📺" : "✅";
-  el.innerHTML = `<div class="${cls}">${icon} ${parts.join(" · ")}${info.statusLabel ? ` <span class="hint">(${info.statusLabel})</span>` : ""}</div>`;
+  let bannerHtml = "";
+  if (info) {
+    const fraction = info.totalEpisodes != null
+      ? `${info.totalArchived} of ${info.totalEpisodes} episodes archived`
+      : `${info.totalArchived} episode(s) archived`;
+    const parts = info.hasGap ? [info.gapMessage, fraction] : [fraction];
+    const cls = info.hasGap ? "status-banner" : "status-banner status-banner-ok";
+    const icon = info.hasGap ? "📺" : "✅";
+    bannerHtml = `<div class="${cls}">${icon} ${parts.join(" · ")}${info.statusLabel ? ` <span class="hint">(${info.statusLabel})</span>` : ""}</div>`;
+  }
+  const missingHtml = missingEpisodes.length > 0
+    ? `<div class="status-banner missing-episodes">🕳️ Missing episodes: ${missingEpisodes.map((s) => `Season ${s.season} (${s.missing} missing)`).join(", ")}</div>`
+    : "";
+  el.innerHTML = bannerHtml + missingHtml;
 }
 
 // GET /api/library/movie-status, memoized like getTvStatus.
@@ -1125,6 +1536,45 @@ function posterMarkupLarge(title, posterPath) {
   return url
     ? `<img class="detail-poster" src="${url}" alt="${title}">`
     : `<div class="detail-poster-placeholder">${title}</div>`;
+}
+
+function detailTagsMarkup(tags) {
+  return `
+    <div class="detail-tags">
+      <div class="detail-tags-chips">
+        ${(tags || []).map((t) => `<span class="tag-chip">${escapeAttr(t)}</span>`).join("") || `<span class="hint">No tags</span>`}
+      </div>
+      <div class="detail-tags-edit">
+        <input type="text" id="detail-tags-input" placeholder="comma, separated, tags" value="${escapeAttr((tags || []).join(", "))}">
+        <button id="detail-tags-save-btn">Save Tags</button>
+      </div>
+      <span id="detail-tags-error" class="hint"></span>
+    </div>
+  `;
+}
+
+function wireDetailTags(ids, onSaved) {
+  const btn = $("#detail-tags-save-btn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const raw = $("#detail-tags-input").value;
+    const tags = Array.from(new Set(raw.split(",").map((t) => t.trim()).filter(Boolean)));
+    const errorEl = $("#detail-tags-error");
+    btn.disabled = true;
+    errorEl.textContent = "";
+    try {
+      for (const id of ids) {
+        await api(`/api/library/${id}/tags`, { method: "POST", body: JSON.stringify({ tags }) });
+      }
+      const chips = $(".detail-tags-chips");
+      if (chips) chips.innerHTML = tags.map((t) => `<span class="tag-chip">${escapeAttr(t)}</span>`).join("") || `<span class="hint">No tags</span>`;
+      onSaved(tags);
+    } catch (e) {
+      errorEl.textContent = `Failed to save tags: ${e.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 function detailFixMarkup() {
@@ -1369,10 +1819,32 @@ async function scanAndPreview() {
   }
 }
 
+// Season-pack grouping: episodes of the same show+season that landed
+// *contiguously* in the list (the common case -- files from one extracted
+// pack folder sort together) get a shared header row with a "select whole
+// pack" checkbox, instead of looking like N unrelated rows. Not a full
+// re-sort/re-group across the whole table: interleaved episodes from
+// different imports stay as plain rows rather than being silently
+// reordered out from under their original index.
+function contiguousPreviewGroups(items) {
+  const groups = [];
+  let current = null;
+  items.forEach((item, i) => {
+    const key = item.media_type === "tv" && item.season != null ? `${item.title}::${item.season}` : null;
+    if (key && current && current.key === key) {
+      current.indices.push(i);
+    } else {
+      current = { key, indices: [i] };
+      groups.push(current);
+    }
+  });
+  return groups;
+}
+
 function renderArchiveTable(items) {
   const tbody = $("#archive-table tbody");
   const checkedBefore = $all(".row-check").map((cb) => cb.checked);
-  tbody.innerHTML = items.map((item, i) => `
+  const rowHtml = (item, i) => `
     <tr>
       <td><input type="checkbox" class="row-check" data-index="${i}" ${checkedBefore[i] === false ? "" : "checked"}></td>
       <td>${item.duplicate ? `<span class="duplicate-badge" title="A matching title already exists in the library">⚠</span>` : ""}</td>
@@ -1383,9 +1855,29 @@ function renderArchiveTable(items) {
       <td title="${item.overview}">${item.overview.slice(0, 80)}</td>
       <td><button class="change-match-btn" data-index="${i}">Change Match</button></td>
     </tr>
-  `).join("");
+  `;
+  tbody.innerHTML = contiguousPreviewGroups(items).map((group) => {
+    const rows = group.indices.map((i) => rowHtml(items[i], i)).join("");
+    if (!group.key || group.indices.length < 2) return rows;
+    const first = items[group.indices[0]];
+    return `
+      <tr class="season-pack-header-row">
+        <td><input type="checkbox" class="season-pack-select" data-indices="${group.indices.join(",")}" checked></td>
+        <td colspan="7">Season Pack: ${escapeAttr(first.title)} — Season ${first.season} (${group.indices.length} episodes)</td>
+      </tr>
+    ` + rows;
+  }).join("");
   $all(".change-match-btn").forEach((btn) => {
     btn.addEventListener("click", () => openMatchPicker(Number(btn.dataset.index)));
+  });
+  $all(".season-pack-select").forEach((groupCb) => {
+    groupCb.addEventListener("change", () => {
+      const indices = groupCb.dataset.indices.split(",");
+      indices.forEach((i) => {
+        const rowCb = $(`.row-check[data-index="${i}"]`);
+        if (rowCb) rowCb.checked = groupCb.checked;
+      });
+    });
   });
 
   // Movies: the folder shares the file's base name by convention
@@ -1781,6 +2273,33 @@ function openDuplicatesModal() {
   $("#duplicates-modal").classList.remove("hidden");
 }
 
+// Best in a duplicate group = highest resolution, then HDR, then more audio
+// channels, then bigger file -- a reasonable "which copy would I keep"
+// default the group's own "Keep Best" button can act on in one click,
+// without needing a per-file ffprobe/codec fetch just to rank duplicates.
+const RESOLUTION_RANK = { "4K": 4, "1080p": 3, "720p": 2, "SD": 1 };
+
+function duplicateQualityRank(item) {
+  return [
+    RESOLUTION_RANK[item.resolution] || 0,
+    item.hdr ? 1 : 0,
+    item.audio_channels || 0,
+    item.size_bytes || 0,
+  ];
+}
+
+function bestDuplicateIndex(group) {
+  let bestIndex = 0;
+  for (let i = 1; i < group.length; i++) {
+    const a = duplicateQualityRank(group[i]);
+    const b = duplicateQualityRank(group[bestIndex]);
+    for (let d = 0; d < a.length; d++) {
+      if (a[d] !== b[d]) { if (a[d] > b[d]) bestIndex = i; break; }
+    }
+  }
+  return bestIndex;
+}
+
 function renderDuplicatesList() {
   const groups = state.libraryDuplicates || [];
   const container = $("#duplicates-list");
@@ -1788,18 +2307,23 @@ function renderDuplicatesList() {
     container.innerHTML = "<p>No duplicate groups remaining.</p>";
     return;
   }
-  container.innerHTML = groups.map((group) => {
+  container.innerHTML = groups.map((group, groupIndex) => {
     const first = group[0];
     const label = first.media_type === "tv" && first.season_number != null
       ? `${first.title} S${String(first.season_number).padStart(2, "0")}E${String(first.episode_number).padStart(2, "0")}`
       : `${first.title}${first.year ? ` (${first.year})` : ""}`;
+    const bestIndex = bestDuplicateIndex(group);
     return `
       <div class="duplicate-group">
-        <h4>${label}</h4>
-        ${group.map((item) => `
-          <div class="duplicate-row">
+        <div class="duplicate-group-header">
+          <h4>${label}</h4>
+          <button class="duplicate-keep-best-btn" data-group-index="${groupIndex}">Keep Best, Delete Others</button>
+        </div>
+        ${group.map((item, i) => `
+          <div class="duplicate-row ${i === bestIndex ? "duplicate-row-best" : ""}">
+            ${i === bestIndex ? `<span class="badge badge-ok" title="Highest resolution/HDR/audio/size in this group">★ Best</span>` : ""}
             <span class="duplicate-row-path" title="${item.final_path || ""}">${item.final_path || "(no file)"}</span>
-            <span class="hint">${formatBytes(item.size_bytes)}${item.resolution ? ` · ${item.resolution}` : ""}</span>
+            <span class="hint">${formatBytes(item.size_bytes)}${item.resolution ? ` · ${item.resolution}` : ""}${item.hdr ? " · HDR" : ""}${item.audio_channels ? ` · ${item.audio_channels}ch` : ""}</span>
             <button class="danger duplicate-delete-btn" data-path="${item.final_path || ""}">Delete This Copy</button>
           </div>
         `).join("")}
@@ -1809,6 +2333,27 @@ function renderDuplicatesList() {
   container.querySelectorAll(".duplicate-delete-btn").forEach((btn) => {
     btn.addEventListener("click", () => deleteDuplicateCopy(btn.dataset.path));
   });
+  container.querySelectorAll(".duplicate-keep-best-btn").forEach((btn) => {
+    btn.addEventListener("click", () => keepBestDuplicate(groups[Number(btn.dataset.groupIndex)]));
+  });
+}
+
+async function keepBestDuplicate(group) {
+  const bestIndex = bestDuplicateIndex(group);
+  const toDelete = group.filter((_, i) => i !== bestIndex).map((item) => item.final_path).filter(Boolean);
+  if (toDelete.length === 0) return;
+  const ok = await showConfirm(`Keep "${group[bestIndex].final_path}" and permanently delete the other ${toDelete.length} copy/copies? This cannot be undone.`);
+  if (!ok) return;
+  try {
+    const data = await api("/api/library/delete-batch", { method: "POST", body: JSON.stringify({ paths: toDelete }) });
+    await loadLibraryHealth();
+    renderDuplicatesList();
+    loadMoviesGallery();
+    loadTvGallery();
+    if (data.errors.length) $("#duplicates-list").insertAdjacentHTML("afterbegin", `<p>${data.errors.length} deletion(s) failed: ${data.errors.join("; ")}</p>`);
+  } catch (e) {
+    $("#duplicates-list").insertAdjacentHTML("afterbegin", `<p>Error: ${e.message}</p>`);
+  }
 }
 
 async function deleteDuplicateCopy(path) {
@@ -1938,6 +2483,28 @@ async function loadNotifications() {
     });
   } catch (e) {
     container.innerHTML = `<p>Error loading notifications: ${e.message}</p>`;
+  }
+}
+
+async function loadUpcomingReleases() {
+  const container = $("#upcoming-releases-list");
+  container.innerHTML = "Loading...";
+  try {
+    const data = await api("/api/tracker/upcoming");
+    if (data.items.length === 0) {
+      container.innerHTML = "<p>Nothing due in the next 90 days.</p>";
+      return;
+    }
+    container.innerHTML = data.items.map((i) => `
+      <div class="notification-item">
+        <div>
+          <strong>${i.title}</strong>
+          <div>${i.label} — ${i.release_date}</div>
+        </div>
+      </div>
+    `).join("");
+  } catch (e) {
+    container.innerHTML = `<p>Error loading upcoming releases: ${e.message}</p>`;
   }
 }
 
@@ -2084,12 +2651,24 @@ function pollNewFiles() {
 }
 
 // ---- History tab ----
+function currentHistoryFilterParams() {
+  const params = new URLSearchParams();
+  const type = $("#history-type-filter").value;
+  const status = $("#history-status-filter").value;
+  const since = $("#history-since-filter").value;
+  const until = $("#history-until-filter").value;
+  if (type) params.set("operation_type", type);
+  if (status) params.set("status", status);
+  if (since) params.set("since", since);
+  if (until) params.set("until", `${until}T23:59:59`); // inclusive of the whole day
+  return params;
+}
+
 async function loadHistory() {
   const tbody = $("#history-table tbody");
   tbody.innerHTML = "<tr><td colspan=5>Loading...</td></tr>";
-  const type = $("#history-type-filter").value;
   try {
-    const data = await api(`/api/archive/history${type ? `?operation_type=${type}` : ""}`);
+    const data = await api(`/api/archive/history?${currentHistoryFilterParams().toString()}`);
     tbody.innerHTML = data.operations.map((op) => `
       <tr>
         <td>${new Date(op.created_at).toLocaleString()}</td>
@@ -2105,6 +2684,24 @@ async function loadHistory() {
     });
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan=5>Error: ${e.message}</td></tr>`;
+  }
+}
+
+async function exportHistoryView() {
+  const params = currentHistoryFilterParams();
+  params.set("limit", "10000"); // export everything matching the filters, not just the on-screen page
+  $("#history-status").textContent = "Exporting...";
+  try {
+    const data = await api(`/api/archive/history?${params.toString()}`);
+    const header = ["Time", "Type", "Status", "Details"];
+    const rows = data.operations.map((op) => [
+      op.created_at, op.operation_type, op.status,
+      op.error_message || (op.details ? JSON.stringify(op.details) : ""),
+    ]);
+    downloadCsv(`history-export-${new Date().toISOString().slice(0, 10)}.csv`, rowsToCsv(header, rows));
+    $("#history-status").textContent = "";
+  } catch (e) {
+    $("#history-status").textContent = `Export failed: ${e.message}`;
   }
 }
 
@@ -2152,6 +2749,50 @@ async function loadStats() {
   }
 }
 
+async function loadInsights() {
+  const card = $("#insights-card");
+  card.textContent = "Loading...";
+  try {
+    const data = await api("/api/stats/insights");
+    const maxGenreCount = Math.max(1, ...data.top_genres.map((g) => g.count));
+    const genreRows = data.top_genres.length
+      ? data.top_genres.map((g) => `
+          <div class="storage-row"><span>${escapeAttr(g.genre)}</span><span class="hint">${g.count}</span></div>
+          <div class="storage-bar"><div class="storage-bar-fill" style="width:${Math.round((g.count / maxGenreCount) * 100)}%"></div></div>
+        `).join("")
+      : `<p class="hint">No genre data yet.</p>`;
+
+    const resolutionRows = data.resolution_breakdown.length
+      ? `<table class="insights-table">
+          <thead><tr><th>Resolution</th><th>Count</th><th>Avg size</th></tr></thead>
+          <tbody>${data.resolution_breakdown.map((r) => `
+            <tr><td>${r.resolution}</td><td>${r.count}</td><td>${formatBytes(r.avg_size_bytes)}</td></tr>
+          `).join("")}</tbody>
+        </table>`
+      : `<p class="hint">No resolution data yet -- open a title's file details to probe it.</p>`;
+
+    const maxGrowthCount = Math.max(1, ...data.growth_by_month.map((m) => m.count));
+    const growthRows = data.growth_by_month.length
+      ? data.growth_by_month.slice(-12).map((m) => `
+          <div class="storage-row"><span>${m.month}</span><span class="hint">${m.count} added</span></div>
+          <div class="storage-bar"><div class="storage-bar-fill" style="width:${Math.round((m.count / maxGrowthCount) * 100)}%"></div></div>
+        `).join("")
+      : `<p class="hint">No archive activity yet.</p>`;
+
+    card.innerHTML = `
+      <h4>Insights</h4>
+      <h5>Top Genres</h5>
+      ${genreRows}
+      <h5>Average Size by Resolution</h5>
+      ${resolutionRows}
+      <h5>Library Growth (last 12 months)</h5>
+      ${growthRows}
+    `;
+  } catch (e) {
+    card.textContent = `Error loading insights: ${e.message}`;
+  }
+}
+
 function taskStatusLine(label, task) {
   if (task.last_run_at == null) return `${label}: no run recorded yet since last restart`;
   const when = new Date(task.last_run_at).toLocaleString();
@@ -2189,10 +2830,13 @@ async function loadStorageStatus() {
         return `<div class="storage-row"><span>${p.label}</span><span class="hint">${p.path} — does not exist</span></div>`;
       }
       const pct = p.total_bytes ? Math.round((p.used_bytes / p.total_bytes) * 100) : 0;
+      const forecast = p.days_to_full != null
+        ? ` · <span class="${p.days_to_full <= 30 ? 'status-warning' : ''}">~${Math.round(p.days_to_full)} day(s) to full</span>`
+        : (p.history_days < 2 ? " · building forecast (needs 2+ days of history)" : "");
       return `
         <div class="storage-row">
           <span>${p.label}</span>
-          <span class="hint">${formatBytes(p.used_bytes)} used of ${formatBytes(p.total_bytes)} (${formatBytes(p.free_bytes)} free)</span>
+          <span class="hint">${formatBytes(p.used_bytes)} used of ${formatBytes(p.total_bytes)} (${formatBytes(p.free_bytes)} free)${forecast}</span>
         </div>
         <div class="storage-bar"><div class="storage-bar-fill" style="width:${pct}%"></div></div>
       `;
@@ -2239,6 +2883,7 @@ async function loadSettings() {
     $("#plex-token-note").textContent = s.plex_token_set ? "A token is currently set. Leave blank to keep it." : "";
     $("#setting-jellyfin-url").value = s.jellyfin_url || "";
     $("#jellyfin-key-note").textContent = s.jellyfin_api_key_set ? "A key is currently set. Leave blank to keep it." : "";
+    $("#setting-write-nfo-files").checked = s.write_nfo_files !== false;
     $("#setting-subtitle-languages").value = (s.subtitle_keep_languages || []).join(", ");
     $("#setting-subtitle-languages-movies").value = (s.subtitle_keep_languages_movies || []).join(", ");
     $("#setting-subtitle-languages-tv").value = (s.subtitle_keep_languages_tv || []).join(", ");
@@ -2246,6 +2891,16 @@ async function loadSettings() {
     $("#setting-tv-season-folder-template").value = s.tv_season_folder_template || "";
     $("#setting-tv-file-template").value = s.tv_file_template || "";
     $("#setting-collision-policy").value = s.collision_policy || "suffix";
+    $("#setting-low-disk-alert-enabled").checked = !!s.low_disk_alert_enabled;
+    $("#setting-low-disk-threshold-gb").value = s.low_disk_threshold_gb ?? 10;
+    $("#setting-webdav-url").value = s.webdav_url || "";
+    $("#setting-webdav-username").value = s.webdav_username || "";
+    $("#webdav-password-note").textContent = s.webdav_password_set ? "A password is currently set. Leave blank to keep it." : "";
+    $("#setting-webdav-remote-path").value = s.webdav_remote_path || "media-manager-backups";
+    $("#opensubtitles-key-note").textContent = s.opensubtitles_api_key_set
+      ? "A key is currently set. Leave blank to keep it. Required for auto-fetch below."
+      : "Free key at opensubtitles.com/en/consumers. Required for auto-fetch below.";
+    $("#setting-auto-fetch-subtitles").checked = !!s.auto_fetch_missing_subtitles;
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
   }
@@ -2268,6 +2923,9 @@ async function saveSettings(e) {
     subtitle_keep_languages: $("#setting-subtitle-languages").value.split(",").map((s) => s.trim()).filter(Boolean),
     subtitle_keep_languages_movies: $("#setting-subtitle-languages-movies").value.split(",").map((s) => s.trim()).filter(Boolean),
     subtitle_keep_languages_tv: $("#setting-subtitle-languages-tv").value.split(",").map((s) => s.trim()).filter(Boolean),
+    low_disk_alert_enabled: $("#setting-low-disk-alert-enabled").checked,
+    low_disk_threshold_gb: Number($("#setting-low-disk-threshold-gb").value) || 10,
+    auto_fetch_missing_subtitles: $("#setting-auto-fetch-subtitles").checked,
   };
   const keyValue = $("#setting-tmdb-key").value;
   if (keyValue) payload.tmdb_api_key = keyValue;
@@ -2281,6 +2939,8 @@ async function saveSettings(e) {
   if (pushoverTokenValue) payload.pushover_api_token = pushoverTokenValue;
   const pushoverUserValue = $("#setting-pushover-user-key").value;
   if (pushoverUserValue) payload.pushover_user_key = pushoverUserValue;
+  const opensubtitlesKeyValue = $("#setting-opensubtitles-key").value;
+  if (opensubtitlesKeyValue) payload.opensubtitles_api_key = opensubtitlesKeyValue;
 
   $("#settings-status").textContent = "Saving...";
   try {
@@ -2291,6 +2951,7 @@ async function saveSettings(e) {
     $("#setting-telegram-bot-token").value = "";
     $("#setting-pushover-api-token").value = "";
     $("#setting-pushover-user-key").value = "";
+    $("#setting-opensubtitles-key").value = "";
     // We just set this token server-side ourselves, so this browser needs it stored too, or the very next request 401s.
     if (apiTokenValue) setStoredApiToken(apiTokenValue);
     $("#settings-status").textContent = "Saved.";
@@ -2331,6 +2992,7 @@ async function saveMediaServerSettings(e) {
   const payload = {
     plex_url: $("#setting-plex-url").value.trim(),
     jellyfin_url: $("#setting-jellyfin-url").value.trim(),
+    write_nfo_files: $("#setting-write-nfo-files").checked,
   };
   const plexToken = $("#setting-plex-token").value;
   if (plexToken) payload.plex_token = plexToken;
@@ -2349,6 +3011,150 @@ async function saveMediaServerSettings(e) {
   }
 }
 
+async function saveWebdavBackupSettings(e) {
+  e.preventDefault();
+  const payload = {
+    webdav_url: $("#setting-webdav-url").value.trim(),
+    webdav_username: $("#setting-webdav-username").value.trim(),
+    webdav_remote_path: $("#setting-webdav-remote-path").value.trim() || "media-manager-backups",
+  };
+  const webdavPassword = $("#setting-webdav-password").value;
+  if (webdavPassword) payload.webdav_password = webdavPassword;
+
+  $("#webdav-backup-status").textContent = "Saving...";
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
+    $("#setting-webdav-password").value = "";
+    $("#webdav-backup-status").textContent = "Saved.";
+    loadSettings();
+  } catch (e) {
+    $("#webdav-backup-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function loadConfigHistory() {
+  const el = $("#config-history-list");
+  el.textContent = "Loading...";
+  try {
+    const data = await api("/api/settings/history");
+    if (data.versions.length === 0) {
+      el.innerHTML = "<p class=\"hint\">No saved versions yet -- one is kept on every Settings save.</p>";
+      return;
+    }
+    el.innerHTML = data.versions.map((v) => `
+      <div class="config-history-row" data-version="${v.version}">
+        <div class="config-history-summary">
+          <span>${new Date(v.timestamp).toLocaleString()}</span>
+          <span class="hint">${formatBytes(v.size_bytes)}</span>
+          <button class="config-history-diff-btn" data-version="${v.version}">View Diff</button>
+          <button class="danger config-history-rollback-btn" data-version="${v.version}">Rollback to This</button>
+        </div>
+        <pre class="config-history-diff hidden"></pre>
+      </div>
+    `).join("");
+    el.querySelectorAll(".config-history-diff-btn").forEach((btn) => {
+      btn.addEventListener("click", () => toggleConfigHistoryDiff(btn.dataset.version));
+    });
+    el.querySelectorAll(".config-history-rollback-btn").forEach((btn) => {
+      btn.addEventListener("click", () => rollbackConfigVersion(btn.dataset.version));
+    });
+  } catch (e) {
+    el.innerHTML = `<p>Error loading config history: ${e.message}</p>`;
+  }
+}
+
+async function toggleConfigHistoryDiff(version) {
+  const row = $(`.config-history-row[data-version="${version}"]`);
+  const pre = row.querySelector(".config-history-diff");
+  if (!pre.classList.contains("hidden")) {
+    pre.classList.add("hidden");
+    return;
+  }
+  pre.classList.remove("hidden");
+  pre.textContent = "Loading diff...";
+  try {
+    const data = await api(`/api/settings/history/${encodeURIComponent(version)}/diff`);
+    pre.textContent = data.diff.length ? data.diff.join("") : "No differences from the current config.";
+  } catch (e) {
+    pre.textContent = `Error loading diff: ${e.message}`;
+  }
+}
+
+async function rollbackConfigVersion(version) {
+  const ok = await showConfirm(`Roll back config.yaml to the version from this save? The current config is saved to history first, so this can be undone.`);
+  if (!ok) return;
+  try {
+    await api(`/api/settings/history/${encodeURIComponent(version)}/rollback`, { method: "POST" });
+    loadSettings();
+    loadConfigHistory();
+  } catch (e) {
+    $("#config-history-list").insertAdjacentHTML("afterbegin", `<p>Rollback failed: ${e.message}</p>`);
+  }
+}
+
+async function loadViewers() {
+  try {
+    const data = await api("/api/library/viewers");
+    state.viewers = data.viewers;
+
+    const select = $("#viewer-select");
+    const previousValue = select.value || (getActiveViewerId() != null ? String(getActiveViewerId()) : "");
+    select.innerHTML = `<option value="">All viewers</option>` +
+      data.viewers.map((v) => `<option value="${v.id}">${escapeAttr(v.name)}</option>`).join("");
+    if (previousValue && data.viewers.some((v) => String(v.id) === previousValue)) {
+      select.value = previousValue;
+    } else if (previousValue) {
+      setActiveViewerId(null); // previously-selected viewer no longer exists (deleted elsewhere)
+    }
+
+    const list = $("#viewers-list");
+    if (list) {
+      list.innerHTML = data.viewers.length
+        ? data.viewers.map((v) => `
+            <div class="tracked-item">
+              <div><strong>${escapeAttr(v.name)}</strong> <span class="hint">since ${new Date(v.created_at).toLocaleDateString()}</span></div>
+              <button class="danger delete-viewer-btn" data-id="${v.id}">Delete</button>
+            </div>
+          `).join("")
+        : `<p class="hint">No viewers yet -- add one to enable per-viewer watch state.</p>`;
+      list.querySelectorAll(".delete-viewer-btn").forEach((btn) => {
+        btn.addEventListener("click", () => deleteViewerAction(Number(btn.dataset.id)));
+      });
+    }
+  } catch (e) {
+    // Best-effort -- an unpopulated viewer selector just leaves the app in its original single-flag behavior.
+  }
+}
+
+async function createViewerAction() {
+  const input = $("#new-viewer-name");
+  const name = input.value.trim();
+  if (!name) return;
+  try {
+    await api("/api/library/viewers", { method: "POST", body: JSON.stringify({ name }) });
+    input.value = "";
+    loadViewers();
+  } catch (e) {
+    $("#viewers-list").insertAdjacentHTML("afterbegin", `<p>Error: ${e.message}</p>`);
+  }
+}
+
+async function deleteViewerAction(id) {
+  const ok = await showConfirm("Delete this viewer? Their per-item watched history is deleted too.");
+  if (!ok) return;
+  try {
+    await api(`/api/library/viewers/${id}`, { method: "DELETE" });
+    if (getActiveViewerId() === id) {
+      setActiveViewerId(null);
+      loadMoviesGallery();
+      loadTvGallery();
+    }
+    loadViewers();
+  } catch (e) {
+    $("#viewers-list").insertAdjacentHTML("afterbegin", `<p>Error: ${e.message}</p>`);
+  }
+}
+
 async function loadApiTokensList() {
   const el = $("#api-tokens-list");
   el.textContent = "Loading...";
@@ -2362,6 +3168,7 @@ async function loadApiTokensList() {
       <div class="tracked-item">
         <div>
           <strong>${t.name}</strong>
+          <span class="badge">${t.scope === "read_only" ? "read-only" : "read-write"}</span>
           <span class="hint">created ${new Date(t.created_at).toLocaleString()}${
             t.last_used_at ? ` · last used ${new Date(t.last_used_at).toLocaleString()}` : " · never used"
           }</span>
@@ -2381,12 +3188,13 @@ async function createApiToken() {
   const nameInput = $("#new-api-token-name");
   const name = nameInput.value.trim();
   if (!name) return;
+  const scope = $("#new-api-token-scope").value;
   const reveal = $("#new-api-token-reveal");
   try {
-    const data = await api("/api/settings/tokens", { method: "POST", body: JSON.stringify({ name }) });
+    const data = await api("/api/settings/tokens", { method: "POST", body: JSON.stringify({ name, scope }) });
     nameInput.value = "";
     reveal.classList.remove("hidden");
-    reveal.innerHTML = `Token for "${data.name}" (copy it now — it won't be shown again): <code>${data.token}</code>`;
+    reveal.innerHTML = `Token for "${data.name}" (${data.scope === "read_only" ? "read-only" : "read-write"}, copy it now — it won't be shown again): <code>${data.token}</code>`;
     // This browser needs the new token too, or its own next request 401s
     // the moment this becomes the first token ever created.
     setStoredApiToken(data.token);
@@ -2453,6 +3261,24 @@ async function importLibrary(file) {
     status.textContent = `Imported ${data.imported} item(s), skipped ${data.skipped} already-tracked item(s).`;
   } catch (e) {
     status.textContent = `Error: ${e.message}`;
+  }
+}
+
+async function syncWatchedFromMediaServers() {
+  const btn = $("#sync-watched-btn");
+  const status = $("#sync-watched-status");
+  btn.disabled = true;
+  status.textContent = "Syncing…";
+  try {
+    const data = await api("/api/library/sync-watched", { method: "POST" });
+    status.textContent = data.updated > 0
+      ? `Marked ${data.updated} movie(s) watched.`
+      : "No changes — nothing new to mark watched, or no server configured.";
+    if (data.updated > 0) loadMoviesGallery(); // refetch -- state.movieItems is stale after a server-side watched change
+  } catch (e) {
+    status.textContent = `Sync failed: ${e.message}`;
+  } finally {
+    btn.disabled = false;
   }
 }
 
@@ -2562,11 +3388,13 @@ if ("serviceWorker" in navigator) {
 
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
+  setupGlobalSearch();
   setupTheme();
   setupKeyboardShortcuts();
   setupFilterPersistence();
   loadStatus();
   loadMoviesGallery();
+  loadViewers();
   requestNotificationPermission();
   pollNotifications();
   pollNewFiles();
@@ -2596,6 +3424,14 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#create-api-token-btn").addEventListener("click", createApiToken);
   $("#naming-templates-form").addEventListener("submit", saveNamingTemplates);
   $("#media-server-form").addEventListener("submit", saveMediaServerSettings);
+  $("#sync-watched-btn").addEventListener("click", syncWatchedFromMediaServers);
+  $("#webdav-backup-form").addEventListener("submit", saveWebdavBackupSettings);
+  $("#create-viewer-btn").addEventListener("click", createViewerAction);
+  $("#viewer-select").addEventListener("change", (e) => {
+    setActiveViewerId(e.target.value ? Number(e.target.value) : null);
+    loadMoviesGallery();
+    loadTvGallery();
+  });
   $("#export-library-btn").addEventListener("click", exportLibrary);
   $("#import-library-input").addEventListener("change", (e) => {
     importLibrary(e.target.files[0]);
@@ -2623,6 +3459,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-sort").addEventListener("change", renderMoviesGallery);
   $("#movies-filter").addEventListener("change", renderMoviesGallery);
   $("#movies-genre").addEventListener("change", renderMoviesGallery);
+  $("#movies-tag").addEventListener("change", renderMoviesGallery);
   $("#movies-resolution").addEventListener("change", renderMoviesGallery);
   $("#movies-watch").addEventListener("change", renderMoviesGallery);
   $("#movies-year").addEventListener("change", renderMoviesGallery);
@@ -2667,12 +3504,18 @@ document.addEventListener("DOMContentLoaded", () => {
       $("#movies-count").textContent = `Error: ${e.message}`;
     }
   });
+  $("#movies-refresh-metadata-btn").addEventListener("click", async () => {
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    await refreshMetadataBatch(ids, $("#movies-count"));
+    loadMoviesGallery();
+  });
   $("#movies-export-btn").addEventListener("click", exportMoviesView);
 
   $("#tv-search").addEventListener("input", renderTvGallery);
   $("#tv-sort").addEventListener("change", renderTvGallery);
   $("#tv-filter").addEventListener("change", renderTvGallery);
   $("#tv-genre").addEventListener("change", renderTvGallery);
+  $("#tv-tag").addEventListener("change", renderTvGallery);
   $("#tv-resolution").addEventListener("change", renderTvGallery);
   $("#tv-watch").addEventListener("change", renderTvGallery);
   $("#tv-year").addEventListener("change", renderTvGallery);
@@ -2702,9 +3545,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const sizeByPath = Object.fromEntries(items.map((i) => [i.final_path, i.size_bytes]));
     await organizePaths(items.map((i) => i.final_path), sizeByPath);
   });
+  $("#tv-refresh-metadata-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
+    await refreshMetadataBatch(ids, $("#tv-count"));
+    loadTvGallery();
+  });
   $("#tv-export-btn").addEventListener("click", exportTvView);
 
   $("#history-type-filter").addEventListener("change", loadHistory);
+  $("#history-status-filter").addEventListener("change", loadHistory);
+  $("#history-since-filter").addEventListener("change", loadHistory);
+  $("#history-until-filter").addEventListener("change", loadHistory);
+  $("#history-export-btn").addEventListener("click", exportHistoryView);
 
   $("#detail-close-btn").addEventListener("click", closeDetailPane);
   $("#palette-input").addEventListener("input", () => {

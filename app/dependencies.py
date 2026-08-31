@@ -4,11 +4,12 @@ from __future__ import annotations
 import time
 from functools import lru_cache
 
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 
 from app.config_loader import AppConfig, load_config
 from app.core.fs_watcher import NewFileTracker
 from app.core.omdb_client import OMDbClient
+from app.core.opensubtitles_client import OpenSubtitlesClient
 from app.core.tmdb_client import TMDBClient
 from app.database import Database
 
@@ -41,6 +42,12 @@ def get_omdb_client() -> OMDbClient:
 
 
 @lru_cache
+def get_opensubtitles_client() -> OpenSubtitlesClient:
+    cfg = get_config()
+    return OpenSubtitlesClient(api_key=cfg.subtitles.opensubtitles_api_key)
+
+
+@lru_cache
 def get_new_file_tracker() -> NewFileTracker:
     """One process-lifetime tracker of video files the filesystem watcher
     has seen but no scan has picked up yet -- see app/core/fs_watcher.py.
@@ -48,7 +55,11 @@ def get_new_file_tracker() -> NewFileTracker:
     return NewFileTracker()
 
 
+_SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
 def require_api_token(
+    request: Request,
     config: AppConfig = Depends(get_config),
     db: Database = Depends(get_database),
     x_api_token: str | None = Header(default=None),
@@ -64,11 +75,15 @@ def require_api_token(
 
     Two token forms, checked in order: the single legacy server.api_token
     from config.yaml (kept for backward compatibility, one shared secret
-    for everyone), and any named per-device token from Settings > API
-    Tokens (api_tokens table) -- each independently revocable without
-    rotating the token everyone else uses. A matched named token's
+    for everyone, always full read-write), and any named per-device token
+    from Settings > API Tokens (api_tokens table) -- each independently
+    revocable without rotating the token everyone else uses, and each with
+    its own scope (read_write or read_only). A matched named token's
     last_used_at is updated so Settings can show which ones are actually
-    still in use.
+    still in use. A read_only token is accepted for GET/HEAD/OPTIONS only;
+    anything else gets 403 rather than silently doing nothing, so a wrong
+    method reads as "this token can't do that" and not a confusing 404/500
+    further down the route.
     """
     if x_api_token and config.server.api_token and x_api_token == config.server.api_token:
         return
@@ -76,6 +91,8 @@ def require_api_token(
         token_row = db.get_api_token_by_value(x_api_token)
         if token_row:
             db.touch_api_token(token_row["id"])
+            if token_row["scope"] == "read_only" and request.method not in _SAFE_METHODS:
+                raise HTTPException(status_code=403, detail="This API token is read-only")
             return
     if not config.server.api_token and not db.list_api_tokens():
         return
@@ -88,4 +105,5 @@ def reset_singletons() -> None:
     get_database.cache_clear()
     get_tmdb_client.cache_clear()
     get_omdb_client.cache_clear()
+    get_opensubtitles_client.cache_clear()
     get_new_file_tracker.cache_clear()

@@ -213,6 +213,128 @@ def test_save_settings_pushover_credentials_are_never_echoed_back(client):
     assert resp.json()["pushover_user_key_set"] is True
 
 
+def test_get_settings_reflects_default_low_disk_alert(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["low_disk_alert_enabled"] is False
+    assert body["low_disk_threshold_gb"] == 10.0
+
+
+def test_save_settings_updates_low_disk_alert(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"low_disk_alert_enabled": True, "low_disk_threshold_gb": 25})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["low_disk_alert_enabled"] is True
+    assert body["low_disk_threshold_gb"] == 25
+
+
+def test_config_history_lists_entry_after_save(client):
+    c, _ = client
+    # The client fixture's own initial update_settings call (pointing
+    # paths at tmp_path) already created one history entry.
+    baseline = len(c.get("/api/settings/history").json()["versions"])
+
+    c.post("/api/settings", json={"tmdb_api_key": "abc123"})
+
+    resp = c.get("/api/settings/history")
+    assert resp.status_code == 200
+    versions = resp.json()["versions"]
+    assert len(versions) == baseline + 1
+    assert versions[0]["version"].endswith(".yaml")
+
+
+def test_config_history_diff_404_for_unknown_version(client):
+    c, _ = client
+    resp = c.get("/api/settings/history/does-not-exist.yaml/diff")
+    assert resp.status_code == 404
+
+
+def test_config_history_diff_returns_lines(client):
+    c, _ = client
+    c.post("/api/settings", json={"tmdb_api_key": "abc123"})
+    version = c.get("/api/settings/history").json()["versions"][0]["version"]
+
+    resp = c.get(f"/api/settings/history/{version}/diff")
+    assert resp.status_code == 200
+    assert isinstance(resp.json()["diff"], list)
+
+
+def test_config_history_rollback_restores_settings(client):
+    c, _ = client
+    c.post("/api/settings", json={"tmdb_api_key": "original-key"})
+    version = c.get("/api/settings/history").json()["versions"][0]["version"]
+    c.post("/api/settings", json={"tmdb_api_key": "changed-key"})
+
+    resp = c.post(f"/api/settings/history/{version}/rollback")
+    assert resp.status_code == 200
+    assert resp.json()["tmdb_api_key_set"] is False  # rolled back to the pre-first-save (empty) snapshot
+
+
+def test_config_history_rollback_404_for_unknown_version(client):
+    c, _ = client
+    resp = c.post("/api/settings/history/does-not-exist.yaml/rollback")
+    assert resp.status_code == 404
+
+
+def test_get_settings_reflects_default_write_nfo_files(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["write_nfo_files"] is True
+
+
+def test_save_settings_disables_write_nfo_files(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"write_nfo_files": False})
+    assert resp.status_code == 200
+    assert resp.json()["write_nfo_files"] is False
+
+
+def test_get_settings_reflects_default_opensubtitles(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["opensubtitles_api_key_set"] is False
+    assert body["auto_fetch_missing_subtitles"] is False
+
+
+def test_save_settings_updates_opensubtitles_and_never_echoes_key(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={
+        "opensubtitles_api_key": "super-secret-key",
+        "auto_fetch_missing_subtitles": True,
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["opensubtitles_api_key_set"] is True
+    assert body["auto_fetch_missing_subtitles"] is True
+    assert "super-secret-key" not in resp.text
+
+
+def test_get_settings_reflects_default_webdav_backup(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["webdav_url"] == ""
+    assert body["webdav_password_set"] is False
+    assert body["webdav_remote_path"] == "media-manager-backups"
+
+
+def test_save_settings_updates_webdav_backup_and_never_echoes_password(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={
+        "webdav_url": "https://cloud.example.com/dav",
+        "webdav_username": "user",
+        "webdav_password": "super-secret",
+        "webdav_remote_path": "my-backups",
+    })
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["webdav_url"] == "https://cloud.example.com/dav"
+    assert body["webdav_username"] == "user"
+    assert body["webdav_remote_path"] == "my-backups"
+    assert body["webdav_password_set"] is True
+    assert "super-secret" not in resp.text
+
+
 def test_get_settings_reflects_default_digest_mode(client):
     c, _ = client
     body = c.get("/api/settings").json()

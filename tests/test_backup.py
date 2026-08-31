@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
 from app.config_loader import (
     AppConfig,
@@ -15,7 +16,7 @@ from app.config_loader import (
     TMDBConfig,
     TrackerConfig,
 )
-from app.core.backup import prune_old_backups, run_backup
+from app.core.backup import prune_old_backups, run_backup, upload_to_webdav
 
 
 def _config(tmp_path) -> AppConfig:
@@ -95,3 +96,79 @@ def test_prune_old_backups_ignores_non_backup_entries(tmp_path):
 def test_prune_old_backups_noop_when_no_backups_dir(tmp_path):
     config = _config(tmp_path)
     assert prune_old_backups(config, retention_days=14) == 0
+
+
+def _ok_response(status_code=201):
+    resp = MagicMock()
+    resp.status_code = status_code
+    return resp
+
+
+def test_run_backup_skips_webdav_when_not_configured(tmp_path):
+    config = _config(tmp_path)
+    with patch("app.core.backup.requests.put") as mock_put, patch("app.core.backup.requests.request") as mock_req:
+        run_backup(config)
+    mock_put.assert_not_called()
+    mock_req.assert_not_called()
+
+
+def test_run_backup_pushes_to_webdav_when_configured(tmp_path):
+    config = _config(tmp_path)
+    config.backup.webdav_url = "https://cloud.example.com/dav"
+    config.backup.webdav_username = "user"
+    config.backup.webdav_password = "pass"
+
+    with patch("app.core.backup.requests.request", return_value=_ok_response(201)) as mock_mkcol, \
+         patch("app.core.backup.requests.put", return_value=_ok_response(201)) as mock_put:
+        dest_dir = run_backup(config)
+
+    assert mock_mkcol.call_count == 2  # remote root + timestamp subfolder
+    put_urls = [c.args[0] for c in mock_put.call_args_list]
+    assert any(dest_dir.name in url and "media_manager.db" in url for url in put_urls)
+    assert any(dest_dir.name in url and "config.yaml" in url for url in put_urls)
+    for call in mock_put.call_args_list:
+        assert call.kwargs["auth"] == ("user", "pass")
+
+
+def test_upload_to_webdav_returns_false_on_put_failure(tmp_path):
+    config = _config(tmp_path)
+    config.backup.webdav_url = "https://cloud.example.com/dav"
+    dest_dir = config.database_path.parent / "backups" / "20260101T000000Z"
+    dest_dir.mkdir(parents=True)
+    (dest_dir / "media_manager.db").write_bytes(b"x")
+
+    with patch("app.core.backup.requests.request", return_value=_ok_response(201)), \
+         patch("app.core.backup.requests.put", return_value=_ok_response(500)):
+        ok = upload_to_webdav(config, dest_dir)
+    assert ok is False
+
+
+def test_upload_to_webdav_swallows_connection_errors(tmp_path):
+    import requests
+
+    config = _config(tmp_path)
+    config.backup.webdav_url = "https://cloud.example.com/dav"
+    dest_dir = config.database_path.parent / "backups" / "20260101T000000Z"
+    dest_dir.mkdir(parents=True)
+    (dest_dir / "media_manager.db").write_bytes(b"x")
+
+    with patch("app.core.backup.requests.request", side_effect=requests.RequestException("down")), \
+         patch("app.core.backup.requests.put", side_effect=requests.RequestException("down")):
+        ok = upload_to_webdav(config, dest_dir)  # must not raise
+    assert ok is False
+
+
+def test_upload_to_webdav_uses_configured_remote_path(tmp_path):
+    config = _config(tmp_path)
+    config.backup.webdav_url = "https://cloud.example.com/dav"
+    config.backup.webdav_remote_path = "custom-folder"
+    dest_dir = config.database_path.parent / "backups" / "20260101T000000Z"
+    dest_dir.mkdir(parents=True)
+    (dest_dir / "media_manager.db").write_bytes(b"x")
+
+    with patch("app.core.backup.requests.request", return_value=_ok_response(201)) as mock_mkcol, \
+         patch("app.core.backup.requests.put", return_value=_ok_response(201)):
+        upload_to_webdav(config, dest_dir)
+
+    mkcol_urls = [c.args[1] for c in mock_mkcol.call_args_list]
+    assert any("custom-folder" in url for url in mkcol_urls)

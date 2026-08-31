@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,6 +20,7 @@ from app.config_loader import (
     TMDBConfig,
     TrackerConfig,
 )
+from app.core.tmdb_client import MediaResult
 from app.database import Database
 from app.dependencies import get_config, get_database, get_tmdb_client
 from app.main import app
@@ -920,3 +921,319 @@ def test_cleanup_orphans_removes_only_missing_files(client):
     assert db.get_media_item(orphan_id) is None
     ops = db.list_operations(operation_type="delete")
     assert json.loads(ops[0]["details"])["reason"] == "orphan_cleanup"
+
+
+def test_search_library_matches_across_movie_and_tv(client):
+    c, db = client
+    _seed_movie(db, title="The Great Escape", final_path="/archive/movie1.mkv")
+    _seed_movie(
+        db, title="Great British Bake Off", media_type="tv",
+        final_path="/archive/tv1.mkv", season_number=1, episode_number=1,
+    )
+    _seed_movie(db, title="Unrelated Title", final_path="/archive/movie2.mkv")
+
+    resp = c.get("/api/library/search", params={"q": "great"})
+    assert resp.status_code == 200
+    titles = {item["title"] for item in resp.json()["items"]}
+    assert titles == {"The Great Escape", "Great British Bake Off"}
+
+
+def test_search_library_is_case_insensitive(client):
+    c, db = client
+    _seed_movie(db, title="Interstellar", final_path="/archive/movie1.mkv")
+
+    resp = c.get("/api/library/search", params={"q": "INTER"})
+    assert resp.json()["items"][0]["title"] == "Interstellar"
+
+
+def test_search_library_short_query_returns_empty(client):
+    c, db = client
+    _seed_movie(db, title="Interstellar", final_path="/archive/movie1.mkv")
+
+    resp = c.get("/api/library/search", params={"q": "i"})
+    assert resp.status_code == 200
+    assert resp.json()["items"] == []
+
+
+def test_search_library_escapes_wildcard_characters(client):
+    c, db = client
+    _seed_movie(db, title="100% Wolf", final_path="/archive/movie1.mkv")
+    _seed_movie(db, title="1000 Wolves", final_path="/archive/movie2.mkv")
+
+    resp = c.get("/api/library/search", params={"q": "100%"})
+    titles = {item["title"] for item in resp.json()["items"]}
+    assert titles == {"100% Wolf"}
+
+
+def test_set_tags_replaces_full_list(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Movie", final_path="/archive/movie1.mkv")
+
+    resp = c.post(f"/api/library/{item_id}/tags", json={"tags": ["Favorites", "4K"]})
+    assert resp.status_code == 200
+    assert resp.json()["tags"] == ["4K", "Favorites"]
+
+    resp = c.post(f"/api/library/{item_id}/tags", json={"tags": ["Rewatch"]})
+    assert resp.json()["tags"] == ["Rewatch"]
+
+
+def test_set_tags_trims_and_dedupes(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Movie", final_path="/archive/movie1.mkv")
+
+    resp = c.post(f"/api/library/{item_id}/tags", json={"tags": [" Favorites ", "Favorites", "", "  "]})
+    assert resp.json()["tags"] == ["Favorites"]
+
+
+def test_set_tags_404_for_missing_item(client):
+    c, _ = client
+    resp = c.post("/api/library/999/tags", json={"tags": ["x"]})
+    assert resp.status_code == 404
+
+
+def test_list_tags_returns_distinct_sorted_values(client):
+    c, db = client
+    id1 = _seed_movie(db, title="A", final_path="/archive/a.mkv")
+    id2 = _seed_movie(db, title="B", final_path="/archive/b.mkv")
+    c.post(f"/api/library/{id1}/tags", json={"tags": ["Zeta", "Alpha"]})
+    c.post(f"/api/library/{id2}/tags", json={"tags": ["Alpha"]})
+
+    resp = c.get("/api/library/tags")
+    assert resp.status_code == 200
+    assert resp.json()["tags"] == ["Alpha", "Zeta"]
+
+
+def test_movies_list_includes_tags(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Movie", final_path="/archive/movie1.mkv")
+    c.post(f"/api/library/{item_id}/tags", json={"tags": ["Favorites"]})
+
+    resp = c.get("/api/library/movies")
+    assert resp.json()["items"][0]["tags"] == ["Favorites"]
+
+
+def test_list_viewers_empty_initially(client):
+    c, _ = client
+    resp = c.get("/api/library/viewers")
+    assert resp.status_code == 200
+    assert resp.json()["viewers"] == []
+
+
+def test_create_viewer(client):
+    c, _ = client
+    resp = c.post("/api/library/viewers", json={"name": "Alex"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["name"] == "Alex"
+    assert c.get("/api/library/viewers").json()["viewers"][0]["name"] == "Alex"
+
+
+def test_create_viewer_requires_name(client):
+    c, _ = client
+    resp = c.post("/api/library/viewers", json={"name": "  "})
+    assert resp.status_code == 400
+
+
+def test_create_viewer_rejects_duplicate_name(client):
+    c, _ = client
+    c.post("/api/library/viewers", json={"name": "Alex"})
+    resp = c.post("/api/library/viewers", json={"name": "Alex"})
+    assert resp.status_code == 400
+
+
+def test_delete_viewer(client):
+    c, _ = client
+    viewer_id = c.post("/api/library/viewers", json={"name": "Alex"}).json()["id"]
+    resp = c.delete(f"/api/library/viewers/{viewer_id}")
+    assert resp.status_code == 200
+    assert c.get("/api/library/viewers").json()["viewers"] == []
+
+
+def test_delete_viewer_404_for_unknown(client):
+    c, _ = client
+    resp = c.delete("/api/library/viewers/999")
+    assert resp.status_code == 404
+
+
+def test_set_viewer_watched_updates_independent_of_global_flag(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Movie", final_path="/archive/m.mkv")
+    viewer_id = c.post("/api/library/viewers", json={"name": "Alex"}).json()["id"]
+
+    resp = c.post(f"/api/library/{item_id}/watched-by/{viewer_id}", json={"watched": True})
+    assert resp.status_code == 200
+    assert resp.json()["viewer_watched"] is True
+    assert resp.json()["watched"] is False  # global flag untouched
+
+    resp = c.post(f"/api/library/{item_id}/watched-by/{viewer_id}", json={"watched": False})
+    assert resp.json()["viewer_watched"] is False
+
+
+def test_set_viewer_watched_404_for_unknown_item_or_viewer(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Movie", final_path="/archive/m.mkv")
+    viewer_id = c.post("/api/library/viewers", json={"name": "Alex"}).json()["id"]
+
+    assert c.post(f"/api/library/999/watched-by/{viewer_id}", json={"watched": True}).status_code == 404
+    assert c.post(f"/api/library/{item_id}/watched-by/999", json={"watched": True}).status_code == 404
+
+
+def test_movies_list_reports_viewer_watched_when_viewer_id_passed(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Movie", final_path="/archive/m.mkv")
+    viewer_id = c.post("/api/library/viewers", json={"name": "Alex"}).json()["id"]
+    c.post(f"/api/library/{item_id}/watched-by/{viewer_id}", json={"watched": True})
+
+    resp = c.get("/api/library/movies", params={"viewer_id": viewer_id})
+    item = resp.json()["items"][0]
+    assert item["viewer_watched"] is True
+    assert item["watched"] is False
+
+
+def test_movies_list_viewer_watched_none_when_no_viewer_selected(client):
+    c, db = client
+    _seed_movie(db, title="Movie", final_path="/archive/m.mkv")
+
+    resp = c.get("/api/library/movies")
+    assert resp.json()["items"][0]["viewer_watched"] is None
+
+
+def test_sync_watched_route_returns_updated_count(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Movie", final_path="/archive/m.mkv", imdb_id="tt0000001")
+
+    plex_resp = MagicMock()
+    plex_resp.json.return_value = {
+        "MediaContainer": {"Metadata": [{"viewCount": 1, "Guid": [{"id": "imdb://tt0000001"}]}]}
+    }
+    from app.config_loader import MediaServerConfig
+    from app.dependencies import get_config
+
+    base_config = app.dependency_overrides[get_config]()
+    base_config.media_server = MediaServerConfig(plex_url="http://plex.local:32400", plex_token="tok")
+
+    with patch("app.core.media_server.requests.get", return_value=plex_resp):
+        resp = c.post("/api/library/sync-watched")
+    assert resp.status_code == 200
+    assert resp.json()["updated"] == 1
+    assert db.get_media_item(item_id)["watched"] == 1
+
+
+def test_refresh_metadata_updates_title_and_metadata_keeping_tmdb_id(client):
+    c, db = client
+    item_id = _seed_movie(
+        db, title="Old Title", tmdb_id=42, final_path="/archive/movie1.mkv",
+        metadata={"poster_path": "/old.jpg", "overview": "old", "height": 1080, "video_codec": "h264"},
+    )
+    fake_tmdb = MagicMock(mode="scraper")
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+    fake_tmdb.refresh_movie_details.return_value = MediaResult(
+        tmdb_id=42, title="New Title", media_type="movie", year=2021,
+        overview="new overview", poster_path="/new.jpg",
+        raw={"vote_average": 8.1, "genre_ids": [28]},
+    )
+
+    resp = c.post("/api/library/refresh-metadata", json={"ids": [item_id]})
+    assert resp.status_code == 200
+    assert resp.json() == {"updated": 1, "failed": 0}
+
+    item = db.get_media_item(item_id)
+    assert item["title"] == "New Title"
+    assert item["tmdb_id"] == 42
+    meta = json.loads(item["metadata"])
+    assert meta["poster_path"] == "/new.jpg"
+    assert meta["overview"] == "new overview"
+    assert meta["vote_average"] == 8.1
+    assert meta["genres"] == ["Action"]
+    # ffprobe-derived fields carried forward, not wiped by the refresh
+    assert meta["height"] == 1080
+    assert meta["video_codec"] == "h264"
+    fake_tmdb.refresh_movie_details.assert_called_once_with(42)
+
+
+def test_refresh_metadata_counts_unmatched_items_as_failed(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Unmatched", tmdb_id=None, final_path="/archive/movie1.mkv")
+
+    resp = c.post("/api/library/refresh-metadata", json={"ids": [item_id]})
+    assert resp.json() == {"updated": 0, "failed": 1}
+
+
+def test_refresh_metadata_counts_missing_ids_as_failed(client):
+    c, _ = client
+    resp = c.post("/api/library/refresh-metadata", json={"ids": [999]})
+    assert resp.json() == {"updated": 0, "failed": 1}
+
+
+def test_refresh_metadata_counts_failed_tmdb_lookup_as_failed(client):
+    c, db = client
+    item_id = _seed_movie(db, title="Movie", tmdb_id=42, final_path="/archive/movie1.mkv")
+    fake_tmdb = MagicMock(mode="scraper")
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+    fake_tmdb.refresh_movie_details.return_value = None
+
+    resp = c.post("/api/library/refresh-metadata", json={"ids": [item_id]})
+    assert resp.json() == {"updated": 0, "failed": 1}
+
+
+def test_refresh_metadata_dedupes_tmdb_calls_for_shared_tmdb_id(client):
+    c, db = client
+    id1 = _seed_movie(
+        db, title="Show", tmdb_id=9, media_type="tv", season_number=1, episode_number=1,
+        final_path="/archive/e1.mkv", metadata={"episode_title": "Pilot"},
+    )
+    id2 = _seed_movie(
+        db, title="Show", tmdb_id=9, media_type="tv", season_number=1, episode_number=2,
+        final_path="/archive/e2.mkv", metadata={"episode_title": "Second"},
+    )
+    fake_tmdb = MagicMock(mode="scraper")
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+    fake_tmdb.refresh_tv_details.return_value = MediaResult(
+        tmdb_id=9, title="Show", media_type="tv", overview="new", raw={}
+    )
+
+    resp = c.post("/api/library/refresh-metadata", json={"ids": [id1, id2]})
+    assert resp.json() == {"updated": 2, "failed": 0}
+    fake_tmdb.refresh_tv_details.assert_called_once_with(9)
+    # episode-specific metadata preserved per row, not overwritten with the same value
+    assert json.loads(db.get_media_item(id1)["metadata"])["episode_title"] == "Pilot"
+    assert json.loads(db.get_media_item(id2)["metadata"])["episode_title"] == "Second"
+
+
+def test_recommendations_scraper_mode_reports_not_configured(client):
+    c, _ = client
+    resp = c.get("/api/library/recommendations", params={"media_type": "movie"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tmdb_configured"] is False
+    assert body["items"] == []
+
+
+def test_recommendations_ranks_by_frequency_and_excludes_owned(client):
+    c, db = client
+    _seed_movie(db, title="Owned A", tmdb_id=1, final_path="/archive/a.mkv")
+    _seed_movie(db, title="Owned B", tmdb_id=2, final_path="/archive/b.mkv")
+    _seed_movie(db, title="Already Have This", tmdb_id=50, final_path="/archive/c.mkv")
+
+    fake_tmdb = MagicMock(mode="api")
+    fake_tmdb.get_similar_titles.side_effect = lambda tmdb_id, media_type, limit=8: {
+        1: [
+            MediaResult(tmdb_id=50, title="Already Have This", media_type="movie", year=2010),
+            MediaResult(tmdb_id=60, title="New Candidate", media_type="movie", year=2011),
+        ],
+        2: [
+            MediaResult(tmdb_id=60, title="New Candidate", media_type="movie", year=2011),
+            MediaResult(tmdb_id=70, title="Rare Candidate", media_type="movie", year=2012),
+        ],
+    }.get(tmdb_id, [])
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+
+    resp = c.get("/api/library/recommendations", params={"media_type": "movie"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tmdb_configured"] is True
+    items = body["items"]
+    assert [i["tmdb_id"] for i in items] == [60, 70]
+    assert items[0]["score"] == 2
+    assert items[1]["score"] == 1
+    assert all(i["tmdb_id"] != 50 for i in items)

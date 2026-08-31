@@ -62,15 +62,30 @@ class RenamePlan:
 
 
 def plan_movie_rename(
-    source: Path, archive_root: Path, media: MediaResult, ext: str | None = None, renaming: RenamingConfig | None = None
+    source: Path,
+    archive_root: Path,
+    media: MediaResult,
+    ext: str | None = None,
+    renaming: RenamingConfig | None = None,
+    part: str | None = None,
 ) -> RenamePlan:
+    """`part` ("CD1", "Part2", "Disc1", ... -- see tmdb_client._PART_PATTERN)
+    is appended to the filename, not the folder: a multi-part rip is still
+    one movie sharing one folder, but each part needs a distinct filename
+    or the second one archived would just collide with (and, depending on
+    collision_policy, silently overwrite or get an unhelpful "(2)" suffix
+    on) the first. Movies have no user-configurable file template (see
+    RenamingConfig's own docstring), so this is a fixed " - {part}" suffix
+    rather than another template token.
+    """
     renaming = renaming or _DEFAULT_RENAMING
     ext = ext or source.suffix
     title = sanitize_filename(media.title)
     year = media.year
     context = {"title": title, "year": year or "", "year_suffix": f" ({year})" if year else ""}
     folder_name = sanitize_filename(_format_template(renaming.movie_folder, _DEFAULT_RENAMING.movie_folder, context))
-    file_name = f"{folder_name}{ext}"
+    part_suffix = f" - {part}" if part else ""
+    file_name = f"{folder_name}{part_suffix}{ext}"
     dest = archive_root / folder_name / file_name
     dest = _avoid_collision(dest, renaming.collision_policy)
     return RenamePlan(
@@ -96,7 +111,17 @@ def plan_tv_rename(
     episode_title: str | None = None,
     ext: str | None = None,
     renaming: RenamingConfig | None = None,
+    absolute_episode: int | None = None,
+    part: str | None = None,
 ) -> RenamePlan:
+    """`absolute_episode` -- cumulative episode number across seasons (see
+    tmdb_client.compute_absolute_episode) -- backs the `{absolute_episode}`
+    naming-template token some anime-style layouts use instead of SxxExx.
+    Falls back to the plain in-season `episode` number when the caller
+    couldn't compute one (e.g. no full TV details fetched, or TMDB's own
+    season data is incomplete), so an unset template token never breaks
+    the rest of the filename.
+    """
     renaming = renaming or _DEFAULT_RENAMING
     ext = ext or source.suffix
     show_name = sanitize_filename(media.title)
@@ -106,6 +131,8 @@ def plan_tv_rename(
         "show_name": show_name, "season": season, "episode": episode, "code": code,
         "episode_title": clean_episode_title,
         "episode_title_suffix": f" - {clean_episode_title}" if clean_episode_title else "",
+        "absolute_episode": absolute_episode if absolute_episode is not None else episode,
+        "part_suffix": f" - {part}" if part else "",
     }
     season_folder = sanitize_filename(_format_template(renaming.tv_season_folder, _DEFAULT_RENAMING.tv_season_folder, context))
     file_name = sanitize_filename(_format_template(renaming.tv_file, _DEFAULT_RENAMING.tv_file, context)) + ext

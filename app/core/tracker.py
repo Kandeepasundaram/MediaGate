@@ -140,38 +140,48 @@ def _fire_webhook(webhook_url: str, rows: list[dict]) -> None:
         logger.warning("Tracker webhook POST to %s failed: %s", webhook_url, exc)
 
 
-def _send_discord(discord_webhook_url: str, rows: list[dict]) -> None:
+def post_discord(discord_webhook_url: str, content: str) -> None:
+    """Reused by low_disk_alert.py as well as the tracker's own digest --
+    both just need to push a plain text message to the same three
+    providers, so the transport lives here rather than being duplicated."""
     try:
-        requests.post(discord_webhook_url, json={"content": _digest_message(rows)}, timeout=10)
+        requests.post(discord_webhook_url, json={"content": content}, timeout=10)
     except requests.RequestException as exc:
         logger.warning("Discord webhook POST failed: %s", exc)
 
 
-def _send_telegram(bot_token: str, chat_id: str, rows: list[dict]) -> None:
+def post_telegram(bot_token: str, chat_id: str, text: str) -> None:
     try:
         requests.post(
             f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json={"chat_id": chat_id, "text": _digest_message(rows)},
+            json={"chat_id": chat_id, "text": text},
             timeout=10,
         )
     except requests.RequestException as exc:
         logger.warning("Telegram sendMessage failed: %s", exc)
 
 
-def _send_pushover(api_token: str, user_key: str, rows: list[dict]) -> None:
+def post_pushover(api_token: str, user_key: str, message: str, title: str = "Media Manager") -> None:
     try:
         requests.post(
             "https://api.pushover.net/1/messages.json",
-            data={
-                "token": api_token,
-                "user": user_key,
-                "title": "Media Manager",
-                "message": _digest_message(rows),
-            },
+            data={"token": api_token, "user": user_key, "title": title, "message": message},
             timeout=10,
         )
     except requests.RequestException as exc:
         logger.warning("Pushover message POST failed: %s", exc)
+
+
+def _send_discord(discord_webhook_url: str, rows: list[dict]) -> None:
+    post_discord(discord_webhook_url, _digest_message(rows))
+
+
+def _send_telegram(bot_token: str, chat_id: str, rows: list[dict]) -> None:
+    post_telegram(bot_token, chat_id, _digest_message(rows))
+
+
+def _send_pushover(api_token: str, user_key: str, rows: list[dict]) -> None:
+    post_pushover(api_token, user_key, _digest_message(rows))
 
 
 def check_for_updates(

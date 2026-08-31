@@ -12,7 +12,14 @@
 <body>
 <header class="topbar">
   <h1>Media Manager</h1>
+  <div class="topbar-search">
+    <input type="text" id="global-search" placeholder="Search library…" class="search-input" autocomplete="off">
+    <div id="global-search-results" class="global-search-results hidden"></div>
+  </div>
   <div class="topbar-right">
+    <select id="viewer-select" title="Viewer -- watched checkboxes reflect this viewer's own state">
+      <option value="">All viewers</option>
+    </select>
     <span id="tmdb-mode" class="badge">…</span>
     <button id="theme-toggle-btn" title="Toggle light/dark theme">🌙</button>
   </div>
@@ -30,6 +37,10 @@
 
 <main>
   <section id="tab-movies" class="tab-panel active">
+    <div id="movies-recommendations-row" class="continue-watching-row hidden">
+      <h3>Recommended for You</h3>
+      <div id="movies-recommendations-cards" class="continue-watching-cards"></div>
+    </div>
     <div class="toolbar">
       <input type="text" id="movies-search" placeholder="Search movies…" class="search-input">
       <select id="movies-sort">
@@ -44,6 +55,9 @@
       </select>
       <select id="movies-genre">
         <option value="">All genres</option>
+      </select>
+      <select id="movies-tag">
+        <option value="">All tags</option>
       </select>
       <select id="movies-resolution">
         <option value="">All resolutions</option>
@@ -80,6 +94,7 @@
       <button id="movies-mark-watched-btn">Mark Watched</button>
       <button id="movies-mark-unwatched-btn">Mark Unwatched</button>
       <button id="movies-rename-selected-btn">Rename Selected</button>
+      <button id="movies-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
       <button id="movies-delete-selected-btn" class="danger">Delete Selected</button>
       <button id="movies-export-btn" title="Export the currently filtered/sorted list, not the full library">Export View (CSV)</button>
       <span id="movies-count" class="hint"></span>
@@ -88,6 +103,14 @@
   </section>
 
   <section id="tab-tv" class="tab-panel">
+    <div id="continue-watching-row" class="continue-watching-row hidden">
+      <h3>Continue Watching</h3>
+      <div id="continue-watching-cards" class="continue-watching-cards"></div>
+    </div>
+    <div id="tv-recommendations-row" class="continue-watching-row hidden">
+      <h3>Recommended for You</h3>
+      <div id="tv-recommendations-cards" class="continue-watching-cards"></div>
+    </div>
     <div class="toolbar">
       <input type="text" id="tv-search" placeholder="Search shows…" class="search-input">
       <select id="tv-sort">
@@ -101,6 +124,9 @@
       </select>
       <select id="tv-genre">
         <option value="">All genres</option>
+      </select>
+      <select id="tv-tag">
+        <option value="">All tags</option>
       </select>
       <select id="tv-resolution">
         <option value="">All resolutions</option>
@@ -137,6 +163,7 @@
       <button id="tv-mark-watched-btn">Mark Watched</button>
       <button id="tv-mark-unwatched-btn">Mark Unwatched</button>
       <button id="tv-rename-selected-btn">Rename Selected</button>
+      <button id="tv-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
       <button id="tv-export-btn" title="Export the currently filtered/sorted list, not the full library">Export View (CSV)</button>
       <span id="tv-count" class="hint"></span>
     </div>
@@ -225,6 +252,9 @@
   <section id="tab-notifications" class="tab-panel">
     <h3>Pending</h3>
     <div id="notifications-list"></div>
+    <h3>Upcoming Releases</h3>
+    <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
+    <div id="upcoming-releases-list"></div>
     <h3>Tracked Titles</h3>
     <div class="toolbar">
       <button id="track-add-movie-btn">+ Track New Movie</button>
@@ -247,6 +277,14 @@
         <option value="tracker_check">Tracker Check</option>
         <option value="delete">Delete</option>
       </select>
+      <select id="history-status-filter">
+        <option value="">All statuses</option>
+        <option value="success">Success</option>
+        <option value="failed">Failed</option>
+      </select>
+      <label>From <input type="date" id="history-since-filter"></label>
+      <label>To <input type="date" id="history-until-filter"></label>
+      <button id="history-export-btn" title="Export everything matching the current filters, not just what's on screen">Export View (CSV)</button>
       <span id="history-status" class="hint"></span>
     </div>
     <table id="history-table">
@@ -259,6 +297,7 @@
 
   <section id="tab-settings" class="tab-panel">
     <div id="stats-card" class="card"></div>
+    <div id="insights-card" class="card"></div>
     <div id="background-tasks-card" class="card"></div>
     <div id="storage-card" class="card"></div>
 
@@ -304,6 +343,13 @@
       </label>
       <p id="pushover-user-note" class="hint"></p>
       <p class="hint">Any combination of the above can be set together -- each fires independently when a tracked title newly has a season/sequel available.</p>
+      <label class="checkbox-label">
+        <input type="checkbox" id="setting-low-disk-alert-enabled">
+        Alert (via the channels above) when a media path's free space drops below a threshold
+      </label>
+      <label>Low disk threshold (GB)
+        <input type="number" id="setting-low-disk-threshold-gb" min="0.1" step="0.5" placeholder="10">
+      </label>
       <label>OMDb API key (optional)
         <input type="password" id="setting-omdb-key" placeholder="leave blank to keep current">
       </label>
@@ -335,6 +381,14 @@
       <label>TV subtitle languages to keep (optional override)
         <input type="text" id="setting-subtitle-languages-tv" placeholder="leave blank to use the list above">
       </label>
+      <label>OpenSubtitles API key (optional)
+        <input type="password" id="setting-opensubtitles-key" placeholder="leave blank to keep current">
+      </label>
+      <p id="opensubtitles-key-note" class="hint">Free key at opensubtitles.com/en/consumers. Required for auto-fetch below.</p>
+      <label class="checkbox-label">
+        <input type="checkbox" id="setting-auto-fetch-subtitles">
+        Auto-fetch a subtitle in the first missing keep-language before purging (uses the TMDB match, requires an OpenSubtitles API key)
+      </label>
       <label>API token (optional, for exposing this dashboard past your LAN)
         <input type="password" id="setting-api-token" placeholder="leave blank to keep current">
       </label>
@@ -350,10 +404,24 @@
       <p class="hint">An alternative to the single shared token above: create a named token per device/client and revoke just that one later, without breaking the others. Either kind of token is enough on its own to satisfy the API token check.</p>
       <div class="toolbar">
         <input type="text" id="new-api-token-name" placeholder="Token name (e.g. 'phone')">
+        <select id="new-api-token-scope">
+          <option value="read_write">Read-write (full access)</option>
+          <option value="read_only">Read-only (GET requests only)</option>
+        </select>
         <button id="create-api-token-btn">Create Token</button>
       </div>
       <div id="new-api-token-reveal" class="hint hidden"></div>
       <div id="api-tokens-list"></div>
+    </div>
+
+    <h3>Viewers (per-viewer watch state)</h3>
+    <div class="card">
+      <p class="hint">No password -- named profiles for a household sharing this dashboard, so "has Alex watched this" can differ from "has Sam watched this". Pick a viewer from the top-right selector to make the Watched checkboxes reflect their own state instead of the shared one.</p>
+      <div class="toolbar">
+        <input type="text" id="new-viewer-name" placeholder="Viewer name (e.g. 'Alex')">
+        <button id="create-viewer-btn">Add Viewer</button>
+      </div>
+      <div id="viewers-list"></div>
     </div>
 
     <h3>Naming Templates</h3>
@@ -369,7 +437,7 @@
       <label>TV episode file name
         <input type="text" id="setting-tv-file-template" placeholder="{show_name} - {code}{episode_title_suffix}">
       </label>
-      <p class="hint">Tokens: {show_name}, {season}, {episode}, {code} ("S01E02"), {episode_title}, {episode_title_suffix} (" - Title" or "" if unknown).</p>
+      <p class="hint">Tokens: {show_name}, {season}, {episode}, {code} ("S01E02"), {episode_title}, {episode_title_suffix} (" - Title" or "" if unknown), {absolute_episode} (cumulative episode count across seasons, e.g. "{show_name} - {absolute_episode:03d}" for anime-style naming -- falls back to the plain in-season episode number when it can't be computed), {part_suffix} (" - CD1"/"Part2"/etc for a multi-part rip, detected from the source filename, or "" for a single-file episode).</p>
       <label>When the computed destination already exists
         <select id="setting-collision-policy">
           <option value="suffix">Add a number -- "Name (2).ext"</option>
@@ -398,14 +466,31 @@
         <input type="password" id="setting-jellyfin-api-key" placeholder="leave blank to keep current">
       </label>
       <p id="jellyfin-key-note" class="hint"></p>
+      <label class="checkbox-label">
+        <input type="checkbox" id="setting-write-nfo-files">
+        Write .nfo + poster.jpg alongside every archived/organized file (Plex/Jellyfin metadata)
+      </label>
       <button type="submit" class="primary">Save Media Server Settings</button>
       <span id="media-server-status"></span>
     </form>
+
+    <h3>Watch Status Sync</h3>
+    <div class="card">
+      <p class="hint">Pulls "watched" status back from Plex/Jellyfin for movies (matched by IMDb id). One-directional — only ever marks something watched, never unwatched, so a manual unwatch here is never overwritten.</p>
+      <button id="sync-watched-btn">Sync Watch Status Now</button>
+      <span id="sync-watched-status" class="hint"></span>
+    </div>
 
     <h3>Storage Permissions</h3>
     <div class="card">
       <button id="check-permissions-btn">Test Permissions</button>
       <div id="permissions-result"></div>
+    </div>
+
+    <h3>Config Version History</h3>
+    <div class="card">
+      <p class="hint">Every settings save keeps a copy of the previous config.yaml -- pick a version to view what changed or roll back to it.</p>
+      <div id="config-history-list"></div>
     </div>
 
     <h3>Backup &amp; Restore</h3>
@@ -417,6 +502,26 @@
       </label>
       <span id="backup-status" class="hint"></span>
     </div>
+
+    <h3>Remote Backup (WebDAV)</h3>
+    <form id="webdav-backup-form" class="card">
+      <p class="hint">The scheduled daily backup of config.yaml + the database (Settings has no toggle for the schedule itself yet -- see config.yaml's backup.enabled/retention_days) also pushes here when a URL is set, e.g. a Nextcloud or NAS WebDAV endpoint. Leave URL blank to keep local-only.</p>
+      <label>WebDAV URL
+        <input type="text" id="setting-webdav-url" placeholder="https://cloud.example.com/remote.php/dav/files/user/backups">
+      </label>
+      <label>Username
+        <input type="text" id="setting-webdav-username" placeholder="username">
+      </label>
+      <label>Password
+        <input type="password" id="setting-webdav-password" placeholder="leave blank to keep current">
+      </label>
+      <p id="webdav-password-note" class="hint"></p>
+      <label>Remote folder name
+        <input type="text" id="setting-webdav-remote-path" placeholder="media-manager-backups">
+      </label>
+      <button type="submit" class="primary">Save WebDAV Settings</button>
+      <span id="webdav-backup-status"></span>
+    </form>
   </section>
 </main>
 

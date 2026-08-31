@@ -5,7 +5,15 @@ from unittest.mock import MagicMock
 import tmdbv3api
 from tmdbv3api.as_obj import AsObj
 
-from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, parse_filename, vote_average_for
+from app.core.tmdb_client import (
+    MediaResult,
+    TMDBClient,
+    compute_absolute_episode,
+    genres_for,
+    parse_filename,
+    season_episode_counts,
+    vote_average_for,
+)
 from app.core.tmdb_scraper import ScrapedResult
 
 
@@ -55,6 +63,75 @@ def test_vote_average_for_none_when_zero_or_missing():
     assert vote_average_for(MediaResult(tmdb_id=1, title="X", media_type="movie", raw={})) is None
 
 
+def test_season_episode_counts_excludes_nothing_itself():
+    media = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv",
+        raw={"seasons": [
+            {"season_number": 0, "episode_count": 3},
+            {"season_number": 1, "episode_count": 12},
+            {"season_number": 2, "episode_count": 10},
+        ]},
+    )
+    assert season_episode_counts(media) == {0: 3, 1: 12, 2: 10}
+
+
+def test_season_episode_counts_empty_when_no_seasons_data():
+    media = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={})
+    assert season_episode_counts(media) == {}
+
+
+def test_compute_absolute_episode_sums_prior_seasons():
+    media = MediaResult(
+        tmdb_id=1, title="Show", media_type="tv",
+        raw={"seasons": [
+            {"season_number": 0, "episode_count": 3},
+            {"season_number": 1, "episode_count": 12},
+            {"season_number": 2, "episode_count": 10},
+        ]},
+    )
+    assert compute_absolute_episode(media, season=1, episode=1) == 1
+    assert compute_absolute_episode(media, season=2, episode=3) == 15  # 12 (S1) + 3
+    # season 0 (specials) never counted toward the total
+    assert compute_absolute_episode(media, season=2, episode=1) == 13
+
+
+def test_compute_absolute_episode_none_when_season_unknown():
+    media = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={"seasons": [{"season_number": 1, "episode_count": 12}]})
+    assert compute_absolute_episode(media, season=5, episode=1) is None
+
+
+def test_compute_absolute_episode_none_when_no_season_data():
+    media = MediaResult(tmdb_id=1, title="Show", media_type="tv", raw={})
+    assert compute_absolute_episode(media, season=1, episode=1) is None
+
+
+def test_parse_filename_movie_detects_cd_part_marker():
+    parsed = parse_filename("Some.Movie.2019.CD1.mkv")
+    assert parsed.media_type == "movie"
+    assert parsed.title == "Some Movie"
+    assert parsed.year == 2019
+    assert parsed.part == "Cd1"
+
+
+def test_parse_filename_movie_detects_part_marker_variants():
+    assert parse_filename("Movie.2020.Part2.mkv").part == "Part2"
+    assert parse_filename("Movie.2020.Disc1.mkv").part == "Disc1"
+    assert parse_filename("Movie.2020.disk2.mkv").part == "Disk2"
+
+
+def test_parse_filename_movie_no_part_marker_by_default():
+    assert parse_filename("Some Movie (2019) 1080p BluRay.mkv").part is None
+
+
+def test_parse_filename_tv_detects_part_marker():
+    parsed = parse_filename("The.Show.S02E05.CD1.mkv")
+    assert parsed.media_type == "tv"
+    assert parsed.title == "The Show"
+    assert parsed.season == 2
+    assert parsed.episode == 5
+    assert parsed.part == "Cd1"
+
+
 def test_parse_filename_tv_show():
     parsed = parse_filename("The.Show.S02E05.1080p.WEB-DL.x264.mkv")
     assert parsed.media_type == "tv"
@@ -100,6 +177,43 @@ def test_client_caches_results():
     client.search_movie("X", None)
 
     fake_scraper.search_movie.assert_called_once()
+
+
+def test_refresh_movie_details_bypasses_and_updates_cache():
+    fake_scraper = MagicMock()
+    fake_scraper.get_movie_details.side_effect = [
+        ScrapedResult(tmdb_id=1, title="Old Title", year=2019),
+        ScrapedResult(tmdb_id=1, title="New Title", year=2019),
+    ]
+    client = TMDBClient(api_key="", scraper=fake_scraper)
+
+    first = client.get_movie_details(1)
+    assert first.title == "Old Title"
+
+    refreshed = client.refresh_movie_details(1)
+    assert refreshed.title == "New Title"
+    assert fake_scraper.get_movie_details.call_count == 2
+
+    # cache now holds the refreshed result, not the original
+    again = client.get_movie_details(1)
+    assert again.title == "New Title"
+    assert fake_scraper.get_movie_details.call_count == 2
+
+
+def test_refresh_tv_details_bypasses_and_updates_cache():
+    fake_scraper = MagicMock()
+    fake_scraper.get_tv_details.side_effect = [
+        ScrapedResult(tmdb_id=9, title="Old Show", year=2019),
+        ScrapedResult(tmdb_id=9, title="New Show", year=2019),
+    ]
+    client = TMDBClient(api_key="", scraper=fake_scraper)
+
+    first = client.get_tv_details(9)
+    assert first.title == "Old Show"
+
+    refreshed = client.refresh_tv_details(9)
+    assert refreshed.title == "New Show"
+    assert fake_scraper.get_tv_details.call_count == 2
 
 
 def test_find_by_imdb_id_uses_scraper_when_no_api_key():

@@ -27,7 +27,7 @@ class OrganizeError(Exception):
     pass
 
 
-def organize_file(db: Database, plan: RenamePlan) -> int:
+def organize_file(db: Database, plan: RenamePlan, write_nfo_files: bool = True) -> int:
     """Moves plan.source_path to plan.dest_path (a no-op if they're already
     the same path -- just a metadata refresh then), and updates the
     media_items row tracking that file by its previous final_path in place,
@@ -63,7 +63,8 @@ def organize_file(db: Database, plan: RenamePlan) -> int:
             )
             raise OrganizeError(f"Failed to move {plan.source_path} -> {plan.dest_path}: {exc}") from exc
 
-    _write_nfo_best_effort(plan)
+    if write_nfo_files:
+        _write_nfo_best_effort(plan)
 
     fields = dict(
         title=plan.title,

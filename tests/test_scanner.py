@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from app.core.scanner import scan_directory, scan_targets
+from pathlib import Path
+
+from app.core.scanner import is_extra_or_sample, scan_directory, scan_targets
 
 
 def test_scan_directory_finds_videos_and_matches_subtitles(tmp_path):
@@ -37,6 +39,38 @@ def test_scan_directory_recursive_and_ignores_non_video(tmp_path):
 
 def test_scan_missing_directory_returns_empty(tmp_path):
     assert scan_directory(tmp_path / "nope") == []
+
+
+def test_is_extra_or_sample_detects_extras_subfolder():
+    assert is_extra_or_sample(Path("/lib/Movie (2020)/Featurettes/Behind the Scenes.mkv")) is True
+    assert is_extra_or_sample(Path("/lib/Movie (2020)/extras/clip.mkv")) is True  # case-insensitive dir match
+
+
+def test_is_extra_or_sample_detects_sample_filename():
+    assert is_extra_or_sample(Path("/lib/Movie.Name.2020.sample.mkv")) is True
+    assert is_extra_or_sample(Path("/lib/Movie.Name.2020-sample.mkv")) is True
+
+
+def test_is_extra_or_sample_false_for_real_media():
+    assert is_extra_or_sample(Path("/lib/Movie (2020)/Movie (2020).mkv")) is False
+    # "sample" only as a whole-word/separated token counts -- not a title
+    # that merely contains the letters, e.g. "Sampled" or "Resampler".
+    assert is_extra_or_sample(Path("/lib/Sampled Lives (2020).mkv")) is False
+
+
+def test_scan_directory_skips_extras_and_sample_files(tmp_path):
+    movie_dir = tmp_path / "Movie (2020)"
+    movie_dir.mkdir()
+    (movie_dir / "Movie (2020).mkv").write_bytes(b"real movie")
+    (movie_dir / "Movie.2020.sample.mkv").write_bytes(b"sample clip")
+    extras_dir = movie_dir / "Featurettes"
+    extras_dir.mkdir()
+    (extras_dir / "Behind the Scenes.mkv").write_bytes(b"featurette")
+
+    results = scan_directory(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].path.name == "Movie (2020).mkv"
 
 
 def test_scan_targets_dedupes_overlapping_roots(tmp_path):

@@ -21,9 +21,17 @@ from app.config_loader import (
 )
 from app.core.fs_watcher import NewFileTracker
 from app.core.omdb_client import OMDbClient
+from app.core.opensubtitles_client import SubtitleMatch
 from app.core.tmdb_client import MediaResult
 from app.database import Database
-from app.dependencies import get_config, get_database, get_new_file_tracker, get_omdb_client, get_tmdb_client
+from app.dependencies import (
+    get_config,
+    get_database,
+    get_new_file_tracker,
+    get_omdb_client,
+    get_opensubtitles_client,
+    get_tmdb_client,
+)
 from app.main import app
 
 
@@ -147,6 +155,80 @@ def test_storage_status_reports_missing_directory(client, tmp_path):
     assert missing["total_bytes"] is None
 
 
+def test_storage_status_records_snapshot_and_reports_no_forecast_on_first_call(client):
+    c, _ = client
+    body = c.get("/api/status/storage").json()
+    for p in body["paths"]:
+        assert p["days_to_full"] is None
+        assert p["history_days"] == 0
+
+
+def test_storage_status_forecasts_days_to_full_from_history(client):
+    from datetime import datetime, timedelta, timezone
+
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    c.get("/api/status/storage")  # first snapshot, recorded for today
+
+    # Backdate a snapshot from 5 days ago with less usage than today's real
+    # (already-recorded) one, so the two-point slope is unambiguous growth.
+    five_days_ago = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+    db.execute_query(
+        "UPDATE storage_snapshots SET used_bytes = ?, created_at = ? WHERE label = ?",
+        (0, five_days_ago, "Movies incoming"),
+    )
+    db.record_storage_snapshot("Movies incoming", 1000 * 1024 * 1024 * 1024, 2000 * 1024 * 1024 * 1024)
+
+    body = c.get("/api/status/storage").json()
+    row = next(p for p in body["paths"] if p["label"] == "Movies incoming")
+    assert row["history_days"] == 2
+    assert row["days_to_full"] is not None
+    assert row["days_to_full"] > 0
+
+
+def test_storage_status_no_forecast_when_usage_shrinking(client):
+    from datetime import datetime, timedelta, timezone
+
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    c.get("/api/status/storage")  # first snapshot
+
+    five_days_ago = (datetime.now(timezone.utc) - timedelta(days=5)).isoformat()
+    db.execute_query(
+        "UPDATE storage_snapshots SET used_bytes = ?, created_at = ? WHERE label = ?",
+        (999999999999, five_days_ago, "Movies incoming"),
+    )
+
+    body = c.get("/api/status/storage").json()
+    row = next(p for p in body["paths"] if p["label"] == "Movies incoming")
+    assert row["days_to_full"] is None
+    assert row["history_days"] == 2
+
+
+def test_storage_status_fires_low_disk_alert_when_enabled_and_below_threshold(client):
+    c, _ = client
+    config = app.dependency_overrides[get_config]()
+    config.notifications.low_disk_alert_enabled = True
+    config.notifications.low_disk_threshold_gb = 1e12  # absurdly high -- guaranteed below threshold
+    config.notifications.discord_webhook_url = "https://discord/x"
+
+    from app.core import low_disk_alert
+    low_disk_alert._last_alerted.clear()
+    with patch("app.core.low_disk_alert.post_discord") as mock_discord:
+        c.get("/api/status/storage")
+    assert mock_discord.called
+
+
+def test_storage_status_no_low_disk_alert_when_disabled(client):
+    c, _ = client
+    config = app.dependency_overrides[get_config]()
+    config.notifications.low_disk_alert_enabled = False
+
+    with patch("app.core.low_disk_alert.post_discord") as mock_discord:
+        c.get("/api/status/storage")
+    mock_discord.assert_not_called()
+
+
 def test_background_tasks_status_defaults(client):
     c, _ = client
     resp = c.get("/api/status/tasks")
@@ -212,6 +294,96 @@ def test_archive_confirm_purge_subtitles_honors_configured_keep_languages(client
 
     assert not en_sub.exists()  # not in the configured keep list -- purged
     assert fr_sub.exists()  # configured keep language -- kept
+
+
+def test_archive_confirm_skips_nfo_when_disabled_in_settings(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.media_server.write_nfo_files = False
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    confirm = c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False}).json()
+
+    dest = Path(preview["items"][0]["dest_path"])
+    assert confirm["results"][0]["status"] == "success"
+    assert not (dest.parent / "movie.nfo").exists()
+
+
+def test_archive_confirm_writes_nfo_by_default(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    dest = Path(preview["items"][0]["dest_path"])
+    assert (dest.parent / "movie.nfo").exists()
+
+
+def test_archive_confirm_fetches_missing_subtitle_when_enabled(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.subtitles.keep_languages = ["en"]
+    config.subtitles.auto_fetch_missing_subtitles = True
+
+    fake_os_client = MagicMock()
+    fake_os_client.enabled = True
+    fake_os_client.find_subtitle.return_value = SubtitleMatch(file_id=42, language="en", release="")
+    fake_os_client.download_subtitle.return_value = b"fetched subtitle content"
+    app.dependency_overrides[get_opensubtitles_client] = lambda: fake_os_client
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    fetched = incoming_movies / "Sample.Movie.2020.1080p.en.srt"
+    assert fetched.exists()
+    assert fetched.read_bytes() == b"fetched subtitle content"
+    fake_os_client.find_subtitle.assert_called_once()
+
+
+def test_archive_confirm_skips_fetch_when_language_already_present(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.subtitles.keep_languages = ["en"]
+    config.subtitles.auto_fetch_missing_subtitles = True
+
+    fake_os_client = MagicMock()
+    fake_os_client.enabled = True
+    app.dependency_overrides[get_opensubtitles_client] = lambda: fake_os_client
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+    (incoming_movies / "Sample.Movie.2020.1080p.en.srt").write_text("already have english")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    fake_os_client.find_subtitle.assert_not_called()
+
+
+def test_archive_confirm_skips_fetch_when_disabled(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.subtitles.auto_fetch_missing_subtitles = False
+
+    fake_os_client = MagicMock()
+    fake_os_client.enabled = True
+    app.dependency_overrides[get_opensubtitles_client] = lambda: fake_os_client
+
+    video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
+    video.write_bytes(b"fake video data")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    fake_os_client.find_subtitle.assert_not_called()
 
 
 def test_archive_confirm_purge_subtitles_honors_per_movie_type_override(client):
@@ -306,6 +478,123 @@ def test_scan_preview_confirm_flow(client):
     assert stats["movies_size_bytes"] == len(b"fake video data")
     assert stats["tv_size_bytes"] == 0
     assert stats["total_size_bytes"] == stats["movies_size_bytes"]
+
+
+def test_archive_history_filters_by_status_and_date_range(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.execute_query(
+        "INSERT INTO operation_log (operation_type, status, created_at) VALUES (?, ?, ?)",
+        ("archive", "success", "2026-01-05T00:00:00+00:00"),
+    )
+    db.execute_query(
+        "INSERT INTO operation_log (operation_type, status, created_at) VALUES (?, ?, ?)",
+        ("archive", "failed", "2026-02-10T00:00:00+00:00"),
+    )
+
+    resp = c.get("/api/archive/history", params={"status": "failed"})
+    assert resp.status_code == 200
+    assert len(resp.json()["operations"]) == 1
+    assert resp.json()["operations"][0]["status"] == "failed"
+
+    resp = c.get("/api/archive/history", params={"since": "2026-01-01", "until": "2026-01-31"})
+    assert len(resp.json()["operations"]) == 1
+    assert resp.json()["operations"][0]["created_at"] == "2026-01-05T00:00:00+00:00"
+
+
+def test_stats_insights_empty_library(client):
+    c, _ = client
+    body = c.get("/api/stats/insights").json()
+    assert body == {"top_genres": [], "resolution_breakdown": [], "growth_by_month": []}
+
+
+def test_stats_insights_aggregates_genres_resolution_and_growth(client):
+    c, incoming_movies = client
+    db = app.dependency_overrides[get_database]()
+
+    movie1 = incoming_movies / "movie1.mkv"
+    movie1.write_bytes(b"0" * 1000)
+    movie2 = incoming_movies / "movie2.mkv"
+    movie2.write_bytes(b"0" * 3000)
+
+    db.create_media_item(
+        original_path="x", final_path=str(movie1), title="Movie 1", media_type="movie",
+        archived_at="2026-01-15T00:00:00+00:00",
+        metadata={"genres": ["Drama", "Action"], "height": 1080},
+    )
+    db.create_media_item(
+        original_path="x", final_path=str(movie2), title="Movie 2", media_type="movie",
+        archived_at="2026-01-20T00:00:00+00:00",
+        metadata={"genres": ["Drama"], "height": 2160},
+    )
+
+    body = c.get("/api/stats/insights").json()
+
+    genres = {g["genre"]: g["count"] for g in body["top_genres"]}
+    assert genres == {"Drama": 2, "Action": 1}
+
+    resolutions = {r["resolution"]: (r["count"], r["avg_size_bytes"]) for r in body["resolution_breakdown"]}
+    assert resolutions["1080p"] == (1, 1000)
+    assert resolutions["4K"] == (1, 3000)
+
+    assert body["growth_by_month"] == [{"month": "2026-01", "count": 2}]
+
+
+def test_stats_insights_resolution_unknown_when_no_height_probed(client):
+    c, incoming_movies = client
+    db = app.dependency_overrides[get_database]()
+    movie = incoming_movies / "movie.mkv"
+    movie.write_bytes(b"0" * 500)
+
+    db.create_media_item(
+        original_path="x", final_path=str(movie), title="Movie", media_type="movie", metadata={},
+    )
+
+    body = c.get("/api/stats/insights").json()
+    resolutions = {r["resolution"]: r["count"] for r in body["resolution_breakdown"]}
+    assert resolutions == {"Unknown": 1}
+
+
+def test_stats_insights_skips_missing_files_for_resolution_stats(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.create_media_item(
+        original_path="x", final_path="/does/not/exist.mkv", title="Gone", media_type="movie",
+        metadata={"height": 1080},
+    )
+
+    body = c.get("/api/stats/insights").json()
+    assert body["resolution_breakdown"] == []
+
+
+def test_scan_excludes_extras_and_sample_files(client):
+    c, incoming_movies = client
+    real = incoming_movies / "Some.Movie.2020.1080p.mkv"
+    real.write_bytes(b"real movie")
+    (incoming_movies / "Some.Movie.2020.sample.mkv").write_bytes(b"sample clip")
+    extras_dir = incoming_movies / "Featurettes"
+    extras_dir.mkdir()
+    (extras_dir / "Behind the Scenes.mkv").write_bytes(b"featurette")
+
+    files = c.get("/api/scan").json()["files"]
+    assert len(files) == 1
+    assert files[0]["path"] == str(real)
+
+
+def test_archive_preview_multi_part_movie_gets_distinct_dest_paths(client):
+    c, incoming_movies = client
+    cd1 = incoming_movies / "Old.Movie.1999.CD1.mkv"
+    cd2 = incoming_movies / "Old.Movie.1999.CD2.mkv"
+    cd1.write_bytes(b"part one")
+    cd2.write_bytes(b"part two")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(cd1), str(cd2)]}).json()
+    dest_paths = {item["dest_path"] for item in preview["items"]}
+    assert len(dest_paths) == 2  # not collision-suffixed onto the same name
+    assert any(d.endswith("Cd1.mkv") for d in dest_paths)
+    assert any(d.endswith("Cd2.mkv") for d in dest_paths)
+    # same movie folder for both parts
+    assert len({Path(d).parent for d in dest_paths}) == 1
 
 
 def test_scan_covers_archive_dirs_and_excludes_already_handled(client):
@@ -501,6 +790,81 @@ def test_tracker_set_and_clear_check_interval(client):
     assert resp2.json()["tracker"]["check_interval_hours"] is None
 
 
+def test_upcoming_releases_includes_movie_and_tv_within_window(client):
+    from datetime import datetime, timedelta, timezone
+
+    c, _ = client
+    c.post("/api/tracker/add", json={"tmdb_id": 5, "media_type": "tv", "title": "Show"})
+    c.post("/api/tracker/add", json={"tmdb_id": 6, "media_type": "movie", "title": "Movie"})
+
+    soon = (datetime.now(timezone.utc).date() + timedelta(days=10)).isoformat()
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=6, title="Movie", media_type="movie", source="api", raw={"release_date": soon}
+    )
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=5, title="Show", media_type="tv", source="api",
+        raw={"next_episode_to_air": {"air_date": soon, "season_number": 2, "episode_number": 3}},
+    )
+
+    resp = c.get("/api/tracker/upcoming")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert {i["title"] for i in items} == {"Show", "Movie"}
+    show_entry = next(i for i in items if i["title"] == "Show")
+    assert show_entry["label"] == "S02E03"
+
+
+def test_upcoming_releases_excludes_dates_outside_window(client):
+    from datetime import datetime, timedelta, timezone
+
+    c, _ = client
+    c.post("/api/tracker/add", json={"tmdb_id": 6, "media_type": "movie", "title": "Movie"})
+
+    far_future = (datetime.now(timezone.utc).date() + timedelta(days=400)).isoformat()
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=6, title="Movie", media_type="movie", source="api", raw={"release_date": far_future}
+    )
+
+    resp = c.get("/api/tracker/upcoming")
+    assert resp.json()["items"] == []
+
+
+def test_upcoming_releases_excludes_muted_trackers(client):
+    from datetime import datetime, timedelta, timezone
+
+    c, _ = client
+    add_resp = c.post("/api/tracker/add", json={"tmdb_id": 6, "media_type": "movie", "title": "Movie"})
+    tracker_id = add_resp.json()["tracker"]["id"]
+    c.post(f"/api/tracker/{tracker_id}/mute", json={"muted": True})
+
+    soon = (datetime.now(timezone.utc).date() + timedelta(days=10)).isoformat()
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=6, title="Movie", media_type="movie", source="api", raw={"release_date": soon}
+    )
+
+    resp = c.get("/api/tracker/upcoming")
+    assert resp.json()["items"] == []
+
+
+def test_upcoming_releases_skips_scraper_mode(client):
+    from datetime import datetime, timedelta, timezone
+
+    c, _ = client
+    c.post("/api/tracker/add", json={"tmdb_id": 6, "media_type": "movie", "title": "Movie"})
+
+    soon = (datetime.now(timezone.utc).date() + timedelta(days=10)).isoformat()
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=6, title="Movie", media_type="movie", source="scraper", raw={"release_date": soon}
+    )
+
+    resp = c.get("/api/tracker/upcoming")
+    assert resp.json()["items"] == []
+
+
 def test_watched_batch_update(client):
     c, incoming_movies = client
     video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
@@ -670,6 +1034,68 @@ def test_create_api_token_requires_a_name(client):
     assert resp.status_code == 400
 
 
+def test_create_api_token_rejects_invalid_scope(client):
+    c, _ = client
+    resp = c.post("/api/settings/tokens", json={"name": "phone", "scope": "admin"})
+    assert resp.status_code == 400
+
+
+def test_create_api_token_defaults_to_read_write(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    resp = c.post("/api/settings/tokens", json={"name": "phone"})
+    assert resp.json()["scope"] == "read_write"
+    try:
+        assert db.list_api_tokens()[0]["scope"] == "read_write"
+    finally:
+        for row in db.list_api_tokens():
+            db.delete_api_token(row["id"])
+
+
+def test_read_only_api_token_allows_get_but_blocks_post(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    create_resp = c.post("/api/settings/tokens", json={"name": "readonly-device", "scope": "read_only"})
+    assert create_resp.json()["scope"] == "read_only"
+    token = create_resp.json()["token"]
+
+    try:
+        assert c.get("/api/status", headers={"X-API-Token": token}).status_code == 200
+        resp = c.post("/api/settings/tokens", headers={"X-API-Token": token}, json={"name": "should-fail"})
+        assert resp.status_code == 403
+        resp = c.delete(f"/api/settings/tokens/{create_resp.json()['id']}", headers={"X-API-Token": token})
+        assert resp.status_code == 403
+    finally:
+        for row in db.list_api_tokens():
+            db.delete_api_token(row["id"])
+
+
+def test_read_write_api_token_allows_post(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    token = c.post("/api/settings/tokens", json={"name": "phone", "scope": "read_write"}).json()["token"]
+
+    try:
+        resp = c.post("/api/settings/tokens", headers={"X-API-Token": token}, json={"name": "second-device"})
+        assert resp.status_code == 200
+    finally:
+        for row in db.list_api_tokens():
+            db.delete_api_token(row["id"])
+
+
+def test_legacy_shared_token_is_never_scope_restricted(client):
+    c, _ = client
+    app.dependency_overrides[get_config]().server.api_token = "legacy-secret"
+    try:
+        resp = c.post("/api/settings/tokens", headers={"X-API-Token": "legacy-secret"}, json={"name": "x"})
+        assert resp.status_code == 200
+    finally:
+        app.dependency_overrides[get_config]().server.api_token = ""
+        db = app.dependency_overrides[get_database]()
+        for row in db.list_api_tokens():
+            db.delete_api_token(row["id"])
+
+
 def test_pwa_manifest_and_service_worker_are_served(client):
     c, _ = client
     manifest = c.get("/manifest.json")
@@ -789,6 +1215,42 @@ def test_rematch_imdb_updates_unmatched_item(client):
     assert updated_item["tmdb_id"] == 278
     assert updated_item["title"] == "The Shawshank Redemption"
     assert updated_item["poster_path"] == "/p.jpg"
+
+
+def test_archive_preview_computes_absolute_episode_when_template_uses_it(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.renaming.tv_file = "{show_name} - {absolute_episode:03d}"
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_tv.return_value = [MediaResult(tmdb_id=50, title="Show", media_type="tv")]
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=50, title="Show", media_type="tv",
+        raw={"seasons": [{"season_number": 1, "episode_count": 12}, {"season_number": 2, "episode_count": 10}]},
+    )
+
+    tv_dir = incoming_movies.parent / "tv"
+    tv_dir.mkdir(exist_ok=True)
+    f = tv_dir / "Show.S02E03.mkv"
+    f.write_bytes(b"data")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(f)]}).json()
+    assert preview["items"][0]["dest_path"].endswith("Show - 015.mkv")
+    fake_tmdb.get_tv_details.assert_called_once_with(50)
+
+
+def test_archive_preview_skips_absolute_episode_lookup_when_template_does_not_use_it(client):
+    c, incoming_movies = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_tv.return_value = [MediaResult(tmdb_id=51, title="Show", media_type="tv")]
+
+    tv_dir = incoming_movies.parent / "tv"
+    tv_dir.mkdir(exist_ok=True)
+    f = tv_dir / "Show.S02E03.mkv"
+    f.write_bytes(b"data")
+
+    resp = c.post("/api/archive/preview", json={"paths": [str(f)]})
+    assert resp.status_code == 200
+    fake_tmdb.get_tv_details.assert_not_called()
 
 
 def test_rematch_imdb_applies_to_multiple_episode_ids(client):
@@ -929,6 +1391,254 @@ def test_ratings_returns_values_when_omdb_configured(client, monkeypatch):
     assert body["omdb_configured"] is True
 
 
+def test_download_movie_note_returns_markdown_with_attachment_header(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    video = tmp_path / "Movie.mkv"
+    video.write_bytes(b"data")
+    item_id = db.create_media_item(
+        original_path="x", final_path=str(video), title="Some Movie", year=2020, media_type="movie",
+        tmdb_id=42, imdb_id="tt0000001", metadata={"poster_path": "/p.jpg", "overview": "plot", "genres": ["Drama"]},
+    )
+
+    resp = c.get(f"/api/library/{item_id}/note")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/markdown")
+    assert 'filename="Some Movie (2020).md"' in resp.headers["content-disposition"]
+    assert "title: Some Movie" in resp.text
+    assert "type: movie" in resp.text
+
+
+def test_download_movie_note_uses_omdb_when_configured(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    video = tmp_path / "Movie.mkv"
+    video.write_bytes(b"data")
+    item_id = db.create_media_item(
+        original_path="x", final_path=str(video), title="Some Movie", year=2020, media_type="movie",
+        tmdb_id=42, imdb_id="tt0000001", metadata={"poster_path": "/p.jpg", "overview": "tmdb plot"},
+    )
+
+    from app.core.omdb_client import OMDbFullResult
+
+    fake_omdb = MagicMock()
+    fake_omdb.enabled = True
+    fake_omdb.get_full_details.return_value = OMDbFullResult(
+        title="Some Movie", year="2020", imdb_id="tt0000001", plot="omdb plot",
+        genres=["Drama"], director=["A Director"], writer=["A Writer"], actors=["An Actor"],
+        runtime="100 min", imdb_rating=7.5, poster_url="https://example.com/p.jpg", released="01 Jan 2020",
+    )
+    app.dependency_overrides[get_omdb_client] = lambda: fake_omdb
+
+    resp = c.get(f"/api/library/{item_id}/note")
+    assert resp.status_code == 200
+    assert "dataSource: OMDbAPI" in resp.text
+    assert "omdb plot" in resp.text
+    assert "A Director" in resp.text
+    fake_omdb.get_full_details.assert_called_once_with("tt0000001")
+
+
+def test_download_movie_note_handles_non_ascii_title_in_filename(client, tmp_path):
+    """Regression: a title with an en dash/accented char (routine in real
+    movie/TV titles) previously 500'd -- HTTP headers are Latin-1 only,
+    and Content-Disposition was built with the raw filename verbatim."""
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    video = tmp_path / "movie.mkv"
+    video.write_bytes(b"x")
+    item_id = db.create_media_item(
+        original_path="x", final_path=str(video), title="Amélie – Special Edition", year=2001,
+        media_type="movie", metadata={},
+    )
+
+    resp = c.get(f"/api/library/{item_id}/note")
+    assert resp.status_code == 200
+    disposition = resp.headers["content-disposition"]
+    assert "filename*=UTF-8''" in disposition
+    assert "Am%C3%A9lie" in disposition or "Amélie" in disposition
+
+
+def test_download_tv_note_handles_non_ascii_title_in_filename(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    video = tmp_path / "ep.mkv"
+    video.write_bytes(b"x")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="9-1-1", media_type="tv",
+        tmdb_id=75219, imdb_id="tt7235466", season_number=1, episode_number=1, metadata={},
+    )
+
+    from app.core.omdb_client import OMDbFullResult
+
+    fake_omdb = MagicMock()
+    fake_omdb.enabled = True
+    fake_omdb.get_full_details.return_value = OMDbFullResult(
+        title="9-1-1", year="2018–", imdb_id="tt7235466", plot="p",
+        genres=["Drama"], director=["N/A"], writer=["N/A"], actors=["N/A"],
+        runtime="43 min", imdb_rating=7.9, poster_url="https://example.com/p.jpg", released="03 Jan 2018",
+    )
+    app.dependency_overrides[get_omdb_client] = lambda: fake_omdb
+
+    resp = c.get("/api/library/tv-shows/75219/note")
+    assert resp.status_code == 200
+    assert "filename*=UTF-8''" in resp.headers["content-disposition"]
+
+
+def test_download_movie_note_404_for_missing_item(client):
+    c, _ = client
+    resp = c.get("/api/library/999999/note")
+    assert resp.status_code == 404
+
+
+def test_download_movie_note_400_for_tv_item(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    item_id = db.create_media_item(
+        original_path="x", final_path="/x/e.mkv", title="Show", media_type="tv",
+        season_number=1, episode_number=1, metadata={},
+    )
+    resp = c.get(f"/api/library/{item_id}/note")
+    assert resp.status_code == 400
+
+
+def test_save_movie_note_writes_file_alongside_video(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    movie_dir = tmp_path / "Some Movie (2020)"
+    movie_dir.mkdir()
+    video = movie_dir / "Some Movie (2020).mkv"
+    video.write_bytes(b"data")
+    item_id = db.create_media_item(
+        original_path="x", final_path=str(video), title="Some Movie", year=2020, media_type="movie",
+        metadata={"overview": "plot"},
+    )
+
+    resp = c.post(f"/api/library/{item_id}/note/save")
+    assert resp.status_code == 200
+    note_path = Path(resp.json()["path"])
+    assert note_path.exists()
+    assert note_path.parent == movie_dir
+    assert "title: Some Movie" in note_path.read_text(encoding="utf-8")
+
+
+def test_save_movie_note_404_when_no_archived_file(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    item_id = db.create_media_item(
+        original_path="x", final_path=None, title="Some Movie", year=2020, media_type="movie", metadata={},
+    )
+    resp = c.post(f"/api/library/{item_id}/note/save")
+    assert resp.status_code == 400
+
+
+def test_download_tv_note_aggregates_across_episodes(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    show_dir = tmp_path / "Show"
+    (show_dir / "Season 01").mkdir(parents=True)
+    ep1 = show_dir / "Season 01" / "Show - S01E01.mkv"
+    ep2 = show_dir / "Season 01" / "Show - S01E02.mkv"
+    ep1.write_bytes(b"x")
+    ep2.write_bytes(b"x")
+    db.create_media_item(
+        original_path="x", final_path=str(ep1), title="Show", media_type="tv",
+        tmdb_id=75219, imdb_id="tt7235466", season_number=1, episode_number=1,
+        watched=True, metadata={"poster_path": "/p.jpg", "overview": "plot", "genres": ["Drama"]},
+    )
+    db.create_media_item(
+        original_path="x", final_path=str(ep2), title="Show", media_type="tv",
+        tmdb_id=75219, imdb_id="tt7235466", season_number=1, episode_number=2,
+        watched=False, metadata={"poster_path": "/p.jpg", "overview": "plot", "genres": ["Drama"]},
+    )
+
+    resp = c.get("/api/library/tv-shows/75219/note")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/markdown")
+    assert "type: series" in resp.text
+    assert "episodes: 2" in resp.text
+    assert "watched: false" in resp.text  # not every episode is watched
+
+
+def test_download_tv_note_all_watched_reports_true(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    video = tmp_path / "ep.mkv"
+    video.write_bytes(b"x")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, watched=True, metadata={},
+    )
+
+    resp = c.get("/api/library/tv-shows/75219/note")
+    assert "watched: true" in resp.text
+    assert "lastWatched: S1" in resp.text
+
+
+def test_download_tv_note_404_when_no_episodes_for_tmdb_id(client):
+    c, _ = client
+    resp = c.get("/api/library/tv-shows/999999/note")
+    assert resp.status_code == 404
+
+
+def test_download_tv_note_uses_omdb_and_omits_director(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    video = tmp_path / "ep.mkv"
+    video.write_bytes(b"x")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Show", media_type="tv",
+        tmdb_id=75219, imdb_id="tt7235466", season_number=1, episode_number=1, metadata={},
+    )
+
+    from app.core.omdb_client import OMDbFullResult
+
+    fake_omdb = MagicMock()
+    fake_omdb.enabled = True
+    fake_omdb.get_full_details.return_value = OMDbFullResult(
+        title="Show", year="2018–", imdb_id="tt7235466", plot="omdb plot",
+        genres=["Drama"], director=["N/A"], writer=["A Writer"], actors=["An Actor"],
+        runtime="43 min", imdb_rating=7.9, poster_url="https://example.com/p.jpg", released="03 Jan 2018",
+    )
+    app.dependency_overrides[get_omdb_client] = lambda: fake_omdb
+
+    resp = c.get("/api/library/tv-shows/75219/note")
+    assert "dataSource: OMDbAPI" in resp.text
+    assert "director:" not in resp.text
+    fake_omdb.get_full_details.assert_called_once_with("tt7235466")
+
+
+def test_save_tv_note_writes_to_show_folder_not_season_folder(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    show_dir = tmp_path / "Show"
+    season_dir = show_dir / "Season 01"
+    season_dir.mkdir(parents=True)
+    video = season_dir / "Show - S01E01.mkv"
+    video.write_bytes(b"x")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, metadata={},
+    )
+
+    resp = c.post("/api/library/tv-shows/75219/note/save")
+    assert resp.status_code == 200
+    note_path = Path(resp.json()["path"])
+    assert note_path.exists()
+    assert note_path.parent == show_dir  # not season_dir
+    assert "type: series" in note_path.read_text(encoding="utf-8")
+
+
+def test_save_tv_note_400_when_no_archived_episodes(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.create_media_item(
+        original_path="x", final_path=None, title="Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, metadata={},
+    )
+    resp = c.post("/api/library/tv-shows/75219/note/save")
+    assert resp.status_code == 400
+
+
 def test_trailer_returns_youtube_key(client):
     c, incoming_movies = client
     video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
@@ -1051,6 +1761,30 @@ def test_tv_status_reports_latest_season_and_episode_count(client):
     assert body["latest_season_episode_count"] == 6
     assert body["total_episodes"] == 26
     assert body["data_available"] is True
+
+
+def test_tv_status_reports_per_season_episode_counts_excluding_specials(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1399, title="Show", media_type="tv", source="api",
+        raw={
+            "number_of_seasons": 2, "number_of_episodes": 14,
+            "seasons": [
+                {"season_number": 0, "episode_count": 3},  # specials -- excluded
+                {"season_number": 1, "episode_count": 8},
+                {"season_number": 2, "episode_count": 6},
+            ],
+        },
+    )
+
+    resp = c.get("/api/library/tv-status", params={"tmdb_id": 1399})
+    assert resp.status_code == 200
+    seasons = resp.json()["seasons"]
+    assert seasons == [
+        {"season_number": 1, "episode_count": 8},
+        {"season_number": 2, "episode_count": 6},
+    ]
 
 
 def test_tv_status_scraper_mode_reports_data_unavailable(client):

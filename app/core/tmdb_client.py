@@ -22,6 +22,12 @@ _FILENAME_JUNK = re.compile(
 )
 _TV_PATTERN = re.compile(r"^(?P<title>.+?)[.\s_-]+[Ss](?P<season>\d{1,2})[Ee](?P<episode>\d{1,3})")
 _MOVIE_YEAR_PATTERN = re.compile(r"^(?P<title>.+?)[.\s_(\[]+(?P<year>19\d{2}|20\d{2})\b")
+# Multi-part rip markers -- an old-format disc rip split across files gets
+# tagged like "Movie.Name.2020.CD1.mkv" / "...CD2.mkv", or occasionally
+# "Part1"/"Disc1"/"Disk1". Stripped out before title/year extraction so it
+# never leaks into the parsed title, and reported separately (ParsedFilename.part)
+# so the renamer can give each part a distinct filename instead of colliding.
+_PART_PATTERN = re.compile(r"[.\s_-](cd|part|disc|disk)[.\s_-]?(\d{1,2})\b", re.IGNORECASE)
 
 
 @dataclass
@@ -71,6 +77,38 @@ def vote_average_for(media: "MediaResult") -> float | None:
     return float(value) if isinstance(value, (int, float)) and value > 0 else None
 
 
+def season_episode_counts(media: "MediaResult") -> dict[int, int]:
+    """season_number -> episode_count from a TV details MediaResult's raw
+    payload (needs the full get_tv_details response, not a search result --
+    TMDB's search endpoint doesn't include a per-season breakdown). Handles
+    both tmdbv3api's AsObj items (API mode) and plain dicts, same dual
+    getattr/dict-access reason as _latest_season_episode_count below."""
+    counts: dict[int, int] = {}
+    for s in media.raw.get("seasons") or []:
+        season_number = getattr(s, "season_number", None) if not isinstance(s, dict) else s.get("season_number")
+        episode_count = getattr(s, "episode_count", None) if not isinstance(s, dict) else s.get("episode_count")
+        if season_number is not None:
+            counts[season_number] = episode_count or 0
+    return counts
+
+
+def compute_absolute_episode(media: "MediaResult", season: int, episode: int) -> int | None:
+    """Cumulative episode number across all prior seasons plus the
+    in-season episode number -- the numbering anime naming conventions
+    typically use instead of SxxExx. None (not "just use the in-season
+    number") when there isn't enough season data to compute it correctly,
+    so a caller can fall back explicitly rather than silently mislabeling
+    an episode with a wrong absolute number. Season 0 (TMDB's "Specials"
+    bucket) is never counted toward the total, matching every other
+    season-0 exclusion in this app (tv-status, the missing-episodes gap
+    detector)."""
+    counts = season_episode_counts(media)
+    if season not in counts:
+        return None
+    prior = sum(count for s, count in counts.items() if 0 < s < season)
+    return prior + episode
+
+
 @dataclass
 class ParsedFilename:
     title: str
@@ -78,12 +116,19 @@ class ParsedFilename:
     year: int | None = None
     season: int | None = None
     episode: int | None = None
+    part: str | None = None  # "CD1", "Part2", "Disc1", ... -- see _PART_PATTERN
 
 
 def parse_filename(filename: str) -> ParsedFilename:
     """Best-effort extraction of title/year (movie) or title/season/episode (TV)."""
     stem = re.sub(r"\.\w{2,4}$", "", filename)
     normalized = stem.replace("_", ".").replace(" ", ".")
+
+    part = None
+    part_match = _PART_PATTERN.search(normalized)
+    if part_match:
+        part = f"{part_match.group(1).capitalize()}{part_match.group(2)}"
+        normalized = normalized[: part_match.start()] + normalized[part_match.end():]
 
     tv_match = _TV_PATTERN.match(normalized)
     if tv_match:
@@ -94,16 +139,17 @@ def parse_filename(filename: str) -> ParsedFilename:
             media_type="tv",
             season=int(tv_match.group("season")),
             episode=int(tv_match.group("episode")),
+            part=part,
         )
 
     movie_match = _MOVIE_YEAR_PATTERN.match(normalized)
     if movie_match:
         title = movie_match.group("title").replace(".", " ").strip(" -")
         title = _FILENAME_JUNK.sub("", title).strip()
-        return ParsedFilename(title=title, media_type="movie", year=int(movie_match.group("year")))
+        return ParsedFilename(title=title, media_type="movie", year=int(movie_match.group("year")), part=part)
 
-    title = _FILENAME_JUNK.sub("", stem.replace(".", " ")).strip()
-    return ParsedFilename(title=title or stem, media_type="movie")
+    title = _FILENAME_JUNK.sub("", normalized.replace(".", " ")).strip()
+    return ParsedFilename(title=title or stem, media_type="movie", part=part)
 
 
 def _iter_api_results(results) -> list:
@@ -248,6 +294,16 @@ class TMDBClient:
     def get_movie_details(self, tmdb_id: int) -> MediaResult | None:
         return self._cached(("movie_details", tmdb_id), lambda: self._get_movie_details(tmdb_id))
 
+    def refresh_movie_details(self, tmdb_id: int) -> MediaResult | None:
+        """Bypasses the memoized cache and re-populates it -- for the
+        library's bulk "Refresh Metadata" action, where the whole point is
+        picking up a title/poster/rating change on TMDB's side since this
+        process last looked, which get_movie_details' cache would otherwise
+        hide for the rest of this process's lifetime."""
+        result = self._get_movie_details(tmdb_id)
+        self._cache[("movie_details", tmdb_id)] = result
+        return result
+
     def _get_movie_details(self, tmdb_id: int) -> MediaResult | None:
         if self._api:
             try:
@@ -271,6 +327,14 @@ class TMDBClient:
 
     def get_tv_details(self, tmdb_id: int) -> MediaResult | None:
         return self._cached(("tv_details", tmdb_id), lambda: self._get_tv_details(tmdb_id))
+
+    def refresh_tv_details(self, tmdb_id: int) -> MediaResult | None:
+        """TV counterpart of refresh_movie_details -- see there for why this
+        bypasses (and then repopulates) the cache instead of just calling
+        get_tv_details again."""
+        result = self._get_tv_details(tmdb_id)
+        self._cache[("tv_details", tmdb_id)] = result
+        return result
 
     def _get_tv_details(self, tmdb_id: int) -> MediaResult | None:
         if self._api:

@@ -16,7 +16,13 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.config_loader import AppConfig, update_settings
+from app.config_loader import (
+    AppConfig,
+    get_config_history_diff,
+    list_config_history,
+    rollback_config_version,
+    update_settings,
+)
 from app.database import Database
 from app.dependencies import get_config, get_database, reset_singletons
 from app.models import (
@@ -24,6 +30,9 @@ from app.models import (
     ApiTokenCreateResponse,
     ApiTokenOut,
     ApiTokensListResponse,
+    ConfigHistoryDiffResponse,
+    ConfigHistoryEntryOut,
+    ConfigHistoryListResponse,
     PathCheck,
     PermissionsCheckResponse,
     SettingsOut,
@@ -65,6 +74,15 @@ def _to_out(config: AppConfig) -> SettingsOut:
         tv_season_folder_template=config.renaming.tv_season_folder,
         tv_file_template=config.renaming.tv_file,
         collision_policy=config.renaming.collision_policy,
+        low_disk_alert_enabled=config.notifications.low_disk_alert_enabled,
+        low_disk_threshold_gb=config.notifications.low_disk_threshold_gb,
+        webdav_url=config.backup.webdav_url,
+        webdav_username=config.backup.webdav_username,
+        webdav_password_set=bool(config.backup.webdav_password),
+        webdav_remote_path=config.backup.webdav_remote_path,
+        opensubtitles_api_key_set=bool(config.subtitles.opensubtitles_api_key),
+        auto_fetch_missing_subtitles=config.subtitles.auto_fetch_missing_subtitles,
+        write_nfo_files=config.media_server.write_nfo_files,
     )
 
 
@@ -77,7 +95,7 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
     updates: dict[str, dict] = {
         "paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tracker": {}, "media_server": {},
-        "subtitles": {}, "renaming": {}, "watcher": {},
+        "subtitles": {}, "renaming": {}, "watcher": {}, "backup": {},
     }
 
     if payload.incoming_movies is not None:
@@ -104,6 +122,22 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["notifications"]["pushover_api_token"] = payload.pushover_api_token
     if payload.pushover_user_key is not None:
         updates["notifications"]["pushover_user_key"] = payload.pushover_user_key
+    if payload.low_disk_alert_enabled is not None:
+        updates["notifications"]["low_disk_alert_enabled"] = payload.low_disk_alert_enabled
+    if payload.low_disk_threshold_gb is not None:
+        updates["notifications"]["low_disk_threshold_gb"] = max(0.1, payload.low_disk_threshold_gb)
+    if payload.webdav_url is not None:
+        updates["backup"]["webdav_url"] = payload.webdav_url
+    if payload.webdav_username is not None:
+        updates["backup"]["webdav_username"] = payload.webdav_username
+    if payload.webdav_password is not None:
+        updates["backup"]["webdav_password"] = payload.webdav_password
+    if payload.webdav_remote_path is not None:
+        updates["backup"]["webdav_remote_path"] = payload.webdav_remote_path
+    if payload.opensubtitles_api_key is not None:
+        updates["subtitles"]["opensubtitles_api_key"] = payload.opensubtitles_api_key
+    if payload.auto_fetch_missing_subtitles is not None:
+        updates["subtitles"]["auto_fetch_missing_subtitles"] = payload.auto_fetch_missing_subtitles
     if payload.omdb_api_key is not None:
         updates["omdb"]["api_key"] = payload.omdb_api_key
     if payload.auto_track_new is not None:
@@ -124,6 +158,8 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["media_server"]["jellyfin_url"] = payload.jellyfin_url
     if payload.jellyfin_api_key is not None:
         updates["media_server"]["jellyfin_api_key"] = payload.jellyfin_api_key
+    if payload.write_nfo_files is not None:
+        updates["media_server"]["write_nfo_files"] = payload.write_nfo_files
     if payload.subtitle_keep_languages is not None:
         updates["subtitles"]["keep_languages"] = [
             lang.strip().lower() for lang in payload.subtitle_keep_languages if lang.strip()
@@ -153,6 +189,39 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
     return _to_out(new_config)
 
 
+@router.get("/history", response_model=ConfigHistoryListResponse)
+def get_config_history(config: AppConfig = Depends(get_config)) -> ConfigHistoryListResponse:
+    """Every config.yaml version saved so far (see
+    config_loader._snapshot_config_history), newest first -- the Settings
+    tab's version list, distinct from the single config.yaml.bak file
+    which only ever holds the immediately-previous save."""
+    return ConfigHistoryListResponse(
+        versions=[ConfigHistoryEntryOut(**entry) for entry in list_config_history(config.config_path)]
+    )
+
+
+@router.get("/history/{version}/diff", response_model=ConfigHistoryDiffResponse)
+def get_config_history_diff_route(version: str, config: AppConfig = Depends(get_config)) -> ConfigHistoryDiffResponse:
+    try:
+        diff = get_config_history_diff(config.config_path, version)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return ConfigHistoryDiffResponse(diff=diff)
+
+
+@router.post("/history/{version}/rollback", response_model=SettingsOut)
+def rollback_config_history(version: str, config: AppConfig = Depends(get_config)) -> SettingsOut:
+    """Restores config.yaml from a historical version. The config that was
+    live just before this call is itself snapshotted first (see
+    rollback_config_version), so rolling back is never a one-way trip."""
+    try:
+        new_config = rollback_config_version(config.config_path, version)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    reset_singletons()
+    return _to_out(new_config)
+
+
 @router.get("/tokens", response_model=ApiTokensListResponse)
 def list_api_tokens(db: Database = Depends(get_database)) -> ApiTokensListResponse:
     """Named, individually-revocable API tokens -- distinct from the single
@@ -162,7 +231,10 @@ def list_api_tokens(db: Database = Depends(get_database)) -> ApiTokensListRespon
     rows = db.list_api_tokens()
     return ApiTokensListResponse(
         tokens=[
-            ApiTokenOut(id=r["id"], name=r["name"], created_at=r["created_at"], last_used_at=r["last_used_at"])
+            ApiTokenOut(
+                id=r["id"], name=r["name"], created_at=r["created_at"], last_used_at=r["last_used_at"],
+                scope=r["scope"],
+            )
             for r in rows
         ]
     )
@@ -173,10 +245,12 @@ def create_api_token(payload: ApiTokenCreateRequest, db: Database = Depends(get_
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=400, detail="Token name is required")
+    if payload.scope not in ("read_write", "read_only"):
+        raise HTTPException(status_code=400, detail="scope must be 'read_write' or 'read_only'")
     token = secrets.token_urlsafe(32)
-    token_id = db.create_api_token(name, token)
+    token_id = db.create_api_token(name, token, scope=payload.scope)
     row = db.get_api_token_by_value(token)
-    return ApiTokenCreateResponse(id=token_id, name=name, token=token, created_at=row["created_at"])
+    return ApiTokenCreateResponse(id=token_id, name=name, token=token, created_at=row["created_at"], scope=payload.scope)
 
 
 @router.delete("/tokens/{token_id}")

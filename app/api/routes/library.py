@@ -9,22 +9,26 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 
 from app.api.routes.archive import _dry_run_result
 from app.config_loader import AppConfig
 from app.core import media_probe
 from app.core.library_adopt import adopt_new_files
+from app.core.media_note import build_movie_note, build_tv_note
 from app.core.omdb_client import OMDbClient
 from app.core.orphan_artwork import ARTWORK_NAMES, cleanup_orphaned_artwork, find_orphaned_artwork
 from app.core.organizer import OrganizeError, organize_file
-from app.core.renamer import RenamePlan
+from app.core.renamer import TMDB_IMAGE_BASE, RenamePlan, sanitize_filename
 from app.core.scanner import SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS, scan_directory
-from app.core.media_server import notify_media_servers
-from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, vote_average_for
+from app.core.media_server import notify_media_servers, sync_watched_from_media_servers
+from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, season_episode_counts, vote_average_for
 from app.core.tracker import maybe_auto_track
 from app.database import Database
 from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client
@@ -54,6 +58,10 @@ from app.models import (
     OrphanArtworkGroupOut,
     OrphanCleanupResponse,
     RatingsOut,
+    RecommendationOut,
+    RecommendationsResponse,
+    RefreshMetadataRequest,
+    RefreshMetadataResponse,
     RetryFailedMatchesResponse,
     RematchImdbRequest,
     RematchResponse,
@@ -61,7 +69,16 @@ from app.models import (
     CastMemberOut,
     MoreInfoOut,
     SimilarTitleOut,
+    SyncWatchedResponse,
+    TagsListResponse,
+    TagsUpdateRequest,
     TrailerOut,
+    NoteSaveResponse,
+    TvSeasonSummaryOut,
+    ViewerCreateRequest,
+    ViewerOut,
+    ViewersListResponse,
+    ViewerWatchedUpdateRequest,
     TvStatusOut,
     WatchedBatchRequest,
     WatchedBatchResponse,
@@ -81,7 +98,15 @@ def _metadata_dict(row: dict) -> dict:
     return meta if isinstance(meta, dict) else {}
 
 
-def _to_out(row: dict) -> LibraryItemOut:
+def _tags_list(row: dict) -> list[str]:
+    try:
+        tags = json.loads(row["tags"]) if row.get("tags") else []
+    except json.JSONDecodeError:
+        tags = []
+    return tags if isinstance(tags, list) else []
+
+
+def _to_out(row: dict, viewer_watched_ids: set[int] | None = None) -> LibraryItemOut:
     meta = _metadata_dict(row)
 
     file_name = None
@@ -116,26 +141,183 @@ def _to_out(row: dict) -> LibraryItemOut:
         resolution=media_probe.resolution_bucket(meta.get("height")),
         hdr=bool(meta.get("hdr", False)),
         audio_channels=meta.get("audio_channels"),
+        tags=_tags_list(row),
+        viewer_watched=(row["id"] in viewer_watched_ids) if viewer_watched_ids is not None else None,
     )
 
 
 @router.get("/movies", response_model=LibraryResponse)
-def list_movies(config: AppConfig = Depends(get_config), db: Database = Depends(get_database)) -> LibraryResponse:
+def list_movies(
+    viewer_id: int | None = None, config: AppConfig = Depends(get_config), db: Database = Depends(get_database)
+) -> LibraryResponse:
     """Auto-adopts (registers, no file operations, no network calls) any
     file physically in archive_movies not yet tracked, then returns
     everything tracked -- so files already organized by Radarr/Sonarr show
     up here without needing to be manually run through Ready to Archive.
     Newly-adopted rows show with a placeholder poster until the background
-    metadata backfill (see /metadata-status) fills them in.
+    metadata backfill (see /metadata-status) fills them in. `viewer_id`
+    populates each item's `viewer_watched` with that viewer's own state
+    (see viewers table) -- the plain `watched` field stays the single
+    global flag every other feature already reads.
     """
     adopt_new_files(db, config, "movie")
-    return LibraryResponse(items=[_to_out(r) for r in db.list_media_items(media_type="movie")])
+    watched_ids = db.list_viewer_watched_ids(viewer_id) if viewer_id is not None else None
+    return LibraryResponse(items=[_to_out(r, watched_ids) for r in db.list_media_items(media_type="movie")])
 
 
 @router.get("/tv", response_model=LibraryResponse)
-def list_tv(config: AppConfig = Depends(get_config), db: Database = Depends(get_database)) -> LibraryResponse:
+def list_tv(
+    viewer_id: int | None = None, config: AppConfig = Depends(get_config), db: Database = Depends(get_database)
+) -> LibraryResponse:
     adopt_new_files(db, config, "tv")
-    return LibraryResponse(items=[_to_out(r) for r in db.list_media_items(media_type="tv")])
+    watched_ids = db.list_viewer_watched_ids(viewer_id) if viewer_id is not None else None
+    return LibraryResponse(items=[_to_out(r, watched_ids) for r in db.list_media_items(media_type="tv")])
+
+
+@router.get("/search", response_model=LibraryResponse)
+def search_library(q: str, db: Database = Depends(get_database)) -> LibraryResponse:
+    """Cross-type title search backing the header's global search box --
+    unlike the Movies/TV/Browse tabs' own search fields (which filter
+    whatever that tab already loaded), this hits media_items directly so a
+    title in a tab the user hasn't opened yet is still found. A blank/short
+    query returns no results rather than the whole library.
+    """
+    q = q.strip()
+    if len(q) < 2:
+        return LibraryResponse(items=[])
+    # Higher than the ~20 titles actually shown: a TV match returns one row
+    # per episode, so a show with many episodes could otherwise crowd out
+    # every other title before the frontend's per-title dedupe even runs.
+    return LibraryResponse(items=[_to_out(r) for r in db.search_media_items(q, limit=60)])
+
+
+@router.get("/recommendations", response_model=RecommendationsResponse)
+def get_recommendations(
+    media_type: MediaType,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+) -> RecommendationsResponse:
+    """"Recommended for You" row: TMDB's per-title "similar" results,
+    pooled across a sample of the library's most recently archived titles
+    and ranked by how many of them pointed at the same candidate --
+    library-wide, unlike the detail pane's own per-item Similar Titles
+    section (get_more_info above), which only ever looks at one title.
+    Already-owned candidates (by tmdb_id) are excluded. API-key-only --
+    get_similar_titles returns [] in scraper mode, so tmdb_configured tells
+    the frontend to show a hint instead of an empty row.
+    """
+    if tmdb.mode != "api":
+        return RecommendationsResponse(items=[], tmdb_configured=False)
+
+    rows = [r for r in db.list_media_items(media_type=media_type) if r["tmdb_id"] is not None]
+    owned_tmdb_ids = {r["tmdb_id"] for r in rows}
+
+    # Most recently archived, deduped by tmdb_id (a TV show's many episode
+    # rows would otherwise burn most of the sample on one title) and capped
+    # -- each title costs one TMDB request, memoized per TMDBClient instance
+    # (see get_similar_titles), but still not worth doing for the whole library.
+    seed_ids: list[int] = []
+    for row in sorted(rows, key=lambda r: r["archived_at"] or "", reverse=True):
+        if row["tmdb_id"] not in seed_ids:
+            seed_ids.append(row["tmdb_id"])
+        if len(seed_ids) >= 15:
+            break
+
+    scores: dict[int, dict] = {}
+    for seed_id in seed_ids:
+        for candidate in tmdb.get_similar_titles(seed_id, media_type):
+            if candidate.tmdb_id is None or candidate.tmdb_id in owned_tmdb_ids:
+                continue
+            entry = scores.setdefault(
+                candidate.tmdb_id,
+                {"title": candidate.title, "year": candidate.year, "poster_path": candidate.poster_path, "score": 0},
+            )
+            entry["score"] += 1
+
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1]["score"], kv[1]["title"]))[:20]
+    items = [
+        RecommendationOut(tmdb_id=tid, media_type=media_type, **data)
+        for tid, data in ranked
+    ]
+    return RecommendationsResponse(items=items, tmdb_configured=True)
+
+
+@router.post("/sync-watched", response_model=SyncWatchedResponse)
+def sync_watched(config: AppConfig = Depends(get_config), db: Database = Depends(get_database)) -> SyncWatchedResponse:
+    """Manual trigger for pulling watched status back from Plex/Jellyfin --
+    see sync_watched_from_media_servers for the matching rules and the
+    movies-only, one-directional scope."""
+    return SyncWatchedResponse(updated=sync_watched_from_media_servers(config, db))
+
+
+@router.get("/tags", response_model=TagsListResponse)
+def list_tags(db: Database = Depends(get_database)) -> TagsListResponse:
+    """Distinct tag values across the library, for the gallery tag-filter
+    dropdown -- same populate-on-load pattern the genre filter already
+    uses, except genres come from TMDB metadata and tags are user-set."""
+    return TagsListResponse(tags=db.list_all_tags())
+
+
+@router.post("/{item_id}/tags", response_model=LibraryItemOut)
+def set_tags(item_id: int, payload: TagsUpdateRequest, db: Database = Depends(get_database)) -> LibraryItemOut:
+    """Replaces an item's full tag list (not an add/remove diff) -- the
+    detail pane sends the complete edited list back, same as how genres
+    aren't merged either."""
+    if db.get_media_item(item_id) is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    cleaned = sorted({t.strip() for t in payload.tags if t.strip()})
+    db.update_media_item(item_id, tags=cleaned)
+    return _to_out(db.get_media_item(item_id))
+
+
+@router.get("/viewers", response_model=ViewersListResponse)
+def list_viewers(db: Database = Depends(get_database)) -> ViewersListResponse:
+    """Named viewer profiles for per-viewer watch state -- no password, not
+    real accounts (see the viewers table's own migration docstring), just
+    enough for a household sharing one LAN dashboard to tell "has Alex seen
+    this" apart from "has Sam seen this"."""
+    return ViewersListResponse(
+        viewers=[ViewerOut(id=r["id"], name=r["name"], created_at=r["created_at"]) for r in db.list_viewers()]
+    )
+
+
+@router.post("/viewers", response_model=ViewerOut)
+def create_viewer(payload: ViewerCreateRequest, db: Database = Depends(get_database)) -> ViewerOut:
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Viewer name is required")
+    try:
+        viewer_id = db.create_viewer(name)
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"A viewer named {name!r} already exists") from exc
+    row = db.get_viewer(viewer_id)
+    return ViewerOut(id=row["id"], name=row["name"], created_at=row["created_at"])
+
+
+@router.delete("/viewers/{viewer_id}")
+def delete_viewer(viewer_id: int, db: Database = Depends(get_database)) -> dict:
+    """Deleting a viewer also drops their per-item watched rows (the FK's
+    ON DELETE CASCADE) -- their profile going away means "have they seen
+    this" no longer has an answer to keep around."""
+    if db.get_viewer(viewer_id) is None:
+        raise HTTPException(status_code=404, detail="Viewer not found")
+    db.delete_viewer(viewer_id)
+    return {"deleted": True}
+
+
+@router.post("/{item_id}/watched-by/{viewer_id}", response_model=LibraryItemOut)
+def set_viewer_watched(
+    item_id: int, viewer_id: int, payload: ViewerWatchedUpdateRequest, db: Database = Depends(get_database)
+) -> LibraryItemOut:
+    """Sets (or clears) this one viewer's own watched state for an item --
+    independent of, and never writes to, the item's global `watched` flag
+    every other feature reads."""
+    if db.get_media_item(item_id) is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if db.get_viewer(viewer_id) is None:
+        raise HTTPException(status_code=404, detail="Viewer not found")
+    db.set_viewer_watched(viewer_id, item_id, payload.watched)
+    return _to_out(db.get_media_item(item_id), {item_id} if payload.watched else set())
 
 
 @router.get("/metadata-status", response_model=MetadataStatusResponse)
@@ -289,6 +471,74 @@ def retry_failed_matches(media_type: MediaType | None = None, db: Database = Dep
     return RetryFailedMatchesResponse(reset=db.reset_failed_match_attempts(media_type))
 
 
+@router.post("/refresh-metadata", response_model=RefreshMetadataResponse)
+def refresh_metadata(
+    payload: RefreshMetadataRequest,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+) -> RefreshMetadataResponse:
+    """Bulk "Refresh Metadata" for the gallery multi-select: re-fetches
+    title/poster/overview/rating/genres from TMDB for each selected,
+    already-matched item -- the tmdb_id itself never changes, unlike
+    rematch-imdb/rematch-tmdb (which point an item at a *different* TMDB
+    entry) or retry-failed-matches (which is for items with no tmdb_id at
+    all yet). Uses TMDBClient.refresh_*_details, which bypasses that
+    client's own cache -- otherwise a "refresh" during the same process
+    lifetime would just hand back the same stale result it already had.
+
+    Multiple selected rows sharing one tmdb_id (every episode of a TV show)
+    only trigger one TMDB lookup, not one per row. ffprobe-derived fields
+    (resolution/codec/HDR/audio) and episode_title are carried forward from
+    the existing row -- refreshing metadata shouldn't need to re-probe the
+    file or lose per-episode data TMDB doesn't have anyway.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    media_cache: dict[tuple[int, str], MediaResult | None] = {}
+    updated = 0
+    failed = 0
+
+    for item_id in payload.ids:
+        row = db.get_media_item(item_id)
+        if row is None or row["tmdb_id"] is None:
+            failed += 1
+            continue
+
+        cache_key = (row["tmdb_id"], row["media_type"])
+        if cache_key not in media_cache:
+            media_cache[cache_key] = (
+                tmdb.refresh_tv_details(row["tmdb_id"])
+                if row["media_type"] == "tv"
+                else tmdb.refresh_movie_details(row["tmdb_id"])
+            )
+        media = media_cache[cache_key]
+        if media is None:
+            failed += 1
+            continue
+
+        existing_meta = _metadata_dict(row)
+        db.update_media_item(
+            item_id,
+            title=media.title,
+            year=media.year,
+            metadata={
+                "width": existing_meta.get("width"),
+                "height": existing_meta.get("height"),
+                "video_codec": existing_meta.get("video_codec"),
+                "hdr": existing_meta.get("hdr"),
+                "audio_channels": existing_meta.get("audio_channels"),
+                "episode_title": existing_meta.get("episode_title"),
+                "poster_path": media.poster_path,
+                "overview": media.overview,
+                "vote_average": vote_average_for(media),
+                "genres": genres_for(media),
+            },
+            match_attempted_at=now,
+        )
+        updated += 1
+
+    return RefreshMetadataResponse(updated=updated, failed=failed)
+
+
 @router.get("/tv-status", response_model=TvStatusOut)
 def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvStatusOut:
     """Live TMDB season/episode counts for the detail pane's "new season
@@ -303,6 +553,15 @@ def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvSt
     media = tmdb.get_tv_details(tmdb_id)
     if media is None:
         raise HTTPException(status_code=404, detail=f"No TMDB details found for tmdb_id {tmdb_id}")
+
+    # season_number 0 is TMDB's "Specials" bucket -- never counted as a gap,
+    # same reason latest_known_season/total_episodes never include it.
+    seasons = [
+        TvSeasonSummaryOut(season_number=num, episode_count=count)
+        for num, count in season_episode_counts(media).items()
+        if num != 0
+    ]
+
     return TvStatusOut(
         tmdb_id=tmdb_id,
         status=media.raw.get("status"),
@@ -310,6 +569,7 @@ def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvSt
         latest_season_episode_count=media.raw.get("latest_season_episode_count"),
         total_episodes=media.raw.get("number_of_episodes"),
         data_available=media.source == "api",
+        seasons=seasons,
     )
 
 
@@ -559,6 +819,175 @@ def get_more_info(
     )
 
 
+def _generate_movie_note(item_id: int, db: Database, omdb: OMDbClient) -> tuple[str, str]:
+    """Returns (markdown_text, filename). Shared by the download and
+    save-to-folder routes below so they can never drift out of sync with
+    each other. Movies only -- the Obsidian Media DB plugin's frontmatter
+    shape for a TV show/episode is different enough (season/episode
+    fields, a show-level vs episode-level note) that reusing this
+    movie-shaped template for TV would just produce a note the plugin
+    doesn't recognize correctly.
+    """
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if item["media_type"] != "movie":
+        raise HTTPException(status_code=400, detail="Notes are only generated for movies")
+
+    meta = _metadata_dict(item)
+    poster_path = meta.get("poster_path")
+    tmdb_poster_url = f"{TMDB_IMAGE_BASE}{poster_path}" if poster_path else ""
+
+    omdb_data = omdb.get_full_details(item["imdb_id"]) if item["imdb_id"] else None
+
+    markdown = build_movie_note(
+        title=item["title"],
+        year=item["year"],
+        imdb_id=item["imdb_id"],
+        tmdb_id=item["tmdb_id"],
+        watched=bool(item["watched"]),
+        tmdb_overview=meta.get("overview", ""),
+        tmdb_genres=meta.get("genres") or [],
+        tmdb_poster_url=tmdb_poster_url,
+        tmdb_vote_average=meta.get("vote_average"),
+        omdb=omdb_data,
+    )
+    display_title = (omdb_data.title if omdb_data else item["title"]) or item["title"]
+    base_name = f"{display_title} ({item['year']})" if item["year"] else display_title
+    filename = f"{sanitize_filename(base_name)}.md"
+    return markdown, filename
+
+
+def _content_disposition(filename: str) -> str:
+    """HTTP headers are Latin-1 only -- a title with an en dash, curly
+    quote, or any non-Latin1 character (all routine in a real TV/movie
+    title) would otherwise raise inside Starlette's own header encoding
+    and 500 the whole download. filename= carries an ASCII-safe fallback
+    for older clients; filename*= (RFC 5987/6266) carries the real UTF-8
+    name, which every current browser prefers when both are present."""
+    ascii_fallback = filename.encode("ascii", "replace").decode("ascii")
+    encoded = quote(filename, safe="")
+    return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
+
+
+@router.get("/{item_id}/note")
+def download_movie_note(
+    item_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
+) -> Response:
+    """Downloads the generated note without touching the archive folder --
+    for saving it anywhere the user wants (e.g. an existing Obsidian vault
+    outside this app's own media paths)."""
+    markdown, filename = _generate_movie_note(item_id, db, omdb)
+    return Response(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
+
+
+@router.post("/{item_id}/note/save", response_model=NoteSaveResponse)
+def save_movie_note(
+    item_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
+) -> NoteSaveResponse:
+    """Writes the generated note directly into the movie's own archive
+    folder, alongside the video file -- for a vault that watches the
+    library's own folders rather than a separate notes directory."""
+    markdown, filename = _generate_movie_note(item_id, db, omdb)
+    item = db.get_media_item(item_id)
+    if not item["final_path"]:
+        raise HTTPException(status_code=400, detail="This item has no archived file on disk")
+    folder = Path(item["final_path"]).parent
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail=f"Movie folder no longer exists: {folder}")
+    dest = folder / filename
+    try:
+        dest.write_text(markdown, encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write note: {exc}") from exc
+    return NoteSaveResponse(path=str(dest))
+
+
+def _generate_tv_note(tmdb_id: int, db: Database, omdb: OMDbClient) -> tuple[str, str, list[dict]]:
+    """Show-level counterpart of _generate_movie_note. Keyed by tmdb_id,
+    not a single media_items row: a show is however many per-episode rows
+    share that tmdb_id, so this aggregates across all of them (episode
+    count, whether every owned episode is watched, the highest season with
+    a watched episode) before building one note for the whole show.
+    Returns (markdown_text, filename, episode_rows) -- the caller needs
+    episode_rows too, to find the show's own folder for the save route.
+    """
+    episodes = [r for r in db.list_media_items(media_type="tv") if r["tmdb_id"] == tmdb_id]
+    if not episodes:
+        raise HTTPException(status_code=404, detail="No episodes found for this show")
+
+    first = episodes[0]
+    meta = _metadata_dict(first)
+    poster_path = meta.get("poster_path")
+    tmdb_poster_url = f"{TMDB_IMAGE_BASE}{poster_path}" if poster_path else ""
+
+    watched = all(bool(r["watched"]) for r in episodes)
+    watched_seasons = [r["season_number"] for r in episodes if r["watched"] and r["season_number"] is not None]
+    last_watched_season = max(watched_seasons) if watched_seasons else None
+
+    omdb_data = omdb.get_full_details(first["imdb_id"]) if first["imdb_id"] else None
+
+    markdown = build_tv_note(
+        title=first["title"],
+        imdb_id=first["imdb_id"],
+        tmdb_id=tmdb_id,
+        watched=watched,
+        episode_count=len(episodes),
+        last_watched_season=last_watched_season,
+        tmdb_overview=meta.get("overview", ""),
+        tmdb_genres=meta.get("genres") or [],
+        tmdb_poster_url=tmdb_poster_url,
+        tmdb_vote_average=meta.get("vote_average"),
+        omdb=omdb_data,
+    )
+    display_title = (omdb_data.title if omdb_data else first["title"]) or first["title"]
+    year_field = omdb_data.year if omdb_data else None
+    base_name = f"{display_title} ({year_field})" if year_field else display_title
+    filename = f"{sanitize_filename(base_name)}.md"
+    return markdown, filename, episodes
+
+
+@router.get("/tv-shows/{tmdb_id}/note")
+def download_tv_note(
+    tmdb_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
+) -> Response:
+    """TV counterpart of download_movie_note -- one note for the whole
+    show, aggregated across every archived episode sharing this tmdb_id."""
+    markdown, filename, _ = _generate_tv_note(tmdb_id, db, omdb)
+    return Response(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
+
+
+@router.post("/tv-shows/{tmdb_id}/note/save", response_model=NoteSaveResponse)
+def save_tv_note(
+    tmdb_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
+) -> NoteSaveResponse:
+    """Writes the show-level note into the show's own folder -- two levels
+    up from any episode's file (Show/Season NN/episode.ext), not the
+    season folder itself, so it sits alongside the show as a whole rather
+    than inside whichever season happened to be picked."""
+    markdown, filename, episodes = _generate_tv_note(tmdb_id, db, omdb)
+    episode_with_file = next((e for e in episodes if e["final_path"]), None)
+    if episode_with_file is None:
+        raise HTTPException(status_code=400, detail="This show has no archived episodes on disk")
+    folder = Path(episode_with_file["final_path"]).parent.parent
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail=f"Show folder no longer exists: {folder}")
+    dest = folder / filename
+    try:
+        dest.write_text(markdown, encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write note: {exc}") from exc
+    return NoteSaveResponse(path=str(dest))
+
+
 @router.get("/{item_id}/file-info", response_model=FileInfoOut)
 def get_file_info(item_id: int, db: Database = Depends(get_database)) -> FileInfoOut:
     """File name/size (cheap, from the filesystem) plus duration/resolution/
@@ -646,7 +1075,7 @@ def organize_selected(
             genres=item.genres,
         )
         try:
-            media_id = organize_file(db, plan)
+            media_id = organize_file(db, plan, write_nfo_files=config.media_server.write_nfo_files)
             maybe_auto_track(
                 db, config.tracker.auto_track_new, item.tmdb_id, item.media_type, item.title, item.season
             )

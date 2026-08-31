@@ -45,6 +45,33 @@ def test_plan_tv_rename_builds_expected_structure(tmp_path):
     assert plan.dest_path == archive_root / "Show" / "Season 01" / "Show - S01E02 - Pilot.mkv"
 
 
+def test_plan_movie_rename_appends_part_suffix(tmp_path):
+    source = tmp_path / "incoming" / "movie.cd1.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=10, title="Movie", media_type="movie", year=2020)
+    plan1 = plan_movie_rename(source, archive_root, media, part="Cd1")
+    plan2 = plan_movie_rename(source, archive_root, media, part="Cd2")
+
+    assert plan1.dest_path.name == "Movie (2020) - Cd1.mkv"
+    assert plan2.dest_path.name == "Movie (2020) - Cd2.mkv"
+    assert plan1.dest_path.parent == plan2.dest_path.parent  # same movie folder, distinct files
+
+
+def test_plan_movie_rename_no_part_suffix_when_not_multi_part(tmp_path):
+    source = tmp_path / "incoming" / "movie.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=11, title="Movie", media_type="movie", year=2020)
+    plan = plan_movie_rename(source, archive_root, media)
+
+    assert plan.dest_path.name == "Movie (2020).mkv"
+
+
 def test_plan_movie_rename_avoids_collision(tmp_path):
     archive_root = tmp_path / "archive"
     existing_dir = archive_root / "Movie (2020)"
@@ -132,3 +159,55 @@ def test_plan_tv_rename_honors_custom_templates(tmp_path):
     plan = plan_tv_rename(source, archive_root, media, season=1, episode=2, renaming=renaming)
 
     assert plan.dest_path == archive_root / "Show" / "S01" / "S01E02 - Show.mkv"
+
+
+def test_plan_tv_rename_anime_style_absolute_episode_template(tmp_path):
+    source = tmp_path / "incoming" / "show.s02e03.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=7, title="Show", media_type="tv")
+    renaming = RenamingConfig(tv_season_folder="Season {season:02d}", tv_file="{show_name} - {absolute_episode:03d}")
+    plan = plan_tv_rename(source, archive_root, media, season=2, episode=3, renaming=renaming, absolute_episode=15)
+
+    assert plan.dest_path == archive_root / "Show" / "Season 02" / "Show - 015.mkv"
+
+
+def test_plan_tv_rename_part_suffix_token(tmp_path):
+    source = tmp_path / "incoming" / "show.s01e01.cd1.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=12, title="Show", media_type="tv")
+    renaming = RenamingConfig(tv_file="{show_name} - {code}{part_suffix}")
+    plan = plan_tv_rename(source, archive_root, media, season=1, episode=1, renaming=renaming, part="Cd1")
+
+    assert plan.dest_path.name == "Show - S01E01 - Cd1.mkv"
+
+
+def test_plan_tv_rename_part_suffix_empty_when_no_part(tmp_path):
+    source = tmp_path / "incoming" / "show.s01e01.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=13, title="Show", media_type="tv")
+    renaming = RenamingConfig(tv_file="{show_name} - {code}{part_suffix}")
+    plan = plan_tv_rename(source, archive_root, media, season=1, episode=1, renaming=renaming)
+
+    assert plan.dest_path.name == "Show - S01E01.mkv"
+
+
+def test_plan_tv_rename_absolute_episode_falls_back_to_in_season_episode(tmp_path):
+    source = tmp_path / "incoming" / "show.s02e03.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=8, title="Show", media_type="tv")
+    renaming = RenamingConfig(tv_season_folder="Season {season:02d}", tv_file="{show_name} - {absolute_episode:03d}")
+    plan = plan_tv_rename(source, archive_root, media, season=2, episode=3, renaming=renaming)  # no absolute_episode passed
+
+    assert plan.dest_path == archive_root / "Show" / "Season 02" / "Show - 003.mkv"

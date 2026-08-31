@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from email.utils import format_datetime
 from xml.sax.saxutils import escape
 
@@ -23,6 +23,8 @@ from app.models import (
     TrackerNotificationsResponse,
     TrackerSnoozeRequest,
     TrackerStatusResponse,
+    UpcomingReleaseOut,
+    UpcomingReleasesResponse,
 )
 
 router = APIRouter(prefix="/api/tracker", tags=["tracker"])
@@ -77,6 +79,65 @@ def list_tracked(db: Database = Depends(get_database)) -> TrackedListResponse:
     """Every tracked title, muted or not -- backs a "Tracked Titles" panel
     distinct from /notifications (which only surfaces unmuted, pending ones)."""
     return TrackedListResponse(tracked=[_to_out(r) for r in db.list_tracked()])
+
+
+@router.get("/upcoming", response_model=UpcomingReleasesResponse)
+def upcoming_releases(
+    days: int = 90,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+) -> UpcomingReleasesResponse:
+    """Calendar view for tracked titles: TMDB release date (movies) or next
+    air date (TV), for whatever's due within `days` -- distinct from
+    /notifications (which only fires once a season/sequel is actually
+    *out*, via check_for_updates' polling loop). API-key-only, same
+    data_available convention as /library/tv-status and /movie-status --
+    scraper mode has no release-date field to read, so muted or
+    unresolvable titles are silently skipped rather than erroring.
+    """
+    today = datetime.now(timezone.utc).date()
+    cutoff = today + timedelta(days=days)
+    items: list[UpcomingReleaseOut] = []
+
+    for row in db.list_tracked():
+        if row["muted"]:
+            continue
+        media = (
+            tmdb.get_movie_details(row["tmdb_id"])
+            if row["media_type"] == "movie"
+            else tmdb.get_tv_details(row["tmdb_id"])
+        )
+        if media is None or media.source != "api":
+            continue
+
+        if row["media_type"] == "movie":
+            date_str = media.raw.get("release_date")
+            label = "Release"
+        else:
+            next_ep = media.raw.get("next_episode_to_air") or {}
+            date_str = next_ep.get("air_date")
+            season = next_ep.get("season_number")
+            episode = next_ep.get("episode_number")
+            label = f"S{season:02d}E{episode:02d}" if season is not None and episode is not None else "New episode"
+
+        if not date_str:
+            continue
+        try:
+            release_date = date.fromisoformat(date_str)
+        except ValueError:
+            continue
+        if not (today <= release_date <= cutoff):
+            continue
+
+        items.append(
+            UpcomingReleaseOut(
+                tmdb_id=row["tmdb_id"], media_type=row["media_type"], title=row["title"],
+                release_date=date_str, label=label,
+            )
+        )
+
+    items.sort(key=lambda i: i.release_date)
+    return UpcomingReleasesResponse(items=items)
 
 
 @router.post("/{tracker_id}/mute")

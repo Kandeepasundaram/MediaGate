@@ -135,6 +135,48 @@ def test_operation_log(db):
     assert ops[0]["status"] == "success"
 
 
+def test_list_operations_filters_by_status(db):
+    db.log_operation("archive", "success", details={"a": 1})
+    db.log_operation("archive", "failed", error_message="boom")
+
+    assert len(db.list_operations(status="success")) == 1
+    assert len(db.list_operations(status="failed")) == 1
+    assert db.list_operations(status="failed")[0]["error_message"] == "boom"
+
+
+def test_list_operations_filters_by_date_range(db):
+    db.execute_query(
+        "INSERT INTO operation_log (operation_type, status, created_at) VALUES (?, ?, ?)",
+        ("archive", "success", "2026-01-05T00:00:00+00:00"),
+    )
+    db.execute_query(
+        "INSERT INTO operation_log (operation_type, status, created_at) VALUES (?, ?, ?)",
+        ("archive", "success", "2026-02-10T00:00:00+00:00"),
+    )
+
+    assert len(db.list_operations(since="2026-01-01", until="2026-01-31")) == 1
+    assert len(db.list_operations(since="2026-02-01")) == 1
+    assert len(db.list_operations(until="2026-01-31")) == 1
+    assert len(db.list_operations()) == 2
+
+
+def test_list_operations_combines_filters(db):
+    db.execute_query(
+        "INSERT INTO operation_log (operation_type, status, created_at) VALUES (?, ?, ?)",
+        ("archive", "failed", "2026-01-05T00:00:00+00:00"),
+    )
+    db.execute_query(
+        "INSERT INTO operation_log (operation_type, status, created_at) VALUES (?, ?, ?)",
+        ("archive", "success", "2026-01-05T00:00:00+00:00"),
+    )
+    db.execute_query(
+        "INSERT INTO operation_log (operation_type, status, created_at) VALUES (?, ?, ?)",
+        ("purge", "failed", "2026-01-05T00:00:00+00:00"),
+    )
+
+    assert len(db.list_operations(operation_type="archive", status="failed")) == 1
+
+
 def test_list_unmatched_media_items_excludes_matched(db):
     db.create_media_item(original_path="a", title="A", media_type="movie", tmdb_id=1)
     unmatched_id = db.create_media_item(original_path="b", title="B", media_type="movie")
@@ -328,7 +370,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 10
+    assert version == 14
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -373,3 +415,103 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     # v9's notification_history table exists and is usable.
     db.log_notification(tracker_row["id"], 1, "tv", "Show", "New season available")
     assert len(db.list_notification_history()) == 1
+
+    # v11's media_items.tags column exists and is usable.
+    db.update_media_item(item_id, tags=["Favorites"])
+    assert db.get_media_item(item_id)["tags"] == '["Favorites"]'
+
+    # v12's storage_snapshots table exists and is usable.
+    db.record_storage_snapshot("Movies", 100, 200)
+    assert len(db.list_storage_snapshots("Movies")) == 1
+
+    # v13's api_tokens.scope column exists and defaults to read_write for
+    # tokens that predate the column, and is usable for new ones.
+    db.create_api_token("legacy-device", "legacy-token-value")
+    legacy_token = db.get_api_token_by_value("legacy-token-value")
+    assert legacy_token["scope"] == "read_write"
+    db.create_api_token("readonly-device", "readonly-token-value", scope="read_only")
+    assert db.get_api_token_by_value("readonly-token-value")["scope"] == "read_only"
+
+    # v14's viewers/viewer_watched_items tables exist and are usable.
+    viewer_id = db.create_viewer("Alex")
+    db.set_viewer_watched(viewer_id, item_id, True)
+    assert db.is_viewer_watched(viewer_id, item_id) is True
+
+
+def test_create_and_list_viewers(db):
+    db.create_viewer("Alex")
+    db.create_viewer("Sam")
+    viewers = db.list_viewers()
+    assert [v["name"] for v in viewers] == ["Alex", "Sam"]  # alphabetical
+
+
+def test_create_viewer_duplicate_name_raises(db):
+    import sqlite3
+    import pytest
+
+    db.create_viewer("Alex")
+    with pytest.raises(sqlite3.IntegrityError):
+        db.create_viewer("Alex")
+
+
+def test_set_viewer_watched_toggles_and_reports_correctly(db):
+    item_id = db.create_media_item(original_path="x", title="Movie", media_type="movie")
+    viewer_id = db.create_viewer("Alex")
+
+    assert db.is_viewer_watched(viewer_id, item_id) is False
+    db.set_viewer_watched(viewer_id, item_id, True)
+    assert db.is_viewer_watched(viewer_id, item_id) is True
+    assert db.list_viewer_watched_ids(viewer_id) == {item_id}
+
+    db.set_viewer_watched(viewer_id, item_id, False)
+    assert db.is_viewer_watched(viewer_id, item_id) is False
+    assert db.list_viewer_watched_ids(viewer_id) == set()
+
+
+def test_set_viewer_watched_is_independent_per_viewer(db):
+    item_id = db.create_media_item(original_path="x", title="Movie", media_type="movie")
+    alex_id = db.create_viewer("Alex")
+    sam_id = db.create_viewer("Sam")
+
+    db.set_viewer_watched(alex_id, item_id, True)
+
+    assert db.is_viewer_watched(alex_id, item_id) is True
+    assert db.is_viewer_watched(sam_id, item_id) is False
+    # the shared global flag is untouched by a per-viewer write
+    assert db.get_media_item(item_id)["watched"] == 0
+
+
+def test_delete_viewer_cascades_watched_rows(db):
+    item_id = db.create_media_item(original_path="x", title="Movie", media_type="movie")
+    viewer_id = db.create_viewer("Alex")
+    db.set_viewer_watched(viewer_id, item_id, True)
+
+    db.delete_viewer(viewer_id)
+
+    assert db.get_viewer(viewer_id) is None
+    rows = db.fetch_all("SELECT * FROM viewer_watched_items WHERE viewer_id = ?", (viewer_id,))
+    assert rows == []
+
+
+def test_record_storage_snapshot_dedupes_within_same_day(db):
+    db.record_storage_snapshot("Movies", 100, 200)
+    db.record_storage_snapshot("Movies", 150, 200)
+    snapshots = db.list_storage_snapshots("Movies")
+    assert len(snapshots) == 1
+    assert snapshots[0]["used_bytes"] == 150
+
+
+def test_list_storage_snapshots_filters_by_label_and_window(db):
+    from datetime import datetime, timedelta, timezone
+
+    db.record_storage_snapshot("Movies", 100, 200)
+    db.record_storage_snapshot("TV", 50, 200)
+    old = (datetime.now(timezone.utc) - timedelta(days=200)).isoformat()
+    db.execute_query(
+        "UPDATE storage_snapshots SET created_at = ? WHERE label = ?", (old, "TV"),
+    )
+
+    movies_snapshots = db.list_storage_snapshots("Movies", since_days=90)
+    tv_snapshots = db.list_storage_snapshots("TV", since_days=90)
+    assert len(movies_snapshots) == 1
+    assert tv_snapshots == []

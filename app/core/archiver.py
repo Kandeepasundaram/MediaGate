@@ -27,7 +27,7 @@ def sha256(path) -> str:
     return digest.hexdigest()
 
 
-def archive_file(db: Database, plan: RenamePlan) -> int:
+def archive_file(db: Database, plan: RenamePlan, write_nfo_files: bool = True) -> int:
     """Copy (not move) plan.source_path to plan.dest_path, log to DB, return media_item id.
 
     Verifies the copy by comparing a sha256 checksum of source and dest --
@@ -78,8 +78,9 @@ def archive_file(db: Database, plan: RenamePlan) -> int:
         )
         raise ArchiveError(f"Failed to copy {plan.source_path} -> {plan.dest_path}: {exc}") from exc
 
-    _write_nfo_best_effort(plan)
-    _download_artwork_best_effort(plan)
+    if write_nfo_files:
+        _write_nfo_best_effort(plan)
+        _download_artwork_best_effort(plan)
 
     now = datetime.now(timezone.utc).isoformat()
     media_id = db.create_media_item(

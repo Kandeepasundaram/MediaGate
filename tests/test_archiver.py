@@ -85,6 +85,18 @@ def test_archive_file_downloads_artwork_alongside_dest(db, tmp_path, monkeypatch
     spy.assert_called_once_with(plan.dest_path.parent, plan.poster_path)
 
 
+def test_archive_file_skips_nfo_and_artwork_when_disabled(db, tmp_path, monkeypatch):
+    spy = MagicMock(return_value={})
+    monkeypatch.setattr("app.core.archiver.download_artwork", spy)
+    plan = _plan(tmp_path)
+
+    archive_file(db, plan, write_nfo_files=False)
+
+    nfo = plan.dest_path.parent / "movie.nfo"
+    assert not nfo.exists()
+    spy.assert_not_called()
+
+
 def test_archive_file_raises_on_zero_byte_source(db, tmp_path):
     source = tmp_path / "empty.mkv"
     source.write_bytes(b"")
