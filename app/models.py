@@ -127,6 +127,8 @@ class TrackerAddRequest(BaseModel):
     media_type: MediaType
     title: str
     current_season_archived: int | None = None
+    poster_path: str | None = None
+    overview: str | None = None
 
 
 class TrackerNotificationOut(BaseModel):
@@ -143,6 +145,8 @@ class TrackerNotificationOut(BaseModel):
     snoozed_until: str | None = None
     check_interval_hours: float | None = None
     next_episode_air_date: str | None = None
+    poster_path: str | None = None
+    overview: str | None = None
 
 
 class TrackerSnoozeRequest(BaseModel):

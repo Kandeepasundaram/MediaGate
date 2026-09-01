@@ -74,6 +74,12 @@ def client(tmp_path):
     fake_tmdb.search_movie.return_value = [
         MediaResult(tmdb_id=99, title="Sample Movie", media_type="movie", year=2020, overview="A test movie")
     ]
+    # Unconfigured by default -- a bare MagicMock() is not a valid stand-in
+    # for "no TMDB result" (e.g. GET /api/tracker/list's poster backfill
+    # checks `media is None`); tests that need a real lookup set these
+    # explicitly.
+    fake_tmdb.get_movie_details.return_value = None
+    fake_tmdb.get_tv_details.return_value = None
 
     app.dependency_overrides[get_config] = lambda: config
     app.dependency_overrides[get_database] = lambda: db

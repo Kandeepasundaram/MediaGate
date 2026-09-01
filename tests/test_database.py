@@ -372,7 +372,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 17
+    assert version == 18
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -438,6 +438,12 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     viewer_id = db.create_viewer("Alex")
     db.set_viewer_watched(viewer_id, item_id, True)
     assert db.is_viewer_watched(viewer_id, item_id) is True
+
+    # v18's archive_tracker.poster_path/overview columns exist and are usable.
+    db.update_tracker(tracker_row["id"], poster_path="/poster.jpg", overview="Synopsis")
+    backfilled = db.get_tracker(1, "tv")
+    assert backfilled["poster_path"] == "/poster.jpg"
+    assert backfilled["overview"] == "Synopsis"
 
 
 def test_create_and_list_viewers(db):

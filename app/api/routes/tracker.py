@@ -45,6 +45,8 @@ def _to_out(row: dict) -> TrackerNotificationOut:
         snoozed_until=row["snoozed_until"],
         check_interval_hours=row["check_interval_hours"],
         next_episode_air_date=row["next_episode_air_date"],
+        poster_path=row["poster_path"],
+        overview=row["overview"],
     )
 
 
@@ -67,6 +69,8 @@ def add_tracker(payload: TrackerAddRequest, db: Database = Depends(get_database)
         media_type=payload.media_type,
         title=payload.title,
         current_season_archived=payload.current_season_archived,
+        poster_path=payload.poster_path,
+        overview=payload.overview,
         last_checked=datetime.now(timezone.utc).isoformat(),
     )
     row = db.get_tracker(payload.tmdb_id, payload.media_type)
@@ -76,10 +80,35 @@ def add_tracker(payload: TrackerAddRequest, db: Database = Depends(get_database)
 
 
 @router.get("/list", response_model=TrackedListResponse)
-def list_tracked(db: Database = Depends(get_database)) -> TrackedListResponse:
+def list_tracked(
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+) -> TrackedListResponse:
     """Every tracked title, muted or not -- backs a "Tracked Titles" panel
-    distinct from /notifications (which only surfaces unmuted, pending ones)."""
-    return TrackedListResponse(tracked=[_to_out(r) for r in db.list_tracked()])
+    distinct from /notifications (which only surfaces unmuted, pending ones).
+
+    Rows tracked before poster_path/overview existed (or added via the
+    numeric-ID quick-add path) have them NULL -- lazily backfilled here,
+    one TMDB lookup per missing row, same call check_tv_show/
+    check_movie_collection already make. Tracked lists are small and
+    TMDBClient memoizes per-instance, so this stays cheap; failures (no
+    key, unresolvable title) are skipped silently, same tolerance the rest
+    of the tracker has for TMDB being unavailable."""
+    rows = db.list_tracked()
+    for row in rows:
+        if row["poster_path"] is not None:
+            continue
+        media = (
+            tmdb.get_movie_details(row["tmdb_id"])
+            if row["media_type"] == "movie"
+            else tmdb.get_tv_details(row["tmdb_id"])
+        )
+        if media is None or not media.poster_path:
+            continue
+        db.update_tracker(row["id"], poster_path=media.poster_path, overview=media.overview)
+        row["poster_path"] = media.poster_path
+        row["overview"] = media.overview
+    return TrackedListResponse(tracked=[_to_out(r) for r in rows])
 
 
 @router.get("/upcoming", response_model=UpcomingReleasesResponse)

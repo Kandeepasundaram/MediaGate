@@ -2297,7 +2297,10 @@ async function addTrackedTitle(mediaType, candidate) {
   try {
     await api("/api/tracker/add", {
       method: "POST",
-      body: JSON.stringify({ tmdb_id: candidate.tmdb_id, media_type: mediaType, title: candidate.title }),
+      body: JSON.stringify({
+        tmdb_id: candidate.tmdb_id, media_type: mediaType, title: candidate.title,
+        poster_path: candidate.poster_path || null, overview: candidate.overview || null,
+      }),
     });
     $("#track-add-status").textContent = `Now tracking "${candidate.title}".`;
     loadTrackedList();
@@ -2804,17 +2807,24 @@ async function loadTrackedList() {
       return;
     }
     container.innerHTML = filtered.map((t) => `
-      <div class="tracked-item">
-        <div>
-          <strong>${escapeAttr(t.title)}</strong>
-          <span class="hint">${t.last_checked ? `last checked ${new Date(t.last_checked).toLocaleString()}` : "not checked yet"}</span>
+      <div class="gallery-card">
+        <div class="gallery-badges">
+          ${t.pending_notification ? `<span class="badge badge-new" title="${t.media_type === "tv" ? `Season ${t.latest_known_season} available` : (t.movie_release_status || "New release detected")}">⚡</span>` : ""}
+          ${t.muted ? `<span class="badge" title="Muted">🔇</span>` : ""}
         </div>
-        <div class="tracked-item-actions">
-          <label class="watched-toggle">
-            <input type="checkbox" class="mute-toggle" data-id="${t.id}" ${t.muted ? "checked" : ""}>
-            Muted
-          </label>
-          <button class="check-now-btn" data-id="${t.id}">Check Now</button>
+        ${posterMarkup(t.title, t.poster_path)}
+        <div class="gallery-info">
+          <div class="gallery-title" title="${escapeAttr(t.title)}">${escapeAttr(t.title)}</div>
+          <div class="gallery-meta">
+            <span class="hint">${t.last_checked ? `last checked ${new Date(t.last_checked).toLocaleString()}` : "not checked yet"}</span>
+          </div>
+          <div class="tracked-item-actions">
+            <label class="watched-toggle">
+              <input type="checkbox" class="mute-toggle" data-id="${t.id}" ${t.muted ? "checked" : ""}>
+              Muted
+            </label>
+            <button class="check-now-btn" data-id="${t.id}">Check Now</button>
+          </div>
         </div>
       </div>
     `).join("");
@@ -2868,7 +2878,8 @@ async function loadUniverses() {
         <div class="universe-members">
           ${members.length === 0 ? `<p class="hint">No titles yet.</p>` : members.map((m) => `
             <div class="tracked-item">
-              <div>
+              <div class="tracked-item-thumb">${posterMarkup(m.title, m.poster_path)}</div>
+              <div class="tracked-item-text">
                 <strong>${escapeAttr(m.title)}</strong>
                 ${m.pending_notification ? `<span class="hint">⚡ ${mediaType === "tv" ? `Season ${m.latest_known_season} available` : (m.movie_release_status || "New release detected")}</span>` : ""}
               </div>

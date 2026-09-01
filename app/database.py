@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 17
+SCHEMA_VERSION = 18
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -56,6 +56,8 @@ CREATE TABLE IF NOT EXISTS archive_tracker (
     check_interval_hours REAL,
     created_at TEXT NOT NULL,
     next_episode_air_date TEXT,
+    poster_path TEXT,
+    overview TEXT,
     UNIQUE (tmdb_id, media_type)
 );
 
@@ -954,6 +956,15 @@ def _migration_v17(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v18(conn: sqlite3.Connection) -> None:
+    """Add archive_tracker.poster_path/overview -- lets the Tracker page
+    render a poster gallery (like Movies/TV) instead of plain text rows,
+    same as universe_members.poster_path already does for universe cards.
+    Plain nullable column adds, no rebuild needed."""
+    conn.execute("ALTER TABLE archive_tracker ADD COLUMN poster_path TEXT")
+    conn.execute("ALTER TABLE archive_tracker ADD COLUMN overview TEXT")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -972,4 +983,5 @@ _MIGRATIONS = {
     15: _migration_v15,
     16: _migration_v16,
     17: _migration_v17,
+    18: _migration_v18,
 }
