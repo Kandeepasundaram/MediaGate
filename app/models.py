@@ -456,6 +456,23 @@ class TvStatusOut(BaseModel):
     next_episode_code: str | None = None  # "S05E03"
 
 
+class TvEpisodeOut(BaseModel):
+    episode_number: int
+    name: str | None = None
+    air_date: str | None = None
+    overview: str | None = None
+
+
+class TvSeasonEpisodesOut(BaseModel):
+    season_number: int
+    episodes: list[TvEpisodeOut] = Field(default_factory=list)
+    # False when neither TMDB (API-key-only) nor TVmaze (needs an IMDb
+    # match + TVmaze enabled) had episode-level detail -- distinct from an
+    # empty `episodes` list for a real, data-available season with 0
+    # episodes (doesn't happen in practice, but keeps the flag meaningful).
+    data_available: bool = False
+
+
 class MovieRelatedTitleOut(BaseModel):
     tmdb_id: int | None = None
     title: str

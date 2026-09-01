@@ -52,7 +52,9 @@ from app.models import (
     TagsListResponse,
     TagsUpdateRequest,
     TrailerOut,
+    TvEpisodeOut,
     TvLibraryResponse,
+    TvSeasonEpisodesOut,
     TvSeasonSummaryOut,
     TvShowStatusUpdateRequest,
     TvShowSummaryOut,
@@ -421,6 +423,51 @@ def movie_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> M
         related=related,
         data_available=media.source == "api",
     )
+
+
+@router.get("/tv-season", response_model=TvSeasonEpisodesOut)
+def tv_season_episodes(
+    tmdb_id: int,
+    season_number: int,
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    tvmaze: TVmazeClient = Depends(get_tvmaze_client),
+) -> TvSeasonEpisodesOut:
+    """Per-episode name/air-date detail for one season, for the detail
+    pane's season-pills UI -- distinct from /tv-status, which only has
+    per-season counts. TMDB's season-detail endpoint (API-key-only) is
+    tried first; TVmaze's full episode list (already fetched by /tv-status
+    for aired-counts, but with names/dates discarded there) fills in when
+    TMDB has nothing, same fallback role it plays in /tv-status. Self-contained
+    and tmdb_id-only, same as /tv-status/movie-status -- works for a
+    tracker row with no media_items row behind it.
+    """
+    episodes = tmdb.get_season_episodes(tmdb_id, season_number)
+    if episodes:
+        return TvSeasonEpisodesOut(
+            season_number=season_number,
+            episodes=[TvEpisodeOut(**e) for e in episodes],
+            data_available=True,
+        )
+
+    if tvmaze.enabled:
+        imdb_id = tmdb.get_external_imdb_id(tmdb_id, "tv")
+        tvmaze_id = tvmaze.lookup_show_id_by_imdb(imdb_id) if imdb_id else None
+        if tvmaze_id is not None:
+            season_episodes = sorted(
+                (e for e in tvmaze.get_episodes(tvmaze_id) if e.season == season_number),
+                key=lambda e: e.episode,
+            )
+            if season_episodes:
+                return TvSeasonEpisodesOut(
+                    season_number=season_number,
+                    episodes=[
+                        TvEpisodeOut(episode_number=e.episode, name=e.name, air_date=e.air_date)
+                        for e in season_episodes
+                    ],
+                    data_available=True,
+                )
+
+    return TvSeasonEpisodesOut(season_number=season_number, episodes=[], data_available=False)
 
 
 @router.get("/ratings", response_model=RatingsOut)

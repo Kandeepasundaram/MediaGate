@@ -835,19 +835,61 @@ async function loadTrackerSeasonInfo(item) {
     return;
   }
   const headerParts = [status.status, status.network].filter(Boolean);
-  const seasonRows = [...status.seasons]
-    .sort((a, b) => a.season_number - b.season_number)
-    .map((s) => `<div class="detail-file-row"><span>Season ${s.season_number}</span><span>${s.episode_count} episode(s)${s.aired_count != null && s.aired_count < s.episode_count ? ` (${s.aired_count} aired)` : ""}</span></div>`)
-    .join("");
+  const seasons = [...status.seasons].sort((a, b) => a.season_number - b.season_number);
+
+  const pane = state.detailPane;
+  if (pane.selectedSeason == null || !seasons.some((s) => s.season_number === pane.selectedSeason)) {
+    pane.selectedSeason = seasons.length ? seasons[seasons.length - 1].season_number : null;
+  }
+
   el.innerHTML = `
     <div class="detail-file-info">
       ${headerParts.length ? `<div class="detail-file-row"><span>Status</span><span>${escapeAttr(headerParts.join(" · "))}</span></div>` : ""}
       <div class="detail-file-row"><span>Seasons</span><span>${status.latest_known_season ?? "—"}</span></div>
       <div class="detail-file-row"><span>Total episodes</span><span>${status.total_episodes ?? "—"}</span></div>
-      ${seasonRows}
       ${status.next_episode_air_date ? `<div class="detail-file-row"><span>Next episode</span><span>${escapeAttr(status.next_episode_code || "")} ${status.next_episode_air_date}</span></div>` : ""}
     </div>
+    ${seasons.length ? `
+      <div class="season-tabs">
+        ${seasons.map((s) => `
+          <button class="season-tab-btn ${s.season_number === pane.selectedSeason ? "active" : ""}" data-season="${s.season_number}">
+            Season ${s.season_number} (${s.episode_count}${s.aired_count != null && s.aired_count < s.episode_count ? `, ${s.aired_count} aired` : ""})
+          </button>
+        `).join("")}
+      </div>
+      <div class="detail-episodes" id="detail-tracker-episodes"></div>
+    ` : ""}
   `;
+
+  el.querySelectorAll(".season-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      pane.selectedSeason = Number(btn.dataset.season);
+      el.querySelectorAll(".season-tab-btn").forEach((b) => b.classList.toggle("active", Number(b.dataset.season) === pane.selectedSeason));
+      loadTrackerSeasonEpisodes(item.tmdb_id, pane.selectedSeason);
+    });
+  });
+  if (pane.selectedSeason != null) loadTrackerSeasonEpisodes(item.tmdb_id, pane.selectedSeason);
+}
+
+async function loadTrackerSeasonEpisodes(tmdbId, seasonNumber) {
+  const el = $("#detail-tracker-episodes");
+  if (!el) return;
+  el.innerHTML = `<span class="hint">Loading episodes…</span>`;
+  try {
+    const data = await api(`/api/library/tv-season?tmdb_id=${tmdbId}&season_number=${seasonNumber}`);
+    if (!data.data_available || data.episodes.length === 0) {
+      el.innerHTML = `<span class="hint">No episode details available for this season.</span>`;
+      return;
+    }
+    el.innerHTML = data.episodes.map((ep) => `
+      <div class="detail-episode-row">
+        <span>E${String(ep.episode_number).padStart(2, "0")}</span>
+        <span class="detail-ep-file hint">${escapeAttr(ep.name || "")}${ep.air_date ? ` · ${ep.air_date}` : ""}</span>
+      </div>
+    `).join("");
+  } catch (e) {
+    el.innerHTML = `<span class="hint">Error loading episodes: ${e.message}</span>`;
+  }
 }
 
 function posterMarkupLarge(title, posterPath) {

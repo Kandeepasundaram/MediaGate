@@ -402,6 +402,38 @@ def test_get_cast_returns_empty_on_api_error(monkeypatch):
     assert client.get_cast(278, "movie") == []
 
 
+def test_get_season_episodes_returns_empty_without_api_key():
+    client = TMDBClient(api_key="", scraper=MagicMock())
+    assert client.get_season_episodes(1399, 1) == []
+
+
+def test_get_season_episodes_parses_episode_list(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "episodes": [
+                    {"episode_number": 1, "name": "Pilot", "air_date": "2020-01-01", "overview": "First."},
+                    {"episode_number": 2, "name": "Second", "air_date": "2020-01-08", "overview": "Next."},
+                ]
+            }
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    episodes = client.get_season_episodes(1399, 1)
+    assert [e["name"] for e in episodes] == ["Pilot", "Second"]
+    assert episodes[0]["air_date"] == "2020-01-01"
+
+
+def test_get_season_episodes_returns_empty_on_api_error(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
+    assert client.get_season_episodes(1399, 1) == []
+
+
 def test_get_similar_titles_returns_empty_without_api_key():
     client = TMDBClient(api_key="", scraper=MagicMock())
     assert client.get_similar_titles(278, "movie") == []

@@ -1912,6 +1912,62 @@ def test_more_info_by_tmdb_needs_no_media_item(client):
     fake_tmdb.get_similar_titles.assert_called_once_with(1399, "tv")
 
 
+def test_tv_season_episodes_from_tmdb(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_season_episodes.return_value = [
+        {"episode_number": 1, "name": "Pilot", "air_date": "2020-01-01", "overview": "The first one."},
+        {"episode_number": 2, "name": "Second", "air_date": "2020-01-08", "overview": None},
+    ]
+
+    resp = c.get("/api/library/tv-season", params={"tmdb_id": 1399, "season_number": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data_available"] is True
+    assert [e["name"] for e in body["episodes"]] == ["Pilot", "Second"]
+    fake_tmdb.get_season_episodes.assert_called_once_with(1399, 1)
+
+
+def test_tv_season_episodes_falls_back_to_tvmaze(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_season_episodes.return_value = []
+    fake_tmdb.get_external_imdb_id.return_value = "tt0000052"
+
+    fake_tvmaze = MagicMock()
+    fake_tvmaze.enabled = True
+    fake_tvmaze.lookup_show_id_by_imdb.return_value = 5
+    fake_tvmaze.get_episodes.return_value = [
+        TVmazeEpisode(season=1, episode=2, name="Second", air_date="2020-01-08"),
+        TVmazeEpisode(season=1, episode=1, name="Pilot", air_date="2020-01-01"),
+        TVmazeEpisode(season=2, episode=1, name="Other Season", air_date="2021-01-01"),
+    ]
+    app.dependency_overrides[get_tvmaze_client] = lambda: fake_tvmaze
+
+    resp = c.get("/api/library/tv-season", params={"tmdb_id": 1399, "season_number": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data_available"] is True
+    assert [e["episode_number"] for e in body["episodes"]] == [1, 2]  # sorted, season 2 excluded
+    assert body["episodes"][0]["name"] == "Pilot"
+
+
+def test_tv_season_episodes_unavailable_without_any_source(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_season_episodes.return_value = []
+
+    fake_tvmaze = MagicMock()
+    fake_tvmaze.enabled = False
+    app.dependency_overrides[get_tvmaze_client] = lambda: fake_tvmaze
+
+    resp = c.get("/api/library/tv-season", params={"tmdb_id": 1399, "season_number": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["data_available"] is False
+    assert body["episodes"] == []
+
+
 def test_settings_omdb_key_round_trips(client):
     c, _ = client
     resp = c.post("/api/settings", json={"omdb_api_key": "abc123"})

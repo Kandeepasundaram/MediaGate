@@ -492,6 +492,35 @@ class TMDBClient:
             )
         return titles
 
+    def get_season_episodes(self, tmdb_id: int, season_number: int) -> list[dict]:
+        """Episode name/air_date/overview for one season, via TMDB's
+        /tv/{id}/season/{n} endpoint. API-key-only, same as get_cast/
+        get_trailer_key -- no scraper fallback (season-detail pages aren't
+        scraped). The /tv-season route falls back to TVmazeClient.get_episodes
+        when this comes back empty, same fallback role TVmaze plays in
+        /tv-status."""
+        return self._cached(
+            ("season_episodes", tmdb_id, season_number),
+            lambda: self._get_season_episodes(tmdb_id, season_number),
+        )
+
+    def _get_season_episodes(self, tmdb_id: int, season_number: int) -> list[dict]:
+        if not self._api:
+            return []
+        data = self._tmdb_get(f"tv/{tmdb_id}/season/{season_number}")
+        if data is None:
+            return []
+        return [
+            {
+                "episode_number": e.get("episode_number"),
+                "name": e.get("name"),
+                "air_date": e.get("air_date"),
+                "overview": e.get("overview"),
+            }
+            for e in data.get("episodes", [])
+            if e.get("episode_number") is not None
+        ]
+
     def get_collection_movies(self, collection_id: int) -> list[MediaResult]:
         return self._cached(("collection", collection_id), lambda: self._get_collection_movies(collection_id))
 
