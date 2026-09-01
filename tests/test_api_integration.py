@@ -1315,10 +1315,12 @@ def test_tv_status_prefers_tvmaze_status_and_adds_network_and_next_episode(clien
 
     fake_tvmaze = MagicMock()
     fake_tvmaze.enabled = True
-    fake_tvmaze.get_show_info_by_imdb.return_value = TVmazeShowInfo(
+    fake_tvmaze.lookup_show_id_by_imdb.return_value = 1
+    fake_tvmaze.get_show_info.return_value = TVmazeShowInfo(
         tvmaze_id=1, status="Running", network="AMC",
         next_episode_air_date="2026-09-10", next_episode_code="S02E01",
     )
+    fake_tvmaze.get_episodes.return_value = []
     app.dependency_overrides[get_tvmaze_client] = lambda: fake_tvmaze
 
     resp = c.get("/api/library/tv-status", params={"tmdb_id": 54})
@@ -1328,6 +1330,41 @@ def test_tv_status_prefers_tvmaze_status_and_adds_network_and_next_episode(clien
     assert body["network"] == "AMC"
     assert body["next_episode_air_date"] == "2026-09-10"
     assert body["next_episode_code"] == "S02E01"
+
+
+def test_tv_status_includes_aired_count_per_season_from_tvmaze(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.tvmaze.enabled = True
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=55, title="Show", media_type="tv",
+        raw={"status": "Returning Series", "number_of_seasons": 2,
+             "seasons": [{"season_number": 1, "episode_count": 8}, {"season_number": 2, "episode_count": 8}]},
+    )
+    fake_tmdb.get_external_imdb_id.return_value = "tt0000055"
+
+    fake_tvmaze = MagicMock()
+    fake_tvmaze.enabled = True
+    fake_tvmaze.lookup_show_id_by_imdb.return_value = 5
+    fake_tvmaze.get_show_info.return_value = TVmazeShowInfo(
+        tvmaze_id=5, status="Running", network=None, next_episode_air_date=None, next_episode_code=None,
+    )
+    fake_tvmaze.get_episodes.return_value = [
+        TVmazeEpisode(season=1, episode=n, name=None, air_date="2025-01-01") for n in range(1, 9)
+    ] + [
+        TVmazeEpisode(season=2, episode=n, name=None, air_date="2025-06-01" if n <= 3 else None)
+        for n in range(1, 9)
+    ]
+    app.dependency_overrides[get_tvmaze_client] = lambda: fake_tvmaze
+
+    resp = c.get("/api/library/tv-status", params={"tmdb_id": 55})
+    assert resp.status_code == 200
+    seasons = {s["season_number"]: s for s in resp.json()["seasons"]}
+    assert seasons[1]["episode_count"] == 8
+    assert seasons[1]["aired_count"] == 8
+    assert seasons[2]["episode_count"] == 8
+    assert seasons[2]["aired_count"] == 3
 
 
 def test_rematch_imdb_applies_to_multiple_episode_ids(client):
@@ -1859,8 +1896,8 @@ def test_tv_status_reports_per_season_episode_counts_excluding_specials(client):
     assert resp.status_code == 200
     seasons = resp.json()["seasons"]
     assert seasons == [
-        {"season_number": 1, "episode_count": 8},
-        {"season_number": 2, "episode_count": 6},
+        {"season_number": 1, "episode_count": 8, "aired_count": None},
+        {"season_number": 2, "episode_count": 6, "aired_count": None},
     ]
 
 

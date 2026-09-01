@@ -1443,6 +1443,29 @@ function computeTvStatusInfo(status, episodes) {
   };
 }
 
+// Per-season "N/total (M Aired)" breakdown -- the specific numbers behind
+// computeTvStatusInfo's aggregate "X of Y episodes archived" line. Only
+// seasons already started locally (owned > 0) are included, same reasoning
+// as computeMissingEpisodes: an unstarted season is "not archived yet", not
+// worth a "0/8" line. "(M Aired)" is appended only when it adds information
+// -- a season that's fully aired already shows that through owned/total.
+function computeSeasonBreakdown(status, episodes) {
+  if (!status || !status.data_available || !status.seasons || status.seasons.length === 0) return [];
+  const ownedBySeason = new Map();
+  episodes.forEach((e) => ownedBySeason.set(e.season_number, (ownedBySeason.get(e.season_number) || 0) + 1));
+
+  return status.seasons
+    .map((s) => ({
+      season: s.season_number,
+      owned: ownedBySeason.get(s.season_number) || 0,
+      total: s.episode_count,
+      aired: s.aired_count,
+    }))
+    .filter((s) => s.owned > 0)
+    .sort((a, b) => a.season - b.season)
+    .map((s) => `Season ${s.season} ${s.owned}/${s.total}${s.aired != null && s.aired < s.total ? ` (${s.aired} Aired)` : ""}`);
+}
+
 // Per-season gap detector: unlike computeTvStatusInfo (which only flags the
 // latest season), this diffs every season TMDB knows about against what's
 // actually archived -- catches a hole left in an already-"complete" earlier
@@ -1469,6 +1492,7 @@ async function loadTvStatus(show) {
   const status = await getTvStatus(show.tmdb_id);
   const info = computeTvStatusInfo(status, show.episodes);
   const missingEpisodes = computeMissingEpisodes(status, show.episodes);
+  const seasonBreakdown = computeSeasonBreakdown(status, show.episodes);
   renderApiStatusPill(show, info);
   if (!info && missingEpisodes.length === 0) {
     el.innerHTML = "";
@@ -1476,9 +1500,11 @@ async function loadTvStatus(show) {
   }
   let bannerHtml = "";
   if (info) {
-    const fraction = info.totalEpisodes != null
-      ? `${info.totalArchived} of ${info.totalEpisodes} episodes archived`
-      : `${info.totalArchived} episode(s) archived`;
+    const fraction = seasonBreakdown.length > 0
+      ? seasonBreakdown.join(", ")
+      : info.totalEpisodes != null
+        ? `${info.totalArchived} of ${info.totalEpisodes} episodes archived`
+        : `${info.totalArchived} episode(s) archived`;
     const parts = info.hasGap ? [info.gapMessage, fraction] : [fraction];
     const cls = info.hasGap ? "status-banner" : "status-banner status-banner-ok";
     const icon = info.hasGap ? "📺" : "✅";

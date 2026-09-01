@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -640,19 +640,32 @@ def tv_status(
     if media is None:
         raise HTTPException(status_code=404, detail=f"No TMDB details found for tmdb_id {tmdb_id}")
 
-    # season_number 0 is TMDB's "Specials" bucket -- never counted as a gap,
-    # same reason latest_known_season/total_episodes never include it.
-    seasons = [
-        TvSeasonSummaryOut(season_number=num, episode_count=count)
-        for num, count in season_episode_counts(media).items()
-        if num != 0
-    ]
-
     show_info = None
+    tvmaze_id = None
     if tvmaze.enabled:
         imdb_id = tmdb.get_external_imdb_id(tmdb_id, "tv")
         if imdb_id:
-            show_info = tvmaze.get_show_info_by_imdb(imdb_id)
+            tvmaze_id = tvmaze.lookup_show_id_by_imdb(imdb_id)
+            if tvmaze_id is not None:
+                show_info = tvmaze.get_show_info(tvmaze_id)
+
+    # Aired-episode count per season, as of today -- only available via
+    # TVmaze (TMDB's per-season episode_count doesn't distinguish aired from
+    # scheduled-but-not-yet-aired within a season still being released).
+    aired_by_season: dict[int, int] = {}
+    if tvmaze_id is not None:
+        today = date.today().isoformat()
+        for ep in tvmaze.get_episodes(tvmaze_id):
+            if ep.air_date and ep.air_date <= today:
+                aired_by_season[ep.season] = aired_by_season.get(ep.season, 0) + 1
+
+    # season_number 0 is TMDB's "Specials" bucket -- never counted as a gap,
+    # same reason latest_known_season/total_episodes never include it.
+    seasons = [
+        TvSeasonSummaryOut(season_number=num, episode_count=count, aired_count=aired_by_season.get(num))
+        for num, count in season_episode_counts(media).items()
+        if num != 0
+    ]
 
     next_episode_to_air = media.raw.get("next_episode_to_air") or {}
     next_season = next_episode_to_air.get("season_number")

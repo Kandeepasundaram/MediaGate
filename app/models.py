@@ -369,6 +369,11 @@ class TagsListResponse(BaseModel):
 class TvSeasonSummaryOut(BaseModel):
     season_number: int
     episode_count: int
+    # How many of episode_count have actually aired as of today -- None
+    # unless TVmaze is enabled (TMDB's own per-season count doesn't
+    # distinguish aired from not-yet-aired within an in-progress season).
+    # aired_count == episode_count for any fully-released season.
+    aired_count: int | None = None
 
 
 class TvStatusOut(BaseModel):
