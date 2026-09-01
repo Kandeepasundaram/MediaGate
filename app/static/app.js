@@ -1149,6 +1149,7 @@ function renderDetailPane() {
     const show = pane.data;
     const hasEpisodes = show.episodes.length > 0;
     content.innerHTML = `
+      <div id="detail-watched-summary"></div>
       <div id="detail-tv-status"></div>
       ${(show.tmdb_id == null && !show.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
       ${show.noFilesOnDisk ? `<p class="unidentified-badge">🗑 Removed from disk — still tracked</p>` : ""}
@@ -1222,6 +1223,7 @@ function renderTvBody() {
   const pane = state.detailPane;
   if (!pane || pane.kind !== "tv") return;
   const show = pane.data;
+  renderWatchedSummary(show);
   const container = $("#detail-tv-body");
   if (!container) return;
 
@@ -1377,6 +1379,21 @@ function renderTvBody() {
       loadFileInfo(Number(btn.dataset.id), `#detail-ep-extra-${btn.dataset.id}`);
     });
   });
+}
+
+// Permanent watched-count banner, styled like the season-gap/next-episode
+// banners below it but always present (no network round trip, so it's never
+// blank while those load, and it survives every watched-state toggle since
+// renderTvBody -- called after each one -- refreshes it every time).
+function renderWatchedSummary(show) {
+  const el = $("#detail-watched-summary");
+  if (!el) return;
+  if (show.episodes.length === 0) {
+    el.innerHTML = "";
+    return;
+  }
+  const watchedCount = show.episodes.filter((e) => effectiveWatched(e)).length;
+  el.innerHTML = `<div class="status-banner status-banner-ok">👁️ ${watchedCount} of ${show.episodes.length} watched</div>`;
 }
 
 // GET /api/library/tv-status, memoized in state.tvStatusCache so the gallery
