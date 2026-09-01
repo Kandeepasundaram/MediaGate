@@ -69,6 +69,15 @@ from app.models import (
 router = APIRouter(prefix="/api/library", tags=["library"])
 
 
+def _watched_at_for(watched: bool) -> str | None:
+    """Current timestamp when marking watched, None (clears any prior
+    value) when marking unwatched -- so watched_at always reflects the
+    current watched state instead of accumulating a stale date from a
+    previous watch/unwatch cycle. See the Reports page's watch-activity
+    query, the only reader of this column."""
+    return datetime.now(timezone.utc).isoformat() if watched else None
+
+
 @router.get("/movies", response_model=LibraryResponse)
 def list_movies(
     viewer_id: int | None = None, config: AppConfig = Depends(get_config), db: Database = Depends(get_database)
@@ -418,17 +427,18 @@ def movie_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> M
 def set_watched(item_id: int, payload: WatchedUpdateRequest, db: Database = Depends(get_database)) -> LibraryItemOut:
     if db.get_media_item(item_id) is None:
         raise HTTPException(status_code=404, detail="Media item not found")
-    db.update_media_item(item_id, watched=1 if payload.watched else 0)
+    db.update_media_item(item_id, watched=1 if payload.watched else 0, watched_at=_watched_at_for(payload.watched))
     return _to_out(db.get_media_item(item_id))
 
 
 @router.post("/watched-batch", response_model=WatchedBatchResponse)
 def set_watched_batch(payload: WatchedBatchRequest, db: Database = Depends(get_database)) -> WatchedBatchResponse:
     updated = 0
+    watched_at = _watched_at_for(payload.watched)
     for item_id in payload.ids:
         if db.get_media_item(item_id) is None:
             continue
-        db.update_media_item(item_id, watched=1 if payload.watched else 0)
+        db.update_media_item(item_id, watched=1 if payload.watched else 0, watched_at=watched_at)
         updated += 1
     return WatchedBatchResponse(updated=updated)
 

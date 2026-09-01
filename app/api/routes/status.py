@@ -188,8 +188,15 @@ def get_stats_insights(db: Database = Depends(get_database)) -> StatsInsightsRes
     derived from data media_items/metadata already has (TMDB genres,
     ffprobe-derived height, archived_at), no new tracking needed.
     """
-    items = db.list_media_items()
+    return compute_insights(db.list_media_items())
 
+
+def compute_insights(items: list[dict]) -> StatsInsightsResponse:
+    """Shared by get_stats_insights above (whole-library, unfiltered) and
+    the Reports page (app/api/routes/reports.py), which calls this with
+    `items` already filtered to a date range -- the aggregation itself
+    doesn't care which items it's given.
+    """
     genre_counts: dict[str, int] = {}
     resolution_sizes: dict[str, list[int]] = {}
     month_counts: dict[str, int] = {}

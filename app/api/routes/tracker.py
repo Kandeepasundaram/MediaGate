@@ -17,6 +17,11 @@ from app.models import (
     TrackedListResponse,
     TrackerAcknowledgeRequest,
     TrackerAddRequest,
+    TrackerBulkAddRequest,
+    TrackerBulkAddResponse,
+    TrackerBulkPreviewItemOut,
+    TrackerBulkPreviewRequest,
+    TrackerBulkPreviewResponse,
     TrackerIntervalRequest,
     TrackerMuteRequest,
     TrackerNotificationOut,
@@ -77,6 +82,56 @@ def add_tracker(payload: TrackerAddRequest, db: Database = Depends(get_database)
     if row is None:
         raise HTTPException(status_code=500, detail="Failed to create tracker entry")
     return {"tracker": _to_out(row)}
+
+
+@router.post("/bulk-preview", response_model=TrackerBulkPreviewResponse)
+def bulk_preview_tracker(
+    payload: TrackerBulkPreviewRequest, tmdb: TMDBClient = Depends(get_tmdb_client)
+) -> TrackerBulkPreviewResponse:
+    """One TMDB search per pasted title, top result only (same "take the
+    first match" convention the archive preview flow uses for an
+    unattended scan) -- for the operator to eyeball and fix via the
+    existing match picker before /bulk-add commits anything. A title with
+    no result comes back with matched=false rather than being dropped, so
+    the review table can show it as a miss instead of silently vanishing.
+    """
+    items: list[TrackerBulkPreviewItemOut] = []
+    for raw_title in payload.titles:
+        title = raw_title.strip()
+        if not title:
+            continue
+        matches = tmdb.search_tv(title) if payload.media_type == "tv" else tmdb.search_movie(title)
+        best = matches[0] if matches else None
+        items.append(
+            TrackerBulkPreviewItemOut(
+                input_title=title,
+                matched=best is not None,
+                tmdb_id=best.tmdb_id if best else None,
+                title=best.title if best else None,
+                year=best.year if best else None,
+                poster_path=best.poster_path if best else None,
+                overview=best.overview if best else None,
+            )
+        )
+    return TrackerBulkPreviewResponse(items=items)
+
+
+@router.post("/bulk-add", response_model=TrackerBulkAddResponse)
+def bulk_add_tracker(payload: TrackerBulkAddRequest, db: Database = Depends(get_database)) -> TrackerBulkAddResponse:
+    """Commits every reviewed row from /bulk-preview (or from the manual
+    match picker, for a row the auto-match got wrong) to the tracker in
+    one request -- same upsert_tracker call /add makes, just looped."""
+    now = datetime.now(timezone.utc).isoformat()
+    for item in payload.items:
+        db.upsert_tracker(
+            tmdb_id=item.tmdb_id,
+            media_type=item.media_type,
+            title=item.title,
+            poster_path=item.poster_path,
+            overview=item.overview,
+            last_checked=now,
+        )
+    return TrackerBulkAddResponse(added=len(payload.items))
 
 
 @router.get("/list", response_model=TrackedListResponse)

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 18
+SCHEMA_VERSION = 19
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     imdb_id TEXT,
     manual_override INTEGER NOT NULL DEFAULT 0,
     tags TEXT,
+    watched_at TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -547,6 +548,17 @@ class Database:
             "SELECT * FROM notification_history ORDER BY created_at DESC LIMIT ?", (limit,)
         )
 
+    def list_notification_history_in_range(self, since: str, until: str) -> list[dict[str, Any]]:
+        """notification_history rows fired within [since, until] (both
+        inclusive ISO date/datetime strings) -- for the Reports page's
+        tracker-activity section (how many new seasons/episodes/releases
+        were signaled during the period, distinct from whether they were
+        ever actually archived)."""
+        return self.fetch_all(
+            "SELECT * FROM notification_history WHERE created_at >= ? AND created_at <= ? ORDER BY created_at ASC",
+            (since, until),
+        )
+
     def get_operation(self, operation_id: int) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM operation_log WHERE id = ?", (operation_id,))
 
@@ -631,6 +643,20 @@ class Database:
     def list_viewer_watched_ids(self, viewer_id: int) -> set[int]:
         rows = self.fetch_all("SELECT media_item_id FROM viewer_watched_items WHERE viewer_id = ?", (viewer_id,))
         return {r["media_item_id"] for r in rows}
+
+    def count_viewer_watched_in_range(self, since: str, until: str) -> dict[int, int]:
+        """viewer_id -> count of items that viewer marked watched within
+        [since, until] (both inclusive ISO date/datetime strings) -- for the
+        Reports page's per-viewer watch-activity breakdown. Reads
+        viewer_watched_items.watched_at directly rather than media_items'
+        own (global, single-value) watched_at, since two viewers can each
+        have their own watched_at for the same item."""
+        rows = self.fetch_all(
+            "SELECT viewer_id, COUNT(*) AS n FROM viewer_watched_items "
+            "WHERE watched_at >= ? AND watched_at <= ? GROUP BY viewer_id",
+            (since, until),
+        )
+        return {r["viewer_id"]: r["n"] for r in rows}
 
     def is_viewer_watched(self, viewer_id: int, media_item_id: int) -> bool:
         row = self.fetch_one(
@@ -965,6 +991,17 @@ def _migration_v18(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE archive_tracker ADD COLUMN overview TEXT")
 
 
+def _migration_v19(conn: sqlite3.Connection) -> None:
+    """Add media_items.watched_at -- timestamp of when an item was last
+    marked watched, set by set_watched/set_watched_batch (library.py) and
+    cleared back to NULL on unwatch. The global `watched` flag itself has
+    never carried a timestamp; this is purely additive for the Reports
+    page's "watch activity in period" (count of items marked watched
+    within a date range), which watched=1 alone can't answer. Plain
+    nullable column add, no rebuild needed."""
+    conn.execute("ALTER TABLE media_items ADD COLUMN watched_at TEXT")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -984,4 +1021,5 @@ _MIGRATIONS = {
     16: _migration_v16,
     17: _migration_v17,
     18: _migration_v18,
+    19: _migration_v19,
 }

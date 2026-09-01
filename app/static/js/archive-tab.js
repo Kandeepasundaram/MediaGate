@@ -333,6 +333,94 @@ async function addTrackedTitle(mediaType, candidate) {
   }
 }
 
+// ---- Bulk-add tracking: paste titles -> preview TMDB matches -> confirm ----
+let bulkTrackPreview = [];
+
+export function openBulkTrackModal() {
+  bulkTrackPreview = [];
+  $("#bulk-track-titles").value = "";
+  $("#bulk-track-table").classList.add("hidden");
+  $("#bulk-track-confirm-btn").classList.add("hidden");
+  $("#bulk-track-status").textContent = "";
+  $("#bulk-track-modal").classList.remove("hidden");
+}
+
+export function closeBulkTrackModal() {
+  $("#bulk-track-modal").classList.add("hidden");
+}
+
+export async function previewBulkTrack() {
+  const mediaType = $("#bulk-track-media-type").value;
+  const titles = $("#bulk-track-titles").value.split("\n").map((t) => t.trim()).filter(Boolean);
+  if (titles.length === 0) return;
+  $("#bulk-track-status").textContent = "Searching TMDB...";
+  try {
+    const data = await api("/api/tracker/bulk-preview", {
+      method: "POST",
+      body: JSON.stringify({ titles, media_type: mediaType }),
+    });
+    bulkTrackPreview = data.items.map((item) => ({ ...item, media_type: mediaType }));
+    renderBulkTrackTable();
+    const matchedCount = bulkTrackPreview.filter((i) => i.matched).length;
+    $("#bulk-track-status").textContent = `${matchedCount} of ${bulkTrackPreview.length} matched -- review before confirming.`;
+  } catch (e) {
+    $("#bulk-track-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+function renderBulkTrackTable() {
+  const table = $("#bulk-track-table");
+  table.querySelector("tbody").innerHTML = bulkTrackPreview.map((item, i) => `
+    <tr>
+      <td>${escapeAttr(item.input_title)}</td>
+      <td>${item.matched
+      ? `${escapeAttr(item.title)}${item.year ? ` (${item.year})` : ""}`
+      : `<span class="hint">No match found</span>`}</td>
+      <td><button class="bulk-track-fix-btn" data-index="${i}">Change Match</button></td>
+    </tr>
+  `).join("");
+  table.classList.remove("hidden");
+  $("#bulk-track-confirm-btn").classList.remove("hidden");
+  table.querySelectorAll(".bulk-track-fix-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const index = Number(btn.dataset.index);
+      const item = bulkTrackPreview[index];
+      // hideIdEntry: true -- same reason openTrackAddModal hides it: "Use ID"
+      // only ever hands back {tmdb_id}, with no title/poster/overview, and
+      // this callback (unlike applyMatchOverride) has no server round trip
+      // of its own to fill those back in. Search-results-only keeps every
+      // field populated.
+      openMatchModal(item.media_type, item.input_title, (candidate) => {
+        bulkTrackPreview[index] = {
+          ...item, matched: true, tmdb_id: candidate.tmdb_id, title: candidate.title,
+          year: candidate.year, poster_path: candidate.poster_path, overview: candidate.overview,
+        };
+        closeMatchPicker();
+        renderBulkTrackTable();
+      }, { hideIdEntry: true });
+    });
+  });
+}
+
+export async function confirmBulkTrack() {
+  const items = bulkTrackPreview
+    .filter((i) => i.matched)
+    .map((i) => ({
+      tmdb_id: i.tmdb_id, media_type: i.media_type, title: i.title,
+      poster_path: i.poster_path || null, overview: i.overview || null,
+    }));
+  if (items.length === 0) return;
+  $("#bulk-track-status").textContent = "Adding...";
+  try {
+    const res = await api("/api/tracker/bulk-add", { method: "POST", body: JSON.stringify({ items }) });
+    $("#bulk-track-status").textContent = `Now tracking ${res.added} title(s).`;
+    closeBulkTrackModal();
+    loadTrackedList();
+  } catch (e) {
+    $("#bulk-track-status").textContent = `Error: ${e.message}`;
+  }
+}
+
 function selectedItems() {
   return $all(".row-check:checked").map((cb) => state.previewItems[Number(cb.dataset.index)]);
 }

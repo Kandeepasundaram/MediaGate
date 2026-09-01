@@ -31,8 +31,10 @@
   <button class="tab-btn" data-tab="browse">Browse &amp; Clean Up</button>
   <button class="tab-btn" data-tab="archive">Ready to Archive</button>
   <button class="tab-btn" data-tab="notifications">Notifications</button>
+  <button class="tab-btn" data-tab="watchlist">Watchlist</button>
   <button class="tab-btn" data-tab="tracker">Tracker</button>
   <button class="tab-btn" data-tab="history">History</button>
+  <button class="tab-btn" data-tab="reports">Reports</button>
   <button class="tab-btn" data-tab="settings">Settings</button>
 </nav>
 
@@ -264,6 +266,16 @@
     <div id="notification-history-list"></div>
   </section>
 
+  <section id="tab-watchlist" class="tab-panel">
+    <h3>New / Not Yet Archived</h3>
+    <p class="hint">Tracked titles with a new season or sequel detected -- see the Tracker tab to mute, snooze, or check now.</p>
+    <div id="watchlist-needs-download" class="gallery"></div>
+
+    <h3>Owned, Unwatched</h3>
+    <p class="hint">TV shows with archived episodes you haven't marked watched yet.</p>
+    <div id="watchlist-needs-watching" class="gallery"></div>
+  </section>
+
   <section id="tab-tracker" class="tab-panel">
     <div class="season-tabs" id="universe-type-tabs">
       <button class="season-tab-btn active" data-universe-type="movie">Movies</button>
@@ -284,6 +296,7 @@
     <div class="toolbar">
       <button id="track-add-movie-btn">+ Track New Movie</button>
       <button id="track-add-tv-btn">+ Track New TV Show</button>
+      <button id="track-add-bulk-btn">+ Bulk Add</button>
       <span id="track-add-status" class="hint"></span>
     </div>
     <div id="tracked-list" class="gallery"></div>
@@ -315,6 +328,26 @@
       </thead>
       <tbody></tbody>
     </table>
+  </section>
+
+  <section id="tab-reports" class="tab-panel">
+    <div class="toolbar">
+      <select id="report-period">
+        <option value="this-quarter">This Quarter</option>
+        <option value="last-quarter">Last Quarter</option>
+        <option value="this-half">This Half-Year</option>
+        <option value="last-half">Last Half-Year</option>
+        <option value="this-year">This Year</option>
+        <option value="last-year">Last Year</option>
+        <option value="custom">Custom Range</option>
+      </select>
+      <span id="report-custom-range" class="hidden">
+        <label>From <input type="date" id="report-start-date"></label>
+        <label>To <input type="date" id="report-end-date"></label>
+      </span>
+      <button id="report-generate-btn" class="primary">Generate Report</button>
+    </div>
+    <div id="report-output"></div>
   </section>
 
   <section id="tab-settings" class="tab-panel">
@@ -564,6 +597,29 @@
     <p id="confirm-text"></p>
     <button id="confirm-yes" class="primary">Confirm</button>
     <button id="confirm-no">Cancel</button>
+  </div>
+</div>
+
+<div id="bulk-track-modal" class="modal hidden">
+  <div class="modal-content bulk-track-modal-content">
+    <p>Paste one title per line, pick the type, then preview TMDB matches before confirming.</p>
+    <select id="bulk-track-media-type">
+      <option value="movie">Movies</option>
+      <option value="tv">TV Shows</option>
+    </select>
+    <textarea id="bulk-track-titles" rows="8" placeholder="One title per line…"></textarea>
+    <div class="toolbar">
+      <button id="bulk-track-preview-btn">Preview Matches</button>
+      <span id="bulk-track-status" class="hint"></span>
+    </div>
+    <table id="bulk-track-table" class="hidden">
+      <thead><tr><th>Pasted Title</th><th>Matched Title</th><th></th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <div class="toolbar">
+      <button id="bulk-track-confirm-btn" class="primary hidden">Confirm &amp; Track All</button>
+      <button id="bulk-track-cancel-btn">Cancel</button>
+    </div>
   </div>
 </div>
 

@@ -372,7 +372,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 18
+    assert version == 19
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")

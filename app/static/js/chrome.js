@@ -10,6 +10,7 @@ import { loadHistory } from "./history-tab.js";
 import { loadNotificationHistory, loadNotifications, loadTrackerTab, loadUpcomingReleases } from "./notifications-tab.js";
 import { loadApiTokensList, loadConfigHistory, loadSettings, loadViewers } from "./settings-tab.js";
 import { loadBackgroundTaskStatus, loadInsights, loadStats, loadStorageStatus } from "./stats-tab.js";
+import { loadWatchlist } from "./watchlist-tab.js";
 
 // ---- Tabs ----
 function activateTab(tabName) {
@@ -21,6 +22,7 @@ function activateTab(tabName) {
   if (tabName === "tv") loadTvGallery();
   if (tabName === "browse") loadBrowse();
   if (tabName === "notifications") { loadNotifications(); loadUpcomingReleases(); loadNotificationHistory(); }
+  if (tabName === "watchlist") loadWatchlist();
   if (tabName === "tracker") loadTrackerTab();
   if (tabName === "history") loadHistory();
   if (tabName === "settings") { loadStats(); loadInsights(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); loadApiTokensList(); loadConfigHistory(); loadViewers(); }

@@ -14,11 +14,13 @@ from app.api.routes import (
     library_browse,
     library_maintenance,
     library_notes,
+    reports,
     scan,
     settings,
     status,
     tracker,
     universes,
+    watchlist,
     webhooks,
 )
 from app.core import fs_watcher, metadata_backfill, scheduler
@@ -91,6 +93,8 @@ def create_app() -> FastAPI:
     app.include_router(library_notes.router, dependencies=token_gate)
     app.include_router(library_maintenance.router, dependencies=token_gate)
     app.include_router(library_browse.router, dependencies=token_gate)
+    app.include_router(watchlist.router, dependencies=token_gate)
+    app.include_router(reports.router, dependencies=token_gate)
     app.include_router(webhooks.router, dependencies=token_gate)
 
     app.mount("/", StaticFiles(directory="app/static", html=True), name="static")

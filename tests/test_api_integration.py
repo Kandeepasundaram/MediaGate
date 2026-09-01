@@ -1990,3 +1990,196 @@ def test_movie_status_404_when_tmdb_has_no_match(client):
 
     resp = c.get("/api/library/movie-status", params={"tmdb_id": 999999})
     assert resp.status_code == 404
+
+
+# ---- Watchlist ----
+
+
+def test_watchlist_needs_download_reflects_pending_tracker(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.upsert_tracker(tmdb_id=5, media_type="tv", title="Show", pending_notification=1, latest_known_season=3)
+
+    resp = c.get("/api/watchlist")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["needs_download"]) == 1
+    assert body["needs_download"][0]["title"] == "Show"
+    assert body["needs_watching"] == []
+
+
+def test_watchlist_needs_download_excludes_muted(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.upsert_tracker(tmdb_id=5, media_type="tv", title="Show", pending_notification=1, muted=1)
+
+    resp = c.get("/api/watchlist")
+    assert resp.json()["needs_download"] == []
+
+
+def test_watchlist_needs_watching_groups_by_show_and_picks_next_unwatched(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.create_media_item(
+        original_path="e1", final_path="e1.mkv", title="Show", media_type="tv",
+        tmdb_id=7, season_number=1, episode_number=1, watched=1,
+    )
+    db.create_media_item(
+        original_path="e2", final_path="e2.mkv", title="Show", media_type="tv",
+        tmdb_id=7, season_number=1, episode_number=2, watched=0,
+        metadata={"episode_title": "The Sequel", "poster_path": "/p.jpg"},
+    )
+
+    resp = c.get("/api/watchlist")
+    assert resp.status_code == 200
+    watching = resp.json()["needs_watching"]
+    assert len(watching) == 1
+    show = watching[0]
+    assert show["tmdb_id"] == 7
+    assert show["unwatched_count"] == 1
+    assert show["total_count"] == 2
+    assert show["next_up"]["season_number"] == 1
+    assert show["next_up"]["episode_number"] == 2
+    assert show["next_up"]["episode_title"] == "The Sequel"
+
+
+def test_watchlist_excludes_fully_watched_show(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.create_media_item(
+        original_path="e1", final_path="e1.mkv", title="Show", media_type="tv",
+        tmdb_id=7, season_number=1, episode_number=1, watched=1,
+    )
+
+    resp = c.get("/api/watchlist")
+    assert resp.json()["needs_watching"] == []
+
+
+# ---- Reports ----
+
+
+def test_report_summary_counts_growth_within_range(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.create_media_item(
+        original_path="m1", final_path="m1.mkv", title="In Range", media_type="movie",
+        archived_at="2026-02-15T00:00:00+00:00",
+    )
+    db.create_media_item(
+        original_path="m2", final_path="m2.mkv", title="Out of Range", media_type="movie",
+        archived_at="2026-05-01T00:00:00+00:00",
+    )
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["growth"]["movies_added"] == 1
+    assert body["growth"]["tv_episodes_added"] == 0
+
+
+def test_report_summary_counts_watch_activity_within_range(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    item_id = db.create_media_item(
+        original_path="m1", final_path="m1.mkv", title="Watched In Range", media_type="movie",
+    )
+    db.update_media_item(item_id, watched=1, watched_at="2026-02-15T00:00:00+00:00")
+    other_id = db.create_media_item(
+        original_path="m2", final_path="m2.mkv", title="Watched Out of Range", media_type="movie",
+    )
+    db.update_media_item(other_id, watched=1, watched_at="2026-05-01T00:00:00+00:00")
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    assert resp.json()["watch_activity"]["movies_watched"] == 1
+
+
+def test_report_summary_rejects_start_after_end(client):
+    c, _ = client
+    resp = c.get("/api/reports/summary", params={"start": "2026-06-01", "end": "2026-01-01"})
+    assert resp.status_code == 400
+
+
+def test_report_summary_counts_tracker_activity_within_range(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    in_range_id = db.log_notification(None, 5, "tv", "In Range Show", "New season")
+    out_of_range_id = db.log_notification(None, 6, "movie", "Out of Range Movie", "New release")
+    with db.connect() as conn:
+        conn.execute("UPDATE notification_history SET created_at = ? WHERE id = ?", ("2026-02-15T00:00:00+00:00", in_range_id))
+        conn.execute("UPDATE notification_history SET created_at = ? WHERE id = ?", ("2026-05-01T00:00:00+00:00", out_of_range_id))
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    tracker_activity = resp.json()["tracker_activity"]
+    assert tracker_activity["notifications_sent"] == 1
+    assert tracker_activity["tv_shows_notified"] == 1
+    assert tracker_activity["movies_notified"] == 0
+    assert tracker_activity["titles"] == ["In Range Show"]
+
+
+def test_report_summary_per_viewer_watch_activity(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    viewer_id = db.create_viewer("Alex")
+    item_id = db.create_media_item(original_path="m1", final_path="m1.mkv", title="Movie", media_type="movie")
+    db.set_viewer_watched(viewer_id, item_id, True)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE viewer_watched_items SET watched_at = ? WHERE viewer_id = ? AND media_item_id = ?",
+            ("2026-02-15T00:00:00+00:00", viewer_id, item_id),
+        )
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    by_viewer = resp.json()["watch_activity"]["by_viewer"]
+    assert by_viewer == [{"viewer_id": viewer_id, "viewer_name": "Alex", "count": 1}]
+
+
+# ---- Tracker bulk-add ----
+
+
+def test_bulk_preview_reports_matched_and_unmatched_titles(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.side_effect = lambda title, year=None: (
+        [MediaResult(tmdb_id=99, title="Sample Movie", media_type="movie", year=2020)] if title == "Known Movie" else []
+    )
+
+    resp = c.post(
+        "/api/tracker/bulk-preview",
+        json={"titles": ["Known Movie", "Unknown Movie"], "media_type": "movie"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 2
+    assert items[0]["matched"] is True
+    assert items[0]["tmdb_id"] == 99
+    assert items[1]["matched"] is False
+    assert items[1]["tmdb_id"] is None
+
+
+def test_bulk_preview_skips_blank_lines(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_movie.return_value = []
+
+    resp = c.post("/api/tracker/bulk-preview", json={"titles": ["Title", "  ", ""], "media_type": "movie"})
+    assert len(resp.json()["items"]) == 1
+
+
+def test_bulk_add_creates_tracker_rows_for_every_item(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    resp = c.post(
+        "/api/tracker/bulk-add",
+        json={
+            "items": [
+                {"tmdb_id": 1, "media_type": "movie", "title": "Movie One"},
+                {"tmdb_id": 2, "media_type": "tv", "title": "Show Two", "poster_path": "/p.jpg"},
+            ]
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["added"] == 2
+    assert db.get_tracker(1, "movie") is not None
+    tv_row = db.get_tracker(2, "tv")
+    assert tv_row["title"] == "Show Two"
+    assert tv_row["poster_path"] == "/p.jpg"

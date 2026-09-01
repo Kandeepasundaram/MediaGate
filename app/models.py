@@ -833,3 +833,105 @@ class LogEntryOut(BaseModel):
     status: str
     created_at: str
     error_message: str | None = None
+
+
+# ---- Watchlist (single-page "all tracked/owned shows" view) ----
+
+
+class WatchlistUnwatchedEpisodeOut(BaseModel):
+    season_number: int | None = None
+    episode_number: int | None = None
+    episode_title: str | None = None
+    air_date: str | None = None
+
+
+class WatchlistUnwatchedShowOut(BaseModel):
+    tmdb_id: int
+    title: str
+    poster_path: str | None = None
+    unwatched_count: int
+    total_count: int
+    next_up: WatchlistUnwatchedEpisodeOut | None = None
+
+
+class WatchlistResponse(BaseModel):
+    needs_download: list[TrackerNotificationOut] = Field(default_factory=list)
+    needs_watching: list[WatchlistUnwatchedShowOut] = Field(default_factory=list)
+
+
+# ---- Reports (periodic library/watch-activity summaries) ----
+
+
+class ViewerWatchCountOut(BaseModel):
+    viewer_id: int
+    viewer_name: str
+    count: int
+
+
+class ReportTrackerActivityOut(BaseModel):
+    notifications_sent: int = 0
+    movies_notified: int = 0
+    tv_shows_notified: int = 0
+    # Distinct titles notification_history fired for in the period -- a
+    # quick "what was flagged" list, not one row per notification (a show
+    # that got flagged for two seasons in the same period still counts once).
+    titles: list[str] = Field(default_factory=list)
+
+
+class ReportGrowthOut(BaseModel):
+    movies_added: int = 0
+    tv_episodes_added: int = 0
+    total_size_bytes_added: int = 0
+
+
+class ReportWatchActivityOut(BaseModel):
+    movies_watched: int = 0
+    tv_episodes_watched: int = 0
+    by_viewer: list[ViewerWatchCountOut] = Field(default_factory=list)
+
+
+class ReportSummaryOut(BaseModel):
+    start_date: str
+    end_date: str
+    growth: ReportGrowthOut
+    watch_activity: ReportWatchActivityOut
+    tracker_activity: ReportTrackerActivityOut
+    insights: StatsInsightsResponse
+
+
+# ---- Bulk-add tracking (paste titles -> review TMDB matches -> confirm) ----
+
+
+class TrackerBulkPreviewRequest(BaseModel):
+    titles: list[str]
+    media_type: MediaType
+
+
+class TrackerBulkPreviewItemOut(BaseModel):
+    input_title: str
+    matched: bool
+    tmdb_id: int | None = None
+    title: str | None = None
+    year: int | None = None
+    poster_path: str | None = None
+    overview: str | None = None
+
+
+class TrackerBulkPreviewResponse(BaseModel):
+    items: list[TrackerBulkPreviewItemOut]
+
+
+class TrackerBulkAddItem(BaseModel):
+    tmdb_id: int
+    media_type: MediaType
+    title: str
+    poster_path: str | None = None
+    overview: str | None = None
+
+
+class TrackerBulkAddRequest(BaseModel):
+    items: list[TrackerBulkAddItem]
+
+
+class TrackerBulkAddResponse(BaseModel):
+    added: int

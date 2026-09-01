@@ -2,7 +2,7 @@
  * Entry point: wires up every tab's event listeners and kicks off the initial load. Imports from every other module below -- see app/static/js/.
  */
 
-import { approveSelected, closeMatchPicker, openBulkMatchPicker, openTrackAddModal, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
+import { approveSelected, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
 import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable } from "./js/browse-tab.js";
 import { loadStatus, setupGlobalSearch, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
@@ -11,10 +11,11 @@ import { closeDetailPane } from "./js/detail-pane.js";
 import { activateGalleryFocus, activeGalleryContext, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, setActiveViewerId, setupFilterPersistence, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
 import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupUniverseTypeTabs } from "./js/notifications-tab.js";
+import { setupReportsTab } from "./js/reports-tab.js";
 import { checkPermissions, createApiToken, createViewerAction, disableApiToken, exportLibrary, importLibrary, loadViewers, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, syncWatchedFromMediaServers } from "./js/settings-tab.js";
 
 // ---- Wiring ----
-const TAB_KEYS = ["movies", "tv", "browse", "archive", "notifications", "tracker", "history", "settings"];
+const TAB_KEYS = ["movies", "tv", "browse", "archive", "notifications", "watchlist", "tracker", "history", "reports", "settings"];
 
 export function switchToTab(tabName) {
   const btn = $(`.tab-btn[data-tab="${tabName}"]`);
@@ -66,8 +67,9 @@ function setupKeyboardShortcuts() {
       if (ctx && activateGalleryFocus()) return;
     }
 
-    if (e.key >= "1" && e.key <= "8") {
-      switchToTab(TAB_KEYS[Number(e.key) - 1]);
+    const digit = Number(e.key);
+    if (digit >= 1 && digit <= Math.min(9, TAB_KEYS.length)) {
+      switchToTab(TAB_KEYS[digit - 1]);
       return;
     }
     if (e.key === "/") {
@@ -90,6 +92,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupTheme();
   setupKeyboardShortcuts();
   setupFilterPersistence();
+  setupReportsTab();
   loadStatus();
   loadMoviesGallery();
   loadViewers();
@@ -109,6 +112,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#bulk-change-match-btn").addEventListener("click", openBulkMatchPicker);
   $("#track-add-movie-btn").addEventListener("click", () => openTrackAddModal("movie"));
   $("#track-add-tv-btn").addEventListener("click", () => openTrackAddModal("tv"));
+  $("#track-add-bulk-btn").addEventListener("click", openBulkTrackModal);
+  $("#bulk-track-preview-btn").addEventListener("click", previewBulkTrack);
+  $("#bulk-track-confirm-btn").addEventListener("click", confirmBulkTrack);
+  $("#bulk-track-cancel-btn").addEventListener("click", closeBulkTrackModal);
   $("#create-universe-btn").addEventListener("click", createUniverseAction);
   $("#new-universe-name").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); createUniverseAction(); }
