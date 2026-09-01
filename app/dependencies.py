@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from functools import lru_cache
+from typing import Callable
 
 from fastapi import Depends, Header, HTTPException, Request
 
@@ -16,13 +17,24 @@ from app.database import Database
 
 START_TIME = time.monotonic()
 
+_SINGLETON_FACTORIES: list[Callable[[], None]] = []
 
-@lru_cache
+
+def _singleton(fn: Callable) -> Callable:
+    """lru_cache(maxsize=1 implied by zero-arg fn) plus auto-registration
+    with reset_singletons(), so a new get_X() here can't be forgotten from
+    the reset list the way a hand-maintained one could."""
+    cached = lru_cache(fn)
+    _SINGLETON_FACTORIES.append(cached.cache_clear)
+    return cached
+
+
+@_singleton
 def get_config() -> AppConfig:
     return load_config()
 
 
-@lru_cache
+@_singleton
 def get_database() -> Database:
     cfg = get_config()
     db = Database(cfg.database_path)
@@ -30,31 +42,31 @@ def get_database() -> Database:
     return db
 
 
-@lru_cache
+@_singleton
 def get_tmdb_client() -> TMDBClient:
     cfg = get_config()
     return TMDBClient(api_key=cfg.tmdb.api_key, language=cfg.tmdb.language)
 
 
-@lru_cache
+@_singleton
 def get_omdb_client() -> OMDbClient:
     cfg = get_config()
     return OMDbClient(api_key=cfg.omdb.api_key)
 
 
-@lru_cache
+@_singleton
 def get_opensubtitles_client() -> OpenSubtitlesClient:
     cfg = get_config()
     return OpenSubtitlesClient(api_key=cfg.subtitles.opensubtitles_api_key)
 
 
-@lru_cache
+@_singleton
 def get_tvmaze_client() -> TVmazeClient:
     cfg = get_config()
     return TVmazeClient(enabled=cfg.tvmaze.enabled)
 
 
-@lru_cache
+@_singleton
 def get_new_file_tracker() -> NewFileTracker:
     """One process-lifetime tracker of video files the filesystem watcher
     has seen but no scan has picked up yet -- see app/core/fs_watcher.py.
@@ -107,11 +119,9 @@ def require_api_token(
 
 
 def reset_singletons() -> None:
-    """Test helper: clear cached singletons so a fresh config/db can be injected."""
-    get_config.cache_clear()
-    get_database.cache_clear()
-    get_tmdb_client.cache_clear()
-    get_omdb_client.cache_clear()
-    get_opensubtitles_client.cache_clear()
-    get_tvmaze_client.cache_clear()
-    get_new_file_tracker.cache_clear()
+    """Test helper: clear cached singletons so a fresh config/db can be
+    injected. Iterates every factory registered via @_singleton above, so
+    a newly added get_X() is covered automatically instead of needing a
+    matching line added here by hand."""
+    for clear in _SINGLETON_FACTORIES:
+        clear()

@@ -225,6 +225,24 @@ class TMDBClient:
     def mode(self) -> str:
         return "api" if self._api else "scraper"
 
+    def _tmdb_get(self, path: str, params: dict | None = None) -> dict | None:
+        """GET https://api.themoviedb.org/3/{path} with api_key already
+        applied, a fixed 10s timeout, and the same warn-and-return-None
+        error handling every direct API call in this class needs --
+        shared so the retry/timeout policy lives in one place instead of
+        five (external_ids, videos, credits, similar, find)."""
+        try:
+            resp = requests.get(
+                f"https://api.themoviedb.org/3/{path}",
+                params={"api_key": self.api_key, **(params or {})},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as exc:
+            logger.warning("TMDB API %s failed: %s", path, exc)
+            return None
+
     def _cached(self, key: tuple, fn):
         if key in self._cache:
             return self._cache[key]
@@ -371,14 +389,8 @@ class TMDBClient:
 
     def _find_by_imdb_id(self, imdb_id: str, media_type: str) -> MediaResult | None:
         if self._api:
-            try:
-                resp = requests.get(
-                    f"https://api.themoviedb.org/3/find/{imdb_id}",
-                    params={"api_key": self.api_key, "external_source": "imdb_id", "language": self.language},
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                data = resp.json()
+            data = self._tmdb_get(f"find/{imdb_id}", {"external_source": "imdb_id", "language": self.language})
+            if data is not None:
                 results = data.get("movie_results" if media_type == "movie" else "tv_results", [])
                 if results:
                     r = results[0]
@@ -393,8 +405,6 @@ class TMDBClient:
                         raw=r,
                     )
                 return None
-            except Exception as exc:
-                logger.warning("TMDB API find_by_imdb_id failed, falling back to scraper: %s", exc)
 
         return _scraped_to_result(self.scraper.find_by_imdb_id(imdb_id, media_type), media_type)
 
@@ -409,16 +419,9 @@ class TMDBClient:
 
     def _get_external_imdb_id(self, tmdb_id: int, media_type: str) -> str | None:
         if self._api:
-            try:
-                resp = requests.get(
-                    f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/external_ids",
-                    params={"api_key": self.api_key},
-                    timeout=10,
-                )
-                resp.raise_for_status()
-                return resp.json().get("imdb_id") or None
-            except Exception as exc:
-                logger.warning("TMDB API external_ids failed, falling back to scraper: %s", exc)
+            data = self._tmdb_get(f"{media_type}/{tmdb_id}/external_ids")
+            if data is not None:
+                return data.get("imdb_id") or None
 
         return self.scraper.get_imdb_id(tmdb_id, media_type)
 
@@ -433,17 +436,10 @@ class TMDBClient:
     def _get_trailer_key(self, tmdb_id: int, media_type: str) -> str | None:
         if not self._api:
             return None
-        try:
-            resp = requests.get(
-                f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/videos",
-                params={"api_key": self.api_key},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            videos = resp.json().get("results", [])
-        except Exception as exc:
-            logger.warning("TMDB API videos lookup failed: %s", exc)
+        data = self._tmdb_get(f"{media_type}/{tmdb_id}/videos")
+        if data is None:
             return None
+        videos = data.get("results", [])
 
         trailers = [v for v in videos if v.get("site") == "YouTube" and v.get("type") == "Trailer"]
         if not trailers:
@@ -459,17 +455,10 @@ class TMDBClient:
     def _get_cast(self, tmdb_id: int, media_type: str) -> list[dict]:
         if not self._api:
             return []
-        try:
-            resp = requests.get(
-                f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/credits",
-                params={"api_key": self.api_key},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            cast = resp.json().get("cast", [])
-        except Exception as exc:
-            logger.warning("TMDB API credits lookup failed: %s", exc)
+        data = self._tmdb_get(f"{media_type}/{tmdb_id}/credits")
+        if data is None:
             return []
+        cast = data.get("cast", [])
         return [
             {"name": c.get("name"), "character": c.get("character"), "profile_path": c.get("profile_path")}
             for c in sorted(cast, key=lambda c: c.get("order", 999))
@@ -483,17 +472,10 @@ class TMDBClient:
     def _get_similar_titles(self, tmdb_id: int, media_type: str) -> list[MediaResult]:
         if not self._api:
             return []
-        try:
-            resp = requests.get(
-                f"https://api.themoviedb.org/3/{media_type}/{tmdb_id}/similar",
-                params={"api_key": self.api_key},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            results = resp.json().get("results", [])
-        except Exception as exc:
-            logger.warning("TMDB API similar lookup failed: %s", exc)
+        data = self._tmdb_get(f"{media_type}/{tmdb_id}/similar")
+        if data is None:
             return []
+        results = data.get("results", [])
 
         titles = []
         for r in results:
