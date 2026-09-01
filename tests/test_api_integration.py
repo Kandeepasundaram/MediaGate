@@ -1102,7 +1102,7 @@ def test_pwa_manifest_and_service_worker_are_served(client):
     c, _ = client
     manifest = c.get("/manifest.json")
     assert manifest.status_code == 200
-    assert manifest.json()["name"] == "Media Manager"
+    assert manifest.json()["name"] == "MediAerie"
 
     sw = c.get("/sw.js")
     assert sw.status_code == 200

@@ -1,22 +1,22 @@
 :root {
-  --bg: #14161a;
-  --bg-elevated: #1d2026;
-  --border: #2a2e37;
+  --bg: #171b26;
+  --bg-elevated: #1e2436;
+  --border: #2a3145;
   --text: #e6e8eb;
   --text-dim: #9aa1ab;
-  --accent: #4f8cff;
+  --accent: #d97b34;
   --success: #3ecf8e;
   --danger: #ff5d6c;
   --warning: #e0a340;
 }
 
 body[data-theme="light"] {
-  --bg: #f5f6f8;
+  --bg: #f2ebdc;
   --bg-elevated: #ffffff;
-  --border: #dde1e7;
-  --text: #1b1d22;
-  --text-dim: #626976;
-  --accent: #2f6fed;
+  --border: #e4d9c5;
+  --text: #1b2740;
+  --text-dim: #6b6458;
+  --accent: #d97b34;
   --success: #1f9d63;
   --danger: #d43c4c;
   --warning: #b3781f;
@@ -1048,6 +1048,28 @@ button.show-status-pill {
   gap: 0.4rem;
   flex-shrink: 0;
 }
+
+.universe-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.universe-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.universe-card-header strong { flex-shrink: 0; }
+.universe-card-header .hint { flex: 1; }
+
+.universe-members .tracked-item:last-child { margin-bottom: 0; }
+
+.universe-suggestions-row { margin-top: 0.7rem; }
 
 .chown-hint {
   font-family: monospace;

@@ -1,12 +1,12 @@
 {
-  "name": "Media Manager",
-  "short_name": "MediaMgr",
+  "name": "MediAerie",
+  "short_name": "MediAerie",
   "description": "Personal media library dashboard: archive, organize, and track movies and TV.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#0f1115",
-  "theme_color": "#2f6fed",
+  "background_color": "#171b26",
+  "theme_color": "#1b2740",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]

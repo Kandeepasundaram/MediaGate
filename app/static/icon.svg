@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="12" fill="#2f6fed"/>
-  <text x="32" y="42" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="700"
-        fill="#ffffff" text-anchor="middle">M</text>
+  <rect width="64" height="64" rx="12" fill="#1b2740"/>
+  <path d="M14 23 Q32 9 50 23" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round"/>
+  <polygon points="9,52 24,27 32,37 40,22 55,52" fill="#ffffff"/>
 </svg>
