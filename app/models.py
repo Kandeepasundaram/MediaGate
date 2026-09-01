@@ -147,6 +147,15 @@ class TrackerNotificationOut(BaseModel):
     next_episode_air_date: str | None = None
     poster_path: str | None = None
     overview: str | None = None
+    watched_through_season: int | None = None  # tv only -- see TrackerWatchProgressRequest
+    watched_through_episode: int | None = None
+
+
+class TrackerWatchProgressRequest(BaseModel):
+    # Both None clears progress ("not started"); season set with episode
+    # None means "watched all of that season so far, episode unknown".
+    season: int | None = Field(default=None, ge=0)
+    episode: int | None = Field(default=None, ge=0)
 
 
 class TrackerSnoozeRequest(BaseModel):

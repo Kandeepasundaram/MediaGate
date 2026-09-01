@@ -83,6 +83,7 @@ export function renderDetailPane() {
         ${item.snoozed_until ? `<div class="detail-file-row"><span>Snoozed until</span><span>${new Date(item.snoozed_until).toLocaleString()}</span></div>` : ""}
         <div class="detail-file-row"><span>Check interval</span><span>${item.check_interval_hours ? `every ${item.check_interval_hours}h (override)` : "Default (daily)"}</span></div>
       </div>
+      ${item.media_type === "tv" ? trackerWatchProgressMarkup(item) : ""}
       <div class="tracked-item-actions">
         <label class="watched-toggle">
           <input type="checkbox" id="detail-tracker-mute-toggle" ${item.muted ? "checked" : ""}>
@@ -95,6 +96,7 @@ export function renderDetailPane() {
         ` : ""}
       </div>
     `;
+    if (item.media_type === "tv") wireTrackerWatchProgress(item);
     $("#detail-tracker-mute-toggle").addEventListener("change", async (e) => {
       await api(`/api/tracker/${item.id}/mute`, { method: "POST", body: JSON.stringify({ muted: e.target.checked }) });
       item.muted = e.target.checked;
@@ -717,6 +719,52 @@ async function loadFileInfo(itemId, selector) {
   } catch (e) {
     el.innerHTML = `<span class="hint">File info error: ${e.message}</span>`;
   }
+}
+
+// Watch-progress marker for a tracked-but-not-yet-archived TV show -- no
+// media_items rows/files exist to hang a per-episode "watched" checkbox off
+// of (see gallery.js's TV episode toggle for that case), so this is a
+// single "watched up through SxxEyy" value stored directly on the tracker
+// row (archive_tracker.watched_through_season/episode).
+function trackerWatchProgressMarkup(item) {
+  const summary = item.watched_through_season != null
+    ? `Watched through S${String(item.watched_through_season).padStart(2, "0")}${item.watched_through_episode != null ? `E${String(item.watched_through_episode).padStart(2, "0")}` : ""}`
+    : "Not started";
+  return `
+    <div class="detail-file-info">
+      <div class="detail-file-row"><span>Watch progress</span><span id="detail-tracker-progress-summary">${summary}</span></div>
+      <div class="tracker-watch-progress-form">
+        <label>Season <input type="number" id="detail-tracker-progress-season" min="0" value="${item.watched_through_season ?? ""}"></label>
+        <label>Episode <input type="number" id="detail-tracker-progress-episode" min="0" value="${item.watched_through_episode ?? ""}"></label>
+        <button id="detail-tracker-progress-save-btn">Save</button>
+        ${item.watched_through_season != null ? `<button id="detail-tracker-progress-clear-btn">Clear</button>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function wireTrackerWatchProgress(item) {
+  const seasonInput = $("#detail-tracker-progress-season");
+  const episodeInput = $("#detail-tracker-progress-episode");
+
+  const save = async (season, episode) => {
+    const res = await api(`/api/tracker/${item.id}/watch-progress`, {
+      method: "POST",
+      body: JSON.stringify({ season, episode }),
+    });
+    item.watched_through_season = res.tracker.watched_through_season;
+    item.watched_through_episode = res.tracker.watched_through_episode;
+    renderDetailPane();
+    loadTrackerTab();
+  };
+
+  $("#detail-tracker-progress-save-btn").addEventListener("click", () => {
+    const season = seasonInput.value === "" ? null : Number(seasonInput.value);
+    const episode = episodeInput.value === "" ? null : Number(episodeInput.value);
+    save(season, episode);
+  });
+  const clearBtn = $("#detail-tracker-progress-clear-btn");
+  if (clearBtn) clearBtn.addEventListener("click", () => save(null, null));
 }
 
 function posterMarkupLarge(title, posterPath) {

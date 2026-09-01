@@ -143,6 +143,7 @@ export async function loadTrackedList() {
           <div class="gallery-title" title="${escapeAttr(t.title)}">${escapeAttr(t.title)}</div>
           <div class="gallery-meta">
             <span class="hint">${t.last_checked ? `last checked ${new Date(t.last_checked).toLocaleString()}` : "not checked yet"}</span>
+            ${t.media_type === "tv" && t.watched_through_season != null ? `<span class="hint">watched through S${String(t.watched_through_season).padStart(2, "0")}${t.watched_through_episode != null ? `E${String(t.watched_through_episode).padStart(2, "0")}` : ""}</span>` : ""}
           </div>
           <div class="tracked-item-actions">
             <label class="watched-toggle">

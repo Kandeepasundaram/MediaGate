@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 19
+SCHEMA_VERSION = 20
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -59,6 +59,8 @@ CREATE TABLE IF NOT EXISTS archive_tracker (
     next_episode_air_date TEXT,
     poster_path TEXT,
     overview TEXT,
+    watched_through_season INTEGER,
+    watched_through_episode INTEGER,
     UNIQUE (tmdb_id, media_type)
 );
 
@@ -1002,6 +1004,17 @@ def _migration_v19(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE media_items ADD COLUMN watched_at TEXT")
 
 
+def _migration_v20(conn: sqlite3.Connection) -> None:
+    """Add archive_tracker.watched_through_season/episode -- lets a tracked
+    (not-yet-archived) TV show record "watched up through S02E05" progress
+    even though no media_items rows/files exist for it yet. Distinct from
+    media_items.watched, which is per-episode and requires an actual
+    archived file; this is a single progress marker on the tracker row
+    itself. Plain nullable column adds, no rebuild needed."""
+    conn.execute("ALTER TABLE archive_tracker ADD COLUMN watched_through_season INTEGER")
+    conn.execute("ALTER TABLE archive_tracker ADD COLUMN watched_through_episode INTEGER")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -1022,4 +1035,5 @@ _MIGRATIONS = {
     17: _migration_v17,
     18: _migration_v18,
     19: _migration_v19,
+    20: _migration_v20,
 }

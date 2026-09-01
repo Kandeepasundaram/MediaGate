@@ -40,6 +40,8 @@ def _pending_out(row: dict) -> TrackerNotificationOut:
         next_episode_air_date=row["next_episode_air_date"],
         poster_path=row["poster_path"],
         overview=row["overview"],
+        watched_through_season=row["watched_through_season"],
+        watched_through_episode=row["watched_through_episode"],
     )
 
 

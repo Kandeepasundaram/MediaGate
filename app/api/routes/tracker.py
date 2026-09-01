@@ -28,6 +28,7 @@ from app.models import (
     TrackerNotificationsResponse,
     TrackerSnoozeRequest,
     TrackerStatusResponse,
+    TrackerWatchProgressRequest,
     UpcomingReleaseOut,
     UpcomingReleasesResponse,
 )
@@ -52,6 +53,8 @@ def _to_out(row: dict) -> TrackerNotificationOut:
         next_episode_air_date=row["next_episode_air_date"],
         poster_path=row["poster_path"],
         overview=row["overview"],
+        watched_through_season=row["watched_through_season"],
+        watched_through_episode=row["watched_through_episode"],
     )
 
 
@@ -260,6 +263,23 @@ def set_tracker_interval(tracker_id: int, payload: TrackerIntervalRequest, db: D
     if db.get_tracker_by_id(tracker_id) is None:
         raise HTTPException(status_code=404, detail="Tracked title not found")
     db.update_tracker(tracker_id, check_interval_hours=payload.hours)
+    return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
+
+
+@router.post("/{tracker_id}/watch-progress")
+def set_tracker_watch_progress(
+    tracker_id: int, payload: TrackerWatchProgressRequest, db: Database = Depends(get_database)
+) -> dict:
+    """Records "watched up through SxxEyy" for a tracked show that has no
+    archived files yet (see media_items.watched for the per-episode,
+    file-backed equivalent). season=episode=None clears it."""
+    if db.get_tracker_by_id(tracker_id) is None:
+        raise HTTPException(status_code=404, detail="Tracked title not found")
+    db.update_tracker(
+        tracker_id,
+        watched_through_season=payload.season,
+        watched_through_episode=payload.episode,
+    )
     return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
 
 
