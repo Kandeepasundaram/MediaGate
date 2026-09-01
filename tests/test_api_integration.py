@@ -1107,7 +1107,7 @@ def test_pwa_manifest_and_service_worker_are_served(client):
     sw = c.get("/sw.js")
     assert sw.status_code == 200
 
-    icon = c.get("/icon.svg")
+    icon = c.get("/icon.png")
     assert icon.status_code == 200
 
 

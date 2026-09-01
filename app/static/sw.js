@@ -11,8 +11,8 @@
 // Network-first still falls back to the cache when the network fails
 // (offline / server down), which is the only scenario this cache exists
 // for in the first place.
-const CACHE_NAME = "media-manager-shell-v2";
-const SHELL_ASSETS = ["/", "/index.html", "/app.js", "/style.css", "/manifest.json", "/icon.svg"];
+const CACHE_NAME = "media-manager-shell-v3";
+const SHELL_ASSETS = ["/", "/index.html", "/app.js", "/style.css", "/manifest.json", "/icon.png", "/icon-192.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)));
