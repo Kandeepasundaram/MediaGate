@@ -31,6 +31,7 @@
   <button class="tab-btn" data-tab="browse">Browse &amp; Clean Up</button>
   <button class="tab-btn" data-tab="archive">Ready to Archive</button>
   <button class="tab-btn" data-tab="notifications">Notifications</button>
+  <button class="tab-btn" data-tab="tracker">Tracker</button>
   <button class="tab-btn" data-tab="history">History</button>
   <button class="tab-btn" data-tab="settings">Settings</button>
 </nav>
@@ -258,16 +259,34 @@
     <h3>Upcoming Releases</h3>
     <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
     <div id="upcoming-releases-list"></div>
+    <h3>Recent Notification History</h3>
+    <p class="hint">RSS feed: <a href="/api/tracker/feed.rss" target="_blank">/api/tracker/feed.rss</a></p>
+    <div id="notification-history-list"></div>
+  </section>
+
+  <section id="tab-tracker" class="tab-panel">
+    <div class="season-tabs" id="universe-type-tabs">
+      <button class="season-tab-btn active" data-universe-type="movie">Movies</button>
+      <button class="season-tab-btn" data-universe-type="tv">TV</button>
+    </div>
+
+    <h3>Universes</h3>
+    <p class="hint">Group related titles (a franchise, a shared universe) so a new season, sequel, or spinoff in any of them is flagged together.</p>
+    <div class="toolbar">
+      <input type="text" id="new-universe-name" placeholder="New universe name…" class="search-input">
+      <button id="create-universe-btn">+ New Universe</button>
+      <span id="universe-status" class="hint"></span>
+    </div>
+    <div id="universes-list"></div>
+
     <h3>Tracked Titles</h3>
+    <p class="hint">Tracked on their own, not part of any universe above.</p>
     <div class="toolbar">
       <button id="track-add-movie-btn">+ Track New Movie</button>
       <button id="track-add-tv-btn">+ Track New TV Show</button>
       <span id="track-add-status" class="hint"></span>
     </div>
     <div id="tracked-list"></div>
-    <h3>Recent Notification History</h3>
-    <p class="hint">RSS feed: <a href="/api/tracker/feed.rss" target="_blank">/api/tracker/feed.rss</a></p>
-    <div id="notification-history-list"></div>
   </section>
 
   <section id="tab-history" class="tab-panel">

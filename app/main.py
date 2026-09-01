@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import archive, library, scan, settings, status, tracker, webhooks
+from app.api.routes import archive, library, scan, settings, status, tracker, universes, webhooks
 from app.core import fs_watcher, metadata_backfill, scheduler
 from app.dependencies import get_config, get_database, get_new_file_tracker, require_api_token
 
@@ -72,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(scan.router, dependencies=token_gate)
     app.include_router(archive.router, dependencies=token_gate)
     app.include_router(tracker.router, dependencies=token_gate)
+    app.include_router(universes.router, dependencies=token_gate)
     app.include_router(status.router, dependencies=token_gate)
     app.include_router(settings.router, dependencies=token_gate)
     app.include_router(library.router, dependencies=token_gate)

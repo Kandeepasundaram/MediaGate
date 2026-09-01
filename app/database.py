@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 16
+SCHEMA_VERSION = 17
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -122,11 +122,29 @@ CREATE TABLE IF NOT EXISTS tv_shows (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS universes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS universe_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    universe_id INTEGER NOT NULL REFERENCES universes(id) ON DELETE CASCADE,
+    tmdb_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    poster_path TEXT,
+    added_at TEXT NOT NULL,
+    UNIQUE (universe_id, tmdb_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_media_items_tmdb_id ON media_items(tmdb_id);
 CREATE INDEX IF NOT EXISTS idx_media_items_final_path ON media_items(final_path);
 CREATE INDEX IF NOT EXISTS idx_media_items_media_type ON media_items(media_type);
 CREATE INDEX IF NOT EXISTS idx_operation_log_created_at ON operation_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_storage_snapshots_label_created ON storage_snapshots(label, created_at);
+CREATE INDEX IF NOT EXISTS idx_universe_members_universe_id ON universe_members(universe_id);
 """
 
 
@@ -417,6 +435,61 @@ class Database:
             f"UPDATE archive_tracker SET {set_clause} WHERE id = ?",
             (*fields.values(), tracker_id),
         )
+
+    # ---- universes / universe_members CRUD ----
+
+    def create_universe(self, name: str, media_type: str) -> int:
+        return self.execute_query(
+            "INSERT INTO universes (name, media_type, created_at) VALUES (?, ?, ?)",
+            (name, media_type, _now()),
+        )
+
+    def list_universes(self, media_type: str | None = None) -> list[dict[str, Any]]:
+        if media_type:
+            return self.fetch_all(
+                "SELECT * FROM universes WHERE media_type = ? ORDER BY created_at DESC", (media_type,)
+            )
+        return self.fetch_all("SELECT * FROM universes ORDER BY created_at DESC")
+
+    def get_universe(self, universe_id: int) -> dict[str, Any] | None:
+        return self.fetch_one("SELECT * FROM universes WHERE id = ?", (universe_id,))
+
+    def delete_universe(self, universe_id: int) -> None:
+        # universe_members rows cascade via their own FK (ON DELETE CASCADE,
+        # honored since connect() turns PRAGMA foreign_keys on).
+        self.execute_query("DELETE FROM universes WHERE id = ?", (universe_id,))
+
+    def add_universe_member(
+        self, universe_id: int, tmdb_id: int, title: str, poster_path: str | None = None
+    ) -> int | None:
+        return self.execute_query(
+            "INSERT OR IGNORE INTO universe_members (universe_id, tmdb_id, title, poster_path, added_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (universe_id, tmdb_id, title, poster_path, _now()),
+        )
+
+    def list_universe_members(self, universe_id: int) -> list[dict[str, Any]]:
+        return self.fetch_all(
+            "SELECT * FROM universe_members WHERE universe_id = ? ORDER BY added_at ASC", (universe_id,)
+        )
+
+    def remove_universe_member(self, universe_id: int, member_id: int) -> None:
+        self.execute_query(
+            "DELETE FROM universe_members WHERE id = ? AND universe_id = ?", (member_id, universe_id)
+        )
+
+    def list_universe_member_tmdb_ids(self, media_type: str) -> set[int]:
+        """Every tmdb_id already a member of any universe of this type --
+        used to dedup suggestions (a title shouldn't be re-suggested for a
+        second universe once it already belongs to one) and to filter the
+        standalone tracked-titles list (a title moves out of "standalone"
+        once it joins a universe)."""
+        rows = self.fetch_all(
+            "SELECT um.tmdb_id FROM universe_members um "
+            "JOIN universes u ON u.id = um.universe_id WHERE u.media_type = ?",
+            (media_type,),
+        )
+        return {r["tmdb_id"] for r in rows}
 
     # ---- operation_log CRUD ----
 
@@ -835,6 +908,35 @@ def _migration_v16(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE archive_tracker ADD COLUMN next_episode_air_date TEXT")
 
 
+def _migration_v17(conn: sqlite3.Connection) -> None:
+    """Add universes + universe_members -- named franchise/shared-universe
+    groupings (e.g. "Vampire Diaries", "MCU") spanning multiple tracked
+    titles, for the dedicated Tracker page. A member's live tracker state
+    (pending_notification, latest season, etc.) is looked up from
+    archive_tracker at read time rather than duplicated here, so it can
+    never drift out of sync with the tracker row it refers to."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS universes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            media_type TEXT NOT NULL CHECK (media_type IN ('movie', 'tv')),
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS universe_members (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            universe_id INTEGER NOT NULL REFERENCES universes(id) ON DELETE CASCADE,
+            tmdb_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            poster_path TEXT,
+            added_at TEXT NOT NULL,
+            UNIQUE (universe_id, tmdb_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_universe_members_universe_id ON universe_members(universe_id);
+        """
+    )
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -852,4 +954,5 @@ _MIGRATIONS = {
     14: _migration_v14,
     15: _migration_v15,
     16: _migration_v16,
+    17: _migration_v17,
 }

@@ -175,6 +175,60 @@ class TrackerStatusResponse(BaseModel):
     last_checked: str | None = None
 
 
+class UniverseCreateRequest(BaseModel):
+    name: str
+    media_type: MediaType
+
+
+class UniverseOut(BaseModel):
+    id: int
+    name: str
+    media_type: MediaType
+    created_at: str
+    member_count: int = 0
+    pending_count: int = 0
+
+
+class UniverseMemberOut(BaseModel):
+    id: int  # universe_members.id
+    tmdb_id: int
+    title: str
+    poster_path: str | None = None
+    tracker_id: int | None = None  # archive_tracker.id, resolved live -- for mute/check-now controls
+    pending_notification: bool = False
+    muted: bool = False
+    latest_known_season: int | None = None
+    movie_release_status: str | None = None
+    last_checked: str | None = None
+
+
+class UniverseDetailOut(BaseModel):
+    universe: UniverseOut
+    members: list[UniverseMemberOut]
+
+
+class UniversesListResponse(BaseModel):
+    universes: list[UniverseOut]
+
+
+class UniverseMemberAddRequest(BaseModel):
+    tmdb_id: int
+    title: str
+    poster_path: str | None = None
+
+
+class UniverseSuggestionOut(BaseModel):
+    tmdb_id: int
+    title: str
+    year: int | None = None
+    poster_path: str | None = None
+
+
+class UniverseSuggestionsResponse(BaseModel):
+    items: list[UniverseSuggestionOut]
+    tmdb_configured: bool = False
+
+
 class NotificationHistoryEntryOut(BaseModel):
     id: int
     tracker_id: int | None

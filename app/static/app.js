@@ -14,6 +14,8 @@ const state = {
   moviesFilterSignature: "",
   tvRenderLimit: 60,
   tvFilterSignature: "",
+  activeUniverseType: "movie", // "movie" | "tv" -- which sub-tab the Tracker tab is showing
+  universeMemberIds: new Set(), // tmdb_ids already in a universe of activeUniverseType, so the standalone Tracked Titles list can exclude them
 };
 
 const GALLERY_PAGE_SIZE = 60;
@@ -88,7 +90,8 @@ function activateTab(tabName) {
   if (tabName === "movies") loadMoviesGallery();
   if (tabName === "tv") loadTvGallery();
   if (tabName === "browse") loadBrowse();
-  if (tabName === "notifications") { loadNotifications(); loadUpcomingReleases(); loadTrackedList(); loadNotificationHistory(); }
+  if (tabName === "notifications") { loadNotifications(); loadUpcomingReleases(); loadNotificationHistory(); }
+  if (tabName === "tracker") loadTrackerTab();
   if (tabName === "history") loadHistory();
   if (tabName === "settings") { loadStats(); loadInsights(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); loadApiTokensList(); loadConfigHistory(); loadViewers(); }
 }
@@ -2759,20 +2762,52 @@ async function loadUpcomingReleases() {
   }
 }
 
+// Shared mute-toggle/check-now wiring for a tracker-item row, scoped to a
+// single container so re-rendering one section (e.g. the standalone list
+// after a mute toggle) never double-binds listeners still attached to
+// untouched nodes in a sibling section (e.g. universe member rows) that
+// happens to reuse the same .mute-toggle/.check-now-btn classes.
+function wireTrackerRowControls(container) {
+  container.querySelectorAll(".mute-toggle").forEach((cb) => {
+    cb.addEventListener("change", async () => {
+      await api(`/api/tracker/${cb.dataset.id}/mute`, { method: "POST", body: JSON.stringify({ muted: cb.checked }) });
+      loadNotifications();
+      loadTrackerTab();
+    });
+  });
+  container.querySelectorAll(".check-now-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      btn.textContent = "Checking...";
+      try {
+        await api(`/api/tracker/${btn.dataset.id}/check-now`, { method: "POST" });
+        loadNotifications();
+        loadTrackerTab();
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = "Check Now";
+      }
+    });
+  });
+}
+
 async function loadTrackedList() {
   const container = $("#tracked-list");
   container.innerHTML = "Loading...";
   try {
     const data = await api("/api/tracker/list");
-    if (data.tracked.length === 0) {
-      container.innerHTML = "<p>No tracked titles yet.</p>";
+    const filtered = data.tracked.filter(
+      (t) => t.media_type === state.activeUniverseType && !state.universeMemberIds.has(t.tmdb_id)
+    );
+    if (filtered.length === 0) {
+      container.innerHTML = "<p>No standalone tracked titles yet.</p>";
       return;
     }
-    container.innerHTML = data.tracked.map((t) => `
+    container.innerHTML = filtered.map((t) => `
       <div class="tracked-item">
         <div>
-          <strong>${t.title}</strong>
-          <span class="hint">(${t.media_type}${t.last_checked ? `, last checked ${new Date(t.last_checked).toLocaleString()}` : ""})</span>
+          <strong>${escapeAttr(t.title)}</strong>
+          <span class="hint">${t.last_checked ? `last checked ${new Date(t.last_checked).toLocaleString()}` : "not checked yet"}</span>
         </div>
         <div class="tracked-item-actions">
           <label class="watched-toggle">
@@ -2783,28 +2818,190 @@ async function loadTrackedList() {
         </div>
       </div>
     `).join("");
-    $all(".mute-toggle").forEach((cb) => {
-      cb.addEventListener("change", async () => {
-        await api(`/api/tracker/${cb.dataset.id}/mute`, { method: "POST", body: JSON.stringify({ muted: cb.checked }) });
-        loadNotifications();
+    wireTrackerRowControls(container);
+  } catch (e) {
+    container.innerHTML = `<p>Error loading tracked titles: ${e.message}</p>`;
+  }
+}
+
+// ---- Tracker tab: universes (franchise/shared-universe groupings) ----
+async function loadTrackerTab() {
+  await loadUniverses();
+  await loadTrackedList();
+}
+
+function setupUniverseTypeTabs() {
+  $all("#universe-type-tabs .season-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.classList.contains("active")) return;
+      state.activeUniverseType = btn.dataset.universeType;
+      $all("#universe-type-tabs .season-tab-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      loadTrackerTab();
+    });
+  });
+}
+
+async function loadUniverses() {
+  const mediaType = state.activeUniverseType;
+  const container = $("#universes-list");
+  container.innerHTML = "Loading...";
+  try {
+    const list = await api(`/api/universes?media_type=${mediaType}`);
+    if (list.universes.length === 0) {
+      container.innerHTML = `<p class="hint">No universes yet — group related titles with "+ New Universe" above.</p>`;
+      state.universeMemberIds = new Set();
+      return;
+    }
+    const details = await Promise.all(list.universes.map((u) => api(`/api/universes/${u.id}`)));
+    const allMemberIds = new Set();
+    details.forEach((d) => d.members.forEach((m) => allMemberIds.add(m.tmdb_id)));
+    state.universeMemberIds = allMemberIds;
+
+    container.innerHTML = details.map(({ universe: u, members }) => `
+      <div class="universe-card">
+        <div class="universe-card-header">
+          <strong>${escapeAttr(u.name)}</strong>
+          <span class="hint">${u.member_count} title(s)${u.pending_count ? ` · ${u.pending_count} pending` : ""}</span>
+          <button class="delete-universe-btn" data-id="${u.id}">Delete</button>
+        </div>
+        <div class="universe-members">
+          ${members.length === 0 ? `<p class="hint">No titles yet.</p>` : members.map((m) => `
+            <div class="tracked-item">
+              <div>
+                <strong>${escapeAttr(m.title)}</strong>
+                ${m.pending_notification ? `<span class="hint">⚡ ${mediaType === "tv" ? `Season ${m.latest_known_season} available` : (m.movie_release_status || "New release detected")}</span>` : ""}
+              </div>
+              <div class="tracked-item-actions">
+                ${m.tracker_id != null ? `
+                  <label class="watched-toggle">
+                    <input type="checkbox" class="mute-toggle" data-id="${m.tracker_id}" ${m.muted ? "checked" : ""}>
+                    Muted
+                  </label>
+                  <button class="check-now-btn" data-id="${m.tracker_id}">Check Now</button>
+                ` : ""}
+                <button class="remove-universe-member-btn" data-universe-id="${u.id}" data-member-id="${m.id}">Remove</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+        <div class="toolbar">
+          <button class="add-universe-member-btn" data-id="${u.id}">+ Add Title</button>
+        </div>
+        <details class="recommendations-row universe-suggestions-row" data-universe-id="${u.id}">
+          <summary>Possibly Related</summary>
+          <p class="hint">Best-effort TMDB suggestions — not guaranteed accurate, especially for TV.</p>
+          <div class="continue-watching-cards"></div>
+        </details>
+      </div>
+    `).join("");
+
+    wireTrackerRowControls(container);
+    container.querySelectorAll(".delete-universe-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const ok = await showConfirm("Delete this universe? Its titles keep tracking standalone.");
+        if (!ok) return;
+        await api(`/api/universes/${btn.dataset.id}`, { method: "DELETE" });
+        loadTrackerTab();
       });
     });
-    $all(".check-now-btn").forEach((btn) => {
+    container.querySelectorAll(".remove-universe-member-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        await api(`/api/universes/${btn.dataset.universeId}/members/${btn.dataset.memberId}`, { method: "DELETE" });
+        loadTrackerTab();
+      });
+    });
+    container.querySelectorAll(".add-universe-member-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const universeId = Number(btn.dataset.id);
+        openMatchModal(mediaType, "", (candidate) => addUniverseMember(universeId, candidate), { hideIdEntry: true });
+      });
+    });
+    container.querySelectorAll(".universe-suggestions-row").forEach((row) => {
+      row.addEventListener("toggle", () => {
+        if (row.open) loadUniverseSuggestions(Number(row.dataset.universeId), mediaType, row.querySelector(".continue-watching-cards"));
+      });
+    });
+  } catch (e) {
+    container.innerHTML = `<p>Error loading universes: ${e.message}</p>`;
+  }
+}
+
+async function createUniverseAction() {
+  const input = $("#new-universe-name");
+  const name = input.value.trim();
+  if (!name) return;
+  $("#universe-status").textContent = "Creating…";
+  try {
+    await api("/api/universes", {
+      method: "POST",
+      body: JSON.stringify({ name, media_type: state.activeUniverseType }),
+    });
+    input.value = "";
+    $("#universe-status").textContent = "";
+    loadTrackerTab();
+  } catch (e) {
+    $("#universe-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function addUniverseMember(universeId, candidate) {
+  closeMatchPicker();
+  $("#universe-status").textContent = `Adding "${candidate.title}"...`;
+  try {
+    await api(`/api/universes/${universeId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ tmdb_id: candidate.tmdb_id, title: candidate.title, poster_path: candidate.poster_path || null }),
+    });
+    $("#universe-status").textContent = "";
+    loadTrackerTab();
+  } catch (e) {
+    $("#universe-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function loadUniverseSuggestions(universeId, mediaType, container) {
+  if (!container || container.dataset.loading === "1") return;
+  container.dataset.loading = "1";
+  container.innerHTML = `<p class="hint">Loading…</p>`;
+  try {
+    const data = await api(`/api/universes/${universeId}/suggestions`);
+    if (!data.tmdb_configured) {
+      container.innerHTML = `<p class="hint">Suggestions need a TMDB key -- configure one in Settings.</p>`;
+      return;
+    }
+    if (data.items.length === 0) {
+      container.innerHTML = `<p class="hint">No suggestions right now.</p>`;
+      return;
+    }
+    container.innerHTML = data.items.map((item) => `
+      <div class="continue-watching-card">
+        ${posterMarkup(item.title, item.poster_path)}
+        <div class="continue-watching-info">
+          <div class="gallery-title" title="${escapeAttr(item.title)}">${escapeAttr(item.title)}</div>
+          <div class="hint">${item.year || ""}</div>
+          <button class="universe-suggestion-add-btn" data-universe-id="${universeId}" data-tmdb-id="${item.tmdb_id}" data-title="${escapeAttr(item.title)}" data-poster="${escapeAttr(item.poster_path || "")}">+ Add</button>
+        </div>
+      </div>
+    `).join("");
+    container.querySelectorAll(".universe-suggestion-add-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         btn.disabled = true;
-        btn.textContent = "Checking...";
+        btn.textContent = "Adding…";
         try {
-          await api(`/api/tracker/${btn.dataset.id}/check-now`, { method: "POST" });
-          loadNotifications();
-          loadTrackedList();
+          await addUniverseMember(Number(btn.dataset.universeId), {
+            tmdb_id: Number(btn.dataset.tmdbId), title: btn.dataset.title, poster_path: btn.dataset.poster || null,
+          });
         } catch (e) {
           btn.disabled = false;
-          btn.textContent = "Check Now";
+          btn.textContent = "+ Add";
         }
       });
     });
   } catch (e) {
-    container.innerHTML = `<p>Error loading tracked titles: ${e.message}</p>`;
+    container.innerHTML = `<p>Error: ${e.message}</p>`;
+  } finally {
+    container.dataset.loading = "0";
   }
 }
 
@@ -3570,7 +3767,7 @@ async function checkPermissions() {
 }
 
 // ---- Wiring ----
-const TAB_KEYS = ["movies", "tv", "browse", "archive", "notifications", "history", "settings"];
+const TAB_KEYS = ["movies", "tv", "browse", "archive", "notifications", "tracker", "history", "settings"];
 
 function switchToTab(tabName) {
   const btn = $(`.tab-btn[data-tab="${tabName}"]`);
@@ -3622,7 +3819,7 @@ function setupKeyboardShortcuts() {
       if (ctx && activateGalleryFocus()) return;
     }
 
-    if (e.key >= "1" && e.key <= "7") {
+    if (e.key >= "1" && e.key <= "8") {
       switchToTab(TAB_KEYS[Number(e.key) - 1]);
       return;
     }
@@ -3641,6 +3838,7 @@ if ("serviceWorker" in navigator) {
 
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
+  setupUniverseTypeTabs();
   setupGlobalSearch();
   setupTheme();
   setupKeyboardShortcuts();
@@ -3664,6 +3862,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#bulk-change-match-btn").addEventListener("click", openBulkMatchPicker);
   $("#track-add-movie-btn").addEventListener("click", () => openTrackAddModal("movie"));
   $("#track-add-tv-btn").addEventListener("click", () => openTrackAddModal("tv"));
+  $("#create-universe-btn").addEventListener("click", createUniverseAction);
+  $("#new-universe-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); createUniverseAction(); }
+  });
   $("#match-cancel-btn").addEventListener("click", closeMatchPicker);
   $("#match-search-btn").addEventListener("click", () => runMatchSearch($("#match-search-input").value));
   $("#match-search-input").addEventListener("keydown", (e) => {
