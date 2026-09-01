@@ -1148,6 +1148,73 @@ function renderDetailPane() {
     loadFileInfo(item.id, "#detail-file-extra");
     if (item.tmdb_id != null) loadMovieStatus(item.tmdb_id);
     wireDetailTags([item.id], (tags) => { item.tags = tags; renderMoviesGallery(); });
+  } else if (pane.kind === "tracker") {
+    const item = pane.data;
+    const statusLine = item.media_type === "tv"
+      ? (item.pending_notification
+          ? `⚡ Season ${item.latest_known_season} available`
+          : (item.latest_known_season != null ? `Up to date through season ${item.latest_known_season}` : "Not checked yet"))
+      : (item.pending_notification ? `⚡ ${item.movie_release_status || "New release detected"}` : (item.movie_release_status || "Watching for a new release"));
+    content.innerHTML = `
+      ${posterMarkupLarge(item.title, item.poster_path)}
+      <div class="detail-title">${escapeAttr(item.title)}</div>
+      <div class="detail-year">${item.media_type === "tv" ? "TV Show" : "Movie"}${item.muted ? " · Muted" : ""}</div>
+      <p class="detail-overview">${item.overview || "No overview available."}</p>
+      <div class="detail-file-info">
+        <div class="detail-file-row"><span>Status</span><span>${statusLine}</span></div>
+        <div class="detail-file-row"><span>Last checked</span><span>${item.last_checked ? new Date(item.last_checked).toLocaleString() : "not checked yet"}</span></div>
+        ${item.next_episode_air_date ? `<div class="detail-file-row"><span>Next episode</span><span>${item.next_episode_air_date}</span></div>` : ""}
+        ${item.snoozed_until ? `<div class="detail-file-row"><span>Snoozed until</span><span>${new Date(item.snoozed_until).toLocaleString()}</span></div>` : ""}
+        <div class="detail-file-row"><span>Check interval</span><span>${item.check_interval_hours ? `every ${item.check_interval_hours}h (override)` : "Default (daily)"}</span></div>
+      </div>
+      <div class="tracked-item-actions">
+        <label class="watched-toggle">
+          <input type="checkbox" id="detail-tracker-mute-toggle" ${item.muted ? "checked" : ""}>
+          Muted
+        </label>
+        <button id="detail-tracker-check-now-btn">Check Now</button>
+        ${item.pending_notification ? `
+          <button id="detail-tracker-ack-btn">Mark Downloaded</button>
+          <button id="detail-tracker-snooze-btn">Remind Me in 7 Days</button>
+        ` : ""}
+      </div>
+    `;
+    $("#detail-tracker-mute-toggle").addEventListener("change", async (e) => {
+      await api(`/api/tracker/${item.id}/mute`, { method: "POST", body: JSON.stringify({ muted: e.target.checked }) });
+      item.muted = e.target.checked;
+      renderDetailPane();
+      loadTrackerTab();
+    });
+    $("#detail-tracker-check-now-btn").addEventListener("click", async (e) => {
+      const btn = e.target;
+      btn.disabled = true;
+      btn.textContent = "Checking...";
+      try {
+        const res = await api(`/api/tracker/${item.id}/check-now`, { method: "POST" });
+        state.detailPane.data = res.tracker;
+        renderDetailPane();
+        loadTrackerTab();
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Check Now";
+      }
+    });
+    const ackBtn = $("#detail-tracker-ack-btn");
+    if (ackBtn) ackBtn.addEventListener("click", async () => {
+      await api("/api/tracker/acknowledge", { method: "POST", body: JSON.stringify({ tracker_id: item.id }) });
+      item.pending_notification = false;
+      renderDetailPane();
+      loadNotifications();
+      loadTrackerTab();
+    });
+    const snoozeBtn = $("#detail-tracker-snooze-btn");
+    if (snoozeBtn) snoozeBtn.addEventListener("click", async () => {
+      await api(`/api/tracker/${item.id}/snooze`, { method: "POST", body: JSON.stringify({ days: 7 }) });
+      item.pending_notification = false;
+      renderDetailPane();
+      loadNotifications();
+      loadTrackerTab();
+    });
   } else {
     const show = pane.data;
     const hasEpisodes = show.episodes.length > 0;
@@ -1215,7 +1282,7 @@ function renderDetailPane() {
     if (show.tmdb_id != null) loadTvStatus(show);
   }
 
-  wireDetailFix();
+  if (pane.kind !== "tracker") wireDetailFix();
 }
 
 // Redraws just the season tabs + episode list (not the outer shell), so
@@ -2770,23 +2837,39 @@ async function loadUpcomingReleases() {
 // after a mute toggle) never double-binds listeners still attached to
 // untouched nodes in a sibling section (e.g. universe member rows) that
 // happens to reuse the same .mute-toggle/.check-now-btn classes.
+// Keeps an open "tracker" detail pane in sync when its item is changed from
+// a gallery card instead of the pane itself (they're separate DOM/state, so
+// a card-driven mute/check-now wouldn't otherwise be reflected until the
+// pane is closed and reopened).
+function syncDetailPaneTracker(trackerId, patch) {
+  const pane = state.detailPane;
+  if (!pane || pane.kind !== "tracker" || pane.data.id !== trackerId) return;
+  Object.assign(pane.data, patch);
+  renderDetailPane();
+}
+
 function wireTrackerRowControls(container) {
   container.querySelectorAll(".mute-toggle").forEach((cb) => {
+    cb.addEventListener("click", (e) => e.stopPropagation());
     cb.addEventListener("change", async () => {
-      await api(`/api/tracker/${cb.dataset.id}/mute`, { method: "POST", body: JSON.stringify({ muted: cb.checked }) });
+      const id = Number(cb.dataset.id);
+      await api(`/api/tracker/${id}/mute`, { method: "POST", body: JSON.stringify({ muted: cb.checked }) });
+      syncDetailPaneTracker(id, { muted: cb.checked });
       loadNotifications();
       loadTrackerTab();
     });
   });
   container.querySelectorAll(".check-now-btn").forEach((btn) => {
-    btn.addEventListener("click", async () => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
       btn.disabled = true;
       btn.textContent = "Checking...";
       try {
-        await api(`/api/tracker/${btn.dataset.id}/check-now`, { method: "POST" });
+        const res = await api(`/api/tracker/${btn.dataset.id}/check-now`, { method: "POST" });
+        syncDetailPaneTracker(Number(btn.dataset.id), res.tracker);
         loadNotifications();
         loadTrackerTab();
-      } catch (e) {
+      } catch (err) {
         btn.disabled = false;
         btn.textContent = "Check Now";
       }
@@ -2829,6 +2912,9 @@ async function loadTrackedList() {
       </div>
     `).join("");
     wireTrackerRowControls(container);
+    container.querySelectorAll(".gallery-card").forEach((card, i) => {
+      card.addEventListener("click", () => openDetailPane("tracker", filtered[i]));
+    });
   } catch (e) {
     container.innerHTML = `<p>Error loading tracked titles: ${e.message}</p>`;
   }
