@@ -336,6 +336,23 @@ class Database:
             (cutoff, limit),
         )
 
+    def list_items_missing_vote_average(self, retry_cooldown_hours: float = 6.0, limit: int = 1) -> list[dict[str, Any]]:
+        """Already-matched items (tmdb_id set) whose metadata predates the
+        vote_average field, so it was never captured. Same cooldown pattern
+        as list_unmatched_media_items, reusing match_attempted_at, so this
+        self-heals an older library without a manual "Refresh Metadata"
+        click and without re-querying a row every backfill cycle once it's
+        been attempted."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=retry_cooldown_hours)).isoformat()
+        return self.fetch_all(
+            "SELECT * FROM media_items "
+            "WHERE tmdb_id IS NOT NULL AND json_extract(metadata, '$.vote_average') IS NULL "
+            "AND (match_attempted_at IS NULL OR match_attempted_at < ?) "
+            "ORDER BY (match_attempted_at IS NULL) DESC, created_at ASC "
+            "LIMIT ?",
+            (cutoff, limit),
+        )
+
     def count_unmatched_media_items(self, media_type: str | None = None) -> int:
         if media_type:
             row = self.fetch_one(

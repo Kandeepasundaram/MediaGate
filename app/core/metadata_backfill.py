@@ -2,6 +2,10 @@
 poster_path, overview) for media_items rows that were auto-adopted from the
 filesystem (library_adopt.py) rather than archived through the normal
 TMDB-matched preview/confirm flow, which already has metadata by save time.
+Also backfills vote_average onto already-matched rows that predate that
+field, so a library archived before ratings shipped picks them up on its
+own instead of needing a manual "Refresh Metadata" click -- unmatched
+items are drained first, then vote_average gaps, each one row at a time.
 
 Runs one lookup at a time via asyncio.to_thread so TMDBScraper's own
 internal rate limiting (a blocking time.sleep) doesn't block the event loop.
@@ -12,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -62,10 +67,58 @@ def match_one(db: Database, tmdb: TMDBClient) -> bool:
     return True
 
 
+def refresh_vote_average_one(db: Database, tmdb: TMDBClient) -> bool:
+    """Backfills vote_average onto one already-matched item that predates
+    that field (see list_items_missing_vote_average). Existing metadata
+    keys (ffprobe fields, episode_title, ...) are preserved -- only the
+    TMDB-sourced ones are refreshed, same as the manual "Refresh Metadata"
+    button. Returns True if there was a row to process, False if the queue
+    is empty."""
+    rows = db.list_items_missing_vote_average(limit=1)
+    if not rows:
+        return False
+    row = rows[0]
+
+    media = (
+        tmdb.refresh_tv_details(row["tmdb_id"])
+        if row["media_type"] == "tv"
+        else tmdb.refresh_movie_details(row["tmdb_id"])
+    )
+
+    now = datetime.now(timezone.utc).isoformat()
+    if media is None:
+        db.update_media_item(row["id"], match_attempted_at=now)
+        logger.info("Could not refresh TMDB details for %r; will retry later", row["title"])
+        return True
+
+    try:
+        existing_meta = json.loads(row["metadata"]) if row["metadata"] else {}
+    except json.JSONDecodeError:
+        existing_meta = {}
+    if not isinstance(existing_meta, dict):
+        existing_meta = {}
+
+    db.update_media_item(
+        row["id"],
+        metadata={
+            **existing_meta,
+            "poster_path": media.poster_path,
+            "overview": media.overview,
+            "vote_average": vote_average_for(media),
+            "genres": genres_for(media),
+        },
+        match_attempted_at=now,
+    )
+    logger.info("Backfilled vote_average for %r (tmdb_id=%s)", row["title"], row["tmdb_id"])
+    return True
+
+
 async def run_metadata_backfill() -> None:
     while True:
         try:
             found = await asyncio.to_thread(match_one, get_database(), get_tmdb_client())
+            if not found:
+                found = await asyncio.to_thread(refresh_vote_average_one, get_database(), get_tmdb_client())
             if not found:
                 await asyncio.sleep(IDLE_SLEEP_SECONDS)
         except asyncio.CancelledError:
