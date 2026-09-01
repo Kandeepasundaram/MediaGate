@@ -1854,6 +1854,64 @@ def test_more_info_empty_without_tmdb_match(client):
     assert body["similar"] == []
 
 
+def test_ratings_by_tmdb_needs_no_media_item(client):
+    """tmdb_id-keyed sibling used by the Tracker tab, where a tracked title
+    has no media_items row at all."""
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_external_imdb_id.return_value = "tt0111161"
+
+    fake_omdb = MagicMock()
+    fake_omdb.enabled = True
+    from app.core.omdb_client import RatingsResult
+
+    fake_omdb.get_ratings.return_value = RatingsResult(
+        imdb_rating=9.3, imdb_votes="2,900,000", rotten_tomatoes="91%", metacritic="80"
+    )
+    app.dependency_overrides[get_omdb_client] = lambda: fake_omdb
+
+    resp = c.get("/api/library/ratings", params={"tmdb_id": 278, "media_type": "movie"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["imdb_id"] == "tt0111161"
+    assert body["imdb_rating"] == 9.3
+    assert body["omdb_configured"] is True
+    fake_tmdb.get_external_imdb_id.assert_called_once_with(278, "movie")
+
+
+def test_trailer_by_tmdb_needs_no_media_item(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.mode = "api"
+    fake_tmdb.get_trailer_key.return_value = "dQw4w9WgXcQ"
+
+    resp = c.get("/api/library/trailer", params={"tmdb_id": 1399, "media_type": "tv"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["youtube_key"] == "dQw4w9WgXcQ"
+    assert body["tmdb_configured"] is True
+    fake_tmdb.get_trailer_key.assert_called_once_with(1399, "tv")
+
+
+def test_more_info_by_tmdb_needs_no_media_item(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.mode = "api"
+    fake_tmdb.get_cast.return_value = [{"name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"}]
+    fake_tmdb.get_similar_titles.return_value = [
+        MediaResult(tmdb_id=7, title="Related Show", media_type="tv", year=2018, poster_path="/r.jpg")
+    ]
+
+    resp = c.get("/api/library/more-info", params={"tmdb_id": 1399, "media_type": "tv"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tmdb_configured"] is True
+    assert body["cast"] == [{"name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"}]
+    assert body["similar"][0]["title"] == "Related Show"
+    fake_tmdb.get_cast.assert_called_once_with(1399, "tv")
+    fake_tmdb.get_similar_titles.assert_called_once_with(1399, "tv")
+
+
 def test_settings_omdb_key_round_trips(client):
     c, _ = client
     resp = c.post("/api/settings", json={"omdb_api_key": "abc123"})

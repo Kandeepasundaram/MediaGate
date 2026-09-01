@@ -423,6 +423,62 @@ def movie_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> M
     )
 
 
+@router.get("/ratings", response_model=RatingsOut)
+def get_ratings_by_tmdb(
+    tmdb_id: int,
+    media_type: MediaType,
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    omdb: OMDbClient = Depends(get_omdb_client),
+) -> RatingsOut:
+    """tmdb_id-keyed sibling of /{item_id}/ratings, for callers with no
+    media_items row to key off of (e.g. the Tracker tab's detail pane,
+    which only has a tmdb_id -- a tracked title need not be archived yet).
+    Same OMDb lookup, just without the imdb_id caching write-back /{item_id}/
+    has, since there's no row to cache it onto (TMDBClient memoizes the
+    external-id lookup itself, so this stays cheap on repeat calls).
+    """
+    imdb_id = tmdb.get_external_imdb_id(tmdb_id, media_type)
+    if not omdb.enabled or imdb_id is None:
+        return RatingsOut(imdb_id=imdb_id, omdb_configured=omdb.enabled)
+
+    ratings = omdb.get_ratings(imdb_id)
+    if ratings is None:
+        return RatingsOut(imdb_id=imdb_id, omdb_configured=True)
+    return RatingsOut(
+        imdb_id=imdb_id,
+        imdb_rating=ratings.imdb_rating,
+        imdb_votes=ratings.imdb_votes,
+        rotten_tomatoes=ratings.rotten_tomatoes,
+        metacritic=ratings.metacritic,
+        omdb_configured=True,
+    )
+
+
+@router.get("/trailer", response_model=TrailerOut)
+def get_trailer_by_tmdb(
+    tmdb_id: int, media_type: MediaType, tmdb: TMDBClient = Depends(get_tmdb_client)
+) -> TrailerOut:
+    """tmdb_id-keyed sibling of /{item_id}/trailer -- see get_ratings_by_tmdb."""
+    key = tmdb.get_trailer_key(tmdb_id, media_type)
+    return TrailerOut(youtube_key=key, tmdb_configured=tmdb.mode == "api")
+
+
+@router.get("/more-info", response_model=MoreInfoOut)
+def get_more_info_by_tmdb(
+    tmdb_id: int, media_type: MediaType, tmdb: TMDBClient = Depends(get_tmdb_client)
+) -> MoreInfoOut:
+    """tmdb_id-keyed sibling of /{item_id}/more-info -- see get_ratings_by_tmdb."""
+    cast = tmdb.get_cast(tmdb_id, media_type)
+    similar = tmdb.get_similar_titles(tmdb_id, media_type)
+    return MoreInfoOut(
+        cast=[CastMemberOut(**c) for c in cast],
+        similar=[
+            SimilarTitleOut(tmdb_id=s.tmdb_id, title=s.title, year=s.year, poster_path=s.poster_path) for s in similar
+        ],
+        tmdb_configured=tmdb.mode == "api",
+    )
+
+
 @router.post("/{item_id}/watched", response_model=LibraryItemOut)
 def set_watched(item_id: int, payload: WatchedUpdateRequest, db: Database = Depends(get_database)) -> LibraryItemOut:
     if db.get_media_item(item_id) is None:

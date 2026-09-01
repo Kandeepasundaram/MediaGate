@@ -84,6 +84,10 @@ export function renderDetailPane() {
         <div class="detail-file-row"><span>Check interval</span><span>${item.check_interval_hours ? `every ${item.check_interval_hours}h (override)` : "Default (daily)"}</span></div>
       </div>
       ${item.media_type === "tv" ? trackerWatchProgressMarkup(item) : ""}
+      ${item.media_type === "tv" ? `<div id="detail-tracker-season-info"></div>` : `<div id="detail-movie-status"></div>`}
+      <div id="detail-ratings" class="detail-ratings"></div>
+      <div id="detail-trailer" class="detail-trailer"></div>
+      <div id="detail-more-info"></div>
       <div class="tracked-item-actions">
         <label class="watched-toggle">
           <input type="checkbox" id="detail-tracker-mute-toggle" ${item.muted ? "checked" : ""}>
@@ -97,6 +101,13 @@ export function renderDetailPane() {
       </div>
     `;
     if (item.media_type === "tv") wireTrackerWatchProgress(item);
+    if (item.tmdb_id != null) {
+      if (item.media_type === "tv") loadTrackerSeasonInfo(item);
+      else loadMovieStatus(item.tmdb_id);
+      loadRatingsByTmdb(item.tmdb_id, item.media_type);
+      loadTrailerByTmdb(item.tmdb_id, item.media_type);
+      loadMoreInfoByTmdb(item.tmdb_id, item.media_type);
+    }
     $("#detail-tracker-mute-toggle").addEventListener("change", async (e) => {
       await api(`/api/tracker/${item.id}/mute`, { method: "POST", body: JSON.stringify({ muted: e.target.checked }) });
       item.muted = e.target.checked;
@@ -611,65 +622,109 @@ async function loadMovieStatus(tmdbId) {
   }
 }
 
-async function loadTrailer(itemId) {
+function renderTrailer(t) {
   const el = $("#detail-trailer");
   if (!el) return;
-  try {
-    const t = await api(`/api/library/${itemId}/trailer`);
-    if (t.youtube_key) {
-      el.innerHTML = `<a href="https://www.youtube.com/watch?v=${encodeURIComponent(t.youtube_key)}" target="_blank" rel="noopener">▶ Watch Trailer</a>`;
-    } else if (!t.tmdb_configured) {
-      el.innerHTML = "";
-    } else {
-      el.innerHTML = `<span class="hint">No trailer found.</span>`;
-    }
-  } catch (e) {
+  if (t.youtube_key) {
+    el.innerHTML = `<a href="https://www.youtube.com/watch?v=${encodeURIComponent(t.youtube_key)}" target="_blank" rel="noopener">▶ Watch Trailer</a>`;
+  } else if (!t.tmdb_configured) {
     el.innerHTML = "";
+  } else {
+    el.innerHTML = `<span class="hint">No trailer found.</span>`;
   }
 }
 
-async function loadMoreInfo(itemId) {
+async function loadTrailer(itemId) {
+  if (!$("#detail-trailer")) return;
+  try {
+    renderTrailer(await api(`/api/library/${itemId}/trailer`));
+  } catch (e) {
+    $("#detail-trailer").innerHTML = "";
+  }
+}
+
+async function loadTrailerByTmdb(tmdbId, mediaType) {
+  if (!$("#detail-trailer")) return;
+  try {
+    renderTrailer(await api(`/api/library/trailer?tmdb_id=${tmdbId}&media_type=${mediaType}`));
+  } catch (e) {
+    $("#detail-trailer").innerHTML = "";
+  }
+}
+
+function renderMoreInfo(info) {
   const el = $("#detail-more-info");
   if (!el) return;
-  try {
-    const info = await api(`/api/library/${itemId}/more-info`);
-    if (!info.tmdb_configured || (info.cast.length === 0 && info.similar.length === 0)) {
-      el.innerHTML = "";
-      return;
-    }
-    const castHtml = info.cast.length ? `
-      <div class="detail-section">
-        <h4>Cast</h4>
-        <div class="cast-row">
-          ${info.cast.map((c) => `
-            <div class="cast-card" title="${c.name || ""}${c.character ? ` as ${c.character}` : ""}">
-              ${c.profile_path
-                ? `<img src="https://image.tmdb.org/t/p/w185${c.profile_path}" alt="${c.name || ""}">`
-                : `<div class="cast-card-placeholder"></div>`}
-              <span class="cast-name">${c.name || ""}</span>
-              ${c.character ? `<span class="cast-character hint">${c.character}</span>` : ""}
-            </div>
-          `).join("")}
-        </div>
-      </div>
-    ` : "";
-    const similarHtml = info.similar.length ? `
-      <div class="detail-section">
-        <h4>Similar Titles</h4>
-        <div class="cast-row">
-          ${info.similar.map((s) => `
-            <div class="cast-card" title="${s.title}${s.year ? ` (${s.year})` : ""}">
-              ${posterMarkup(s.title, s.poster_path)}
-              <span class="cast-name">${s.title}</span>
-            </div>
-          `).join("")}
-        </div>
-      </div>
-    ` : "";
-    el.innerHTML = castHtml + similarHtml;
-  } catch (e) {
+  if (!info.tmdb_configured || (info.cast.length === 0 && info.similar.length === 0)) {
     el.innerHTML = "";
+    return;
   }
+  const castHtml = info.cast.length ? `
+    <div class="detail-section">
+      <h4>Cast</h4>
+      <div class="cast-row">
+        ${info.cast.map((c) => `
+          <div class="cast-card" title="${c.name || ""}${c.character ? ` as ${c.character}` : ""}">
+            ${c.profile_path
+              ? `<img src="https://image.tmdb.org/t/p/w185${c.profile_path}" alt="${c.name || ""}">`
+              : `<div class="cast-card-placeholder"></div>`}
+            <span class="cast-name">${c.name || ""}</span>
+            ${c.character ? `<span class="cast-character hint">${c.character}</span>` : ""}
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  ` : "";
+  const similarHtml = info.similar.length ? `
+    <div class="detail-section">
+      <h4>Similar Titles</h4>
+      <div class="cast-row">
+        ${info.similar.map((s) => `
+          <div class="cast-card" title="${s.title}${s.year ? ` (${s.year})` : ""}">
+            ${posterMarkup(s.title, s.poster_path)}
+            <span class="cast-name">${s.title}</span>
+          </div>
+        `).join("")}
+      </div>
+    </div>
+  ` : "";
+  el.innerHTML = castHtml + similarHtml;
+}
+
+async function loadMoreInfo(itemId) {
+  if (!$("#detail-more-info")) return;
+  try {
+    renderMoreInfo(await api(`/api/library/${itemId}/more-info`));
+  } catch (e) {
+    $("#detail-more-info").innerHTML = "";
+  }
+}
+
+async function loadMoreInfoByTmdb(tmdbId, mediaType) {
+  if (!$("#detail-more-info")) return;
+  try {
+    renderMoreInfo(await api(`/api/library/more-info?tmdb_id=${tmdbId}&media_type=${mediaType}`));
+  } catch (e) {
+    $("#detail-more-info").innerHTML = "";
+  }
+}
+
+function renderRatings(r) {
+  const el = $("#detail-ratings");
+  if (!el) return;
+  if (!r.omdb_configured) {
+    el.innerHTML = `<span class="hint">Ratings unavailable — no OMDb API key configured in Settings.</span>`;
+    return;
+  }
+  if (r.imdb_rating == null && !r.rotten_tomatoes) {
+    el.innerHTML = `<span class="hint">No ratings found${r.imdb_id ? "" : " (no IMDb match yet)"}.</span>`;
+    return;
+  }
+  const parts = [];
+  if (r.imdb_rating != null) parts.push(`IMDb ${r.imdb_rating}/10${r.imdb_votes ? ` (${r.imdb_votes} votes)` : ""}`);
+  if (r.rotten_tomatoes) parts.push(`🍅 ${r.rotten_tomatoes}`);
+  if (r.metacritic) parts.push(`Metacritic ${r.metacritic}`);
+  el.innerHTML = parts.map((p) => `<span class="rating-badge">${p}</span>`).join("");
 }
 
 async function loadRatings(itemId) {
@@ -677,20 +732,18 @@ async function loadRatings(itemId) {
   if (!el) return;
   el.textContent = "Loading ratings...";
   try {
-    const r = await api(`/api/library/${itemId}/ratings`);
-    if (!r.omdb_configured) {
-      el.innerHTML = `<span class="hint">Ratings unavailable — no OMDb API key configured in Settings.</span>`;
-      return;
-    }
-    if (r.imdb_rating == null && !r.rotten_tomatoes) {
-      el.innerHTML = `<span class="hint">No ratings found${r.imdb_id ? "" : " (no IMDb match yet)"}.</span>`;
-      return;
-    }
-    const parts = [];
-    if (r.imdb_rating != null) parts.push(`IMDb ${r.imdb_rating}/10${r.imdb_votes ? ` (${r.imdb_votes} votes)` : ""}`);
-    if (r.rotten_tomatoes) parts.push(`🍅 ${r.rotten_tomatoes}`);
-    if (r.metacritic) parts.push(`Metacritic ${r.metacritic}`);
-    el.innerHTML = parts.map((p) => `<span class="rating-badge">${p}</span>`).join("");
+    renderRatings(await api(`/api/library/${itemId}/ratings`));
+  } catch (e) {
+    el.innerHTML = `<span class="hint">Ratings error: ${e.message}</span>`;
+  }
+}
+
+async function loadRatingsByTmdb(tmdbId, mediaType) {
+  const el = $("#detail-ratings");
+  if (!el) return;
+  el.textContent = "Loading ratings...";
+  try {
+    renderRatings(await api(`/api/library/ratings?tmdb_id=${tmdbId}&media_type=${mediaType}`));
   } catch (e) {
     el.innerHTML = `<span class="hint">Ratings error: ${e.message}</span>`;
   }
@@ -765,6 +818,36 @@ function wireTrackerWatchProgress(item) {
   });
   const clearBtn = $("#detail-tracker-progress-clear-btn");
   if (clearBtn) clearBtn.addEventListener("click", () => save(null, null));
+}
+
+// Season/episode summary for a tracked TV show, straight from TMDB/TVmaze
+// via the cached getTvStatus(tmdbId) -- unlike the gallery detail pane's
+// loadTvStatus, there's no locally-owned `episodes` array to diff against
+// here (a tracked title need not be archived at all), so this just reports
+// what TMDB knows rather than what's "missing".
+async function loadTrackerSeasonInfo(item) {
+  const el = $("#detail-tracker-season-info");
+  if (!el) return;
+  el.innerHTML = `<span class="hint">Loading season info…</span>`;
+  const status = await getTvStatus(item.tmdb_id);
+  if (!status || !status.data_available) {
+    el.innerHTML = `<span class="hint">No TMDB season data available.</span>`;
+    return;
+  }
+  const headerParts = [status.status, status.network].filter(Boolean);
+  const seasonRows = [...status.seasons]
+    .sort((a, b) => a.season_number - b.season_number)
+    .map((s) => `<div class="detail-file-row"><span>Season ${s.season_number}</span><span>${s.episode_count} episode(s)${s.aired_count != null && s.aired_count < s.episode_count ? ` (${s.aired_count} aired)` : ""}</span></div>`)
+    .join("");
+  el.innerHTML = `
+    <div class="detail-file-info">
+      ${headerParts.length ? `<div class="detail-file-row"><span>Status</span><span>${escapeAttr(headerParts.join(" · "))}</span></div>` : ""}
+      <div class="detail-file-row"><span>Seasons</span><span>${status.latest_known_season ?? "—"}</span></div>
+      <div class="detail-file-row"><span>Total episodes</span><span>${status.total_episodes ?? "—"}</span></div>
+      ${seasonRows}
+      ${status.next_episode_air_date ? `<div class="detail-file-row"><span>Next episode</span><span>${escapeAttr(status.next_episode_code || "")} ${status.next_episode_air_date}</span></div>` : ""}
+    </div>
+  `;
 }
 
 function posterMarkupLarge(title, posterPath) {
