@@ -83,6 +83,7 @@ def _to_out(config: AppConfig) -> SettingsOut:
         opensubtitles_api_key_set=bool(config.subtitles.opensubtitles_api_key),
         auto_fetch_missing_subtitles=config.subtitles.auto_fetch_missing_subtitles,
         write_nfo_files=config.media_server.write_nfo_files,
+        tvmaze_enabled=config.tvmaze.enabled,
     )
 
 
@@ -94,8 +95,8 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 @router.post("", response_model=SettingsOut)
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
     updates: dict[str, dict] = {
-        "paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tracker": {}, "media_server": {},
-        "subtitles": {}, "renaming": {}, "watcher": {}, "backup": {},
+        "paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tvmaze": {}, "tracker": {},
+        "media_server": {}, "subtitles": {}, "renaming": {}, "watcher": {}, "backup": {},
     }
 
     if payload.incoming_movies is not None:
@@ -140,6 +141,8 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["subtitles"]["auto_fetch_missing_subtitles"] = payload.auto_fetch_missing_subtitles
     if payload.omdb_api_key is not None:
         updates["omdb"]["api_key"] = payload.omdb_api_key
+    if payload.tvmaze_enabled is not None:
+        updates["tvmaze"]["enabled"] = payload.tvmaze_enabled
     if payload.auto_track_new is not None:
         updates["tracker"]["auto_track_new"] = payload.auto_track_new
     if payload.digest_mode is not None:

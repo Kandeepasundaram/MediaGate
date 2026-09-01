@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.config_loader import load_config
 from app.core.tmdb_client import TMDBClient
 from app.core.tracker import check_for_updates, send_digest
+from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
 
 logger = logging.getLogger("cron_job")
@@ -34,6 +35,7 @@ def main() -> int:
     db = Database(config.database_path)
     db.init_db()
     tmdb = TMDBClient(api_key=config.tmdb.api_key, language=config.tmdb.language)
+    tvmaze = TVmazeClient(enabled=config.tvmaze.enabled)
 
     n = config.notifications
     digest_mode = config.tracker.digest_mode
@@ -43,6 +45,7 @@ def main() -> int:
         n.telegram_bot_token or None, n.telegram_chat_id or None,
         n.pushover_api_token or None, n.pushover_user_key or None,
         digest_mode,
+        tvmaze,
     )
     logger.info("Tracker check complete: %d item(s) pending notification", pending_count)
 

@@ -23,6 +23,7 @@ from app.core.fs_watcher import NewFileTracker
 from app.core.omdb_client import OMDbClient
 from app.core.opensubtitles_client import SubtitleMatch
 from app.core.tmdb_client import MediaResult
+from app.core.tvmaze_client import TVmazeEpisode, TVmazeShowInfo
 from app.database import Database
 from app.dependencies import (
     get_config,
@@ -31,6 +32,7 @@ from app.dependencies import (
     get_omdb_client,
     get_opensubtitles_client,
     get_tmdb_client,
+    get_tvmaze_client,
 )
 from app.main import app
 
@@ -1251,6 +1253,81 @@ def test_archive_preview_skips_absolute_episode_lookup_when_template_does_not_us
     resp = c.post("/api/archive/preview", json={"paths": [str(f)]})
     assert resp.status_code == 200
     fake_tmdb.get_tv_details.assert_not_called()
+
+
+def test_archive_preview_and_library_include_air_date_from_tvmaze(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.tvmaze.enabled = True
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_tv.return_value = [MediaResult(tmdb_id=52, title="Show", media_type="tv")]
+    fake_tmdb.get_external_imdb_id.return_value = "tt0000052"
+
+    fake_tvmaze = MagicMock()
+    fake_tvmaze.enabled = True
+    fake_tvmaze.get_episode_by_imdb.return_value = TVmazeEpisode(
+        season=1, episode=1, name=None, air_date="2026-01-15"
+    )
+    app.dependency_overrides[get_tvmaze_client] = lambda: fake_tvmaze
+
+    tv_dir = incoming_movies.parent / "tv"
+    tv_dir.mkdir(exist_ok=True)
+    f = tv_dir / "Show.S01E01.mkv"
+    f.write_bytes(b"data")
+
+    preview = c.post("/api/archive/preview", json={"paths": [str(f)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+
+    fake_tvmaze.get_episode_by_imdb.assert_called_once_with("tt0000052", 1, 1)
+    item = c.get("/api/library/tv").json()["items"][0]
+    assert item["air_date"] == "2026-01-15"
+
+
+def test_archive_preview_skips_tvmaze_when_disabled(client):
+    c, incoming_movies = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.search_tv.return_value = [MediaResult(tmdb_id=53, title="Show", media_type="tv")]
+
+    fake_tvmaze = MagicMock()
+    fake_tvmaze.enabled = False
+    app.dependency_overrides[get_tvmaze_client] = lambda: fake_tvmaze
+
+    tv_dir = incoming_movies.parent / "tv"
+    tv_dir.mkdir(exist_ok=True)
+    f = tv_dir / "Show.S01E01.mkv"
+    f.write_bytes(b"data")
+
+    c.post("/api/archive/preview", json={"paths": [str(f)]})
+
+    fake_tvmaze.get_episode_by_imdb.assert_not_called()
+    fake_tmdb.get_external_imdb_id.assert_not_called()
+
+
+def test_tv_status_prefers_tvmaze_status_and_adds_network_and_next_episode(client):
+    c, incoming_movies = client
+    config = app.dependency_overrides[get_config]()
+    config.tvmaze.enabled = True
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=54, title="Show", media_type="tv", raw={"status": "Returning Series", "number_of_seasons": 1},
+    )
+    fake_tmdb.get_external_imdb_id.return_value = "tt0000054"
+
+    fake_tvmaze = MagicMock()
+    fake_tvmaze.enabled = True
+    fake_tvmaze.get_show_info_by_imdb.return_value = TVmazeShowInfo(
+        tvmaze_id=1, status="Running", network="AMC",
+        next_episode_air_date="2026-09-10", next_episode_code="S02E01",
+    )
+    app.dependency_overrides[get_tvmaze_client] = lambda: fake_tvmaze
+
+    resp = c.get("/api/library/tv-status", params={"tmdb_id": 54})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "Running"  # TVmaze preferred over TMDB's "Returning Series"
+    assert body["network"] == "AMC"
+    assert body["next_episode_air_date"] == "2026-09-10"
+    assert body["next_episode_code"] == "S02E01"
 
 
 def test_rematch_imdb_applies_to_multiple_episode_ids(client):

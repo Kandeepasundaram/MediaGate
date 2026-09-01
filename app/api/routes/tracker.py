@@ -44,6 +44,7 @@ def _to_out(row: dict) -> TrackerNotificationOut:
         last_checked=row["last_checked"],
         snoozed_until=row["snoozed_until"],
         check_interval_hours=row["check_interval_hours"],
+        next_episode_air_date=row["next_episode_air_date"],
     )
 
 

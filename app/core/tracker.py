@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import requests
 
 from app.core.tmdb_client import TMDBClient
+from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
 
 logger = logging.getLogger(__name__)
@@ -57,11 +58,20 @@ def _is_due(row: dict, now: datetime) -> bool:
     return True
 
 
-def check_tv_show(db: Database, tmdb: TMDBClient, tracker_row: dict) -> bool:
+def check_tv_show(
+    db: Database, tmdb: TMDBClient, tracker_row: dict, tvmaze: TVmazeClient | None = None
+) -> bool:
     """Returns True if this check just flipped pending_notification on (as
     opposed to it already being pending, or staying not-pending) -- used by
     check_for_updates to fire a webhook only on the transition, not on every
-    check of an already-pending title."""
+    check of an already-pending title.
+
+    `tvmaze` is optional (defaults to None, not required) since this is
+    called from ~25 existing tests plus scheduler.py/cron_job.py that predate
+    it -- when given and enabled, it only enriches the tracker row with a
+    next-episode air date; it never changes the pending_notification trigger
+    above, which stays purely TMDB-season-count-based.
+    """
     details = tmdb.get_tv_details(tracker_row["tmdb_id"])
     latest_known_season = None
     if details:
@@ -71,6 +81,14 @@ def check_tv_show(db: Database, tmdb: TMDBClient, tracker_row: dict) -> bool:
     pending = bool(latest_known_season and latest_known_season > current)
     newly_pending = pending and not tracker_row["pending_notification"]
 
+    next_episode_air_date = None
+    if tvmaze is not None and tvmaze.enabled:
+        imdb_id = tmdb.get_external_imdb_id(tracker_row["tmdb_id"], "tv")
+        if imdb_id:
+            show_info = tvmaze.get_show_info_by_imdb(imdb_id)
+            if show_info:
+                next_episode_air_date = show_info.next_episode_air_date
+
     db.upsert_tracker(
         tmdb_id=tracker_row["tmdb_id"],
         media_type="tv",
@@ -78,6 +96,7 @@ def check_tv_show(db: Database, tmdb: TMDBClient, tracker_row: dict) -> bool:
         latest_known_season=latest_known_season,
         last_checked=_now(),
         pending_notification=1 if pending else tracker_row["pending_notification"],
+        next_episode_air_date=next_episode_air_date,
     )
     if pending:
         logger.info("New season detected for %s: season %s", tracker_row["title"], latest_known_season)
@@ -114,11 +133,11 @@ def check_movie_collection(db: Database, tmdb: TMDBClient, tracker_row: dict) ->
 
 
 def _message_for(row: dict) -> str:
-    return (
-        f"New season available for {row['title']}"
-        if row["media_type"] == "tv"
-        else f"{row['title']}: {row.get('movie_release_status') or 'new release detected'}"
-    )
+    if row["media_type"] == "tv":
+        base = f"New season available for {row['title']}"
+        next_air_date = row.get("next_episode_air_date")
+        return f"{base} (next: {next_air_date})" if next_air_date else base
+    return f"{row['title']}: {row.get('movie_release_status') or 'new release detected'}"
 
 
 def _digest_message(rows: list[dict]) -> str:
@@ -194,6 +213,7 @@ def check_for_updates(
     pushover_api_token: str | None = None,
     pushover_user_key: str | None = None,
     digest_mode: bool = False,
+    tvmaze: TVmazeClient | None = None,
 ) -> int:
     """Main tracker entry point. Returns the number of items now pending notification.
 
@@ -214,7 +234,11 @@ def check_for_updates(
             continue
         try:
             if row["media_type"] == "tv":
-                newly_pending = check_tv_show(db, tmdb, row)
+                newly_pending = check_tv_show(db, tmdb, row, tvmaze=tvmaze)
+                # Refresh so a newly-fired message (below) reflects what
+                # check_tv_show just persisted (e.g. next_episode_air_date),
+                # not the pre-check snapshot from list_tracked() above.
+                row = db.get_tracker(row["tmdb_id"], "tv") or row
             else:
                 newly_pending = check_movie_collection(db, tmdb, row)
             db.log_operation(operation_type="tracker_check", status="success", details={"tmdb_id": row["tmdb_id"]})

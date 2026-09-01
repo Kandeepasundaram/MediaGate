@@ -57,6 +57,8 @@ class ArchivePreviewItem(BaseModel):
     overview: str = ""
     vote_average: float | None = None
     genres: list[str] = Field(default_factory=list)
+    episode_title: str | None = None  # tv rows only -- carried through to /archive/confirm's RenamePlan
+    air_date: str | None = None  # tv rows only -- see above
     # True when a media_items row already matches this title (movie: same
     # title+year; TV: same show+season+episode) -- surfaced as a warning in
     # the preview table, not a hard block.
@@ -140,6 +142,7 @@ class TrackerNotificationOut(BaseModel):
     last_checked: str | None = None
     snoozed_until: str | None = None
     check_interval_hours: float | None = None
+    next_episode_air_date: str | None = None
 
 
 class TrackerSnoozeRequest(BaseModel):
@@ -343,6 +346,7 @@ class LibraryItemOut(BaseModel):
     file_name: str | None = None
     size_bytes: int | None = None
     episode_title: str | None = None
+    air_date: str | None = None
     manual_override: bool = False
     vote_average: float | None = None
     genres: list[str] = Field(default_factory=list)
@@ -375,6 +379,9 @@ class TvStatusOut(BaseModel):
     total_episodes: int | None = None
     data_available: bool = False
     seasons: list[TvSeasonSummaryOut] = Field(default_factory=list)
+    network: str | None = None  # TVmaze-only -- see library.py's tv_status route
+    next_episode_air_date: str | None = None
+    next_episode_code: str | None = None  # "S05E03"
 
 
 class MovieRelatedTitleOut(BaseModel):
@@ -657,6 +664,7 @@ class SettingsOut(BaseModel):
     opensubtitles_api_key_set: bool = False
     auto_fetch_missing_subtitles: bool = False
     write_nfo_files: bool = True
+    tvmaze_enabled: bool = False
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -697,6 +705,7 @@ class SettingsUpdateRequest(BaseModel):
     webdav_remote_path: str | None = None
     opensubtitles_api_key: str | None = None
     auto_fetch_missing_subtitles: bool | None = None
+    tvmaze_enabled: bool | None = None
     write_nfo_files: bool | None = None
 
 

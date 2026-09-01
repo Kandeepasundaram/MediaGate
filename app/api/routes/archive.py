@@ -14,8 +14,9 @@ from app.core.media_server import notify_media_servers
 from app.core.opensubtitles_client import OpenSubtitlesClient
 from app.core.tmdb_client import MediaResult, TMDBClient, compute_absolute_episode, parse_filename
 from app.core.tracker import maybe_auto_track
+from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
-from app.dependencies import get_config, get_database, get_opensubtitles_client, get_tmdb_client
+from app.dependencies import get_config, get_database, get_opensubtitles_client, get_tmdb_client, get_tvmaze_client
 from app.models import (
     ArchiveConfirmRequest,
     ArchiveConfirmResponse,
@@ -57,6 +58,7 @@ def preview_archive(
     payload: ArchivePreviewRequest,
     config: AppConfig = Depends(get_config),
     tmdb: TMDBClient = Depends(get_tmdb_client),
+    tvmaze: TVmazeClient = Depends(get_tvmaze_client),
     db: Database = Depends(get_database),
 ) -> ArchivePreviewResponse:
     items: list[ArchivePreviewItem] = []
@@ -75,13 +77,15 @@ def preview_archive(
                 media = _resolve_tv_match(tmdb, parsed, override_id)
                 season = parsed.season or 1
                 episode = parsed.episode or 1
+                episode_title, air_date = _resolve_tv_enrichment(tmdb, tvmaze, config.renaming, media, season, episode)
                 plan = plan_tv_rename(
                     source,
                     config.paths.archive_tv,
                     media,
                     season=season,
                     episode=episode,
-                    episode_title=_resolve_episode_title(tmdb, config.renaming, media, season, episode),
+                    episode_title=episode_title,
+                    air_date=air_date,
                     renaming=config.renaming,
                     absolute_episode=_resolve_absolute_episode(tmdb, config.renaming, media, season, episode),
                     part=parsed.part,
@@ -106,6 +110,8 @@ def preview_archive(
                     overview=media.overview,
                     vote_average=plan.vote_average,
                     genres=plan.genres,
+                    episode_title=plan.episode_title,
+                    air_date=plan.air_date,
                     duplicate=_is_duplicate(db, plan),
                 )
             )
@@ -151,6 +157,31 @@ def _resolve_episode_title(
     if "{episode_title" not in renaming.tv_file:
         return None
     return fetch_episode_title(tmdb, media.tmdb_id, season, episode)
+
+
+def _resolve_tv_enrichment(
+    tmdb: TMDBClient, tvmaze: TVmazeClient, renaming, media: MediaResult, season: int, episode: int
+) -> tuple[str | None, str | None]:
+    """(episode_title, air_date) for a TV rename plan. TMDB stays
+    authoritative for the title -- it already works today (see
+    _resolve_episode_title) -- so TVmaze only fills the title in when TMDB
+    didn't provide one (scraper mode, or the template doesn't reference
+    {episode_title} so TMDB was never even asked). TVmaze is the sole
+    source for air_date, a field TMDB details don't carry through this
+    codebase's per-episode lookup path. Always called when tvmaze.enabled,
+    regardless of TMDB mode -- unlike the title/absolute_episode
+    cost-avoidance guards, air_date has no existing source to avoid
+    duplicating."""
+    title = _resolve_episode_title(tmdb, renaming, media, season, episode)
+    air_date: str | None = None
+    if tvmaze.enabled and media.tmdb_id is not None:
+        imdb_id = tmdb.get_external_imdb_id(media.tmdb_id, "tv")
+        if imdb_id:
+            ep = tvmaze.get_episode_by_imdb(imdb_id, season, episode)
+            if ep:
+                air_date = ep.air_date
+                title = title or ep.name
+    return title, air_date
 
 
 def _resolve_tv_match(tmdb: TMDBClient, parsed, override_id: int | None) -> MediaResult:
@@ -238,6 +269,8 @@ def confirm_archive(
             year=item.year,
             season=item.season,
             episode=item.episode,
+            episode_title=item.episode_title,
+            air_date=item.air_date,
             poster_path=item.poster_path,
             overview=item.overview,
             vote_average=item.vote_average,

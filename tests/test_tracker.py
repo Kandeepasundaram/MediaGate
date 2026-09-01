@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from app.core.tmdb_client import MediaResult
-from app.core.tracker import check_for_updates, maybe_auto_track, send_digest
+from app.core.tracker import check_for_updates, check_tv_show, maybe_auto_track, send_digest
+from app.core.tvmaze_client import TVmazeShowInfo
 
 
 def test_check_for_updates_flags_new_tv_season(db):
@@ -392,3 +393,79 @@ def test_check_for_updates_handles_per_item_errors(db):
     assert pending == 0
     ops = db.list_operations(operation_type="tracker_check")
     assert ops[0]["status"] == "failed"
+
+
+def test_check_tv_show_without_tvmaze_leaves_next_episode_air_date_unset(db):
+    db.upsert_tracker(tmdb_id=30, media_type="tv", title="Show30", current_season_archived=1)
+    row = db.get_tracker(30, "tv")
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=30, title="Show30", media_type="tv", raw={"number_of_seasons": 1}
+    )
+
+    check_tv_show(db, tmdb, row)  # tvmaze omitted -- must not raise or call get_external_imdb_id
+
+    tmdb.get_external_imdb_id.assert_not_called()
+    assert db.get_tracker(30, "tv")["next_episode_air_date"] is None
+
+
+def test_check_tv_show_enriches_next_episode_air_date_from_tvmaze(db):
+    db.upsert_tracker(tmdb_id=31, media_type="tv", title="Show31", current_season_archived=1)
+    row = db.get_tracker(31, "tv")
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=31, title="Show31", media_type="tv", raw={"number_of_seasons": 1}
+    )
+    tmdb.get_external_imdb_id.return_value = "tt0000031"
+
+    tvmaze = MagicMock()
+    tvmaze.enabled = True
+    tvmaze.get_show_info_by_imdb.return_value = TVmazeShowInfo(
+        tvmaze_id=1, status="Running", network="AMC",
+        next_episode_air_date="2026-09-10", next_episode_code="S02E01",
+    )
+
+    check_tv_show(db, tmdb, row, tvmaze=tvmaze)
+
+    tvmaze.get_show_info_by_imdb.assert_called_once_with("tt0000031")
+    assert db.get_tracker(31, "tv")["next_episode_air_date"] == "2026-09-10"
+
+
+def test_check_tv_show_skips_tvmaze_lookup_when_disabled(db):
+    db.upsert_tracker(tmdb_id=32, media_type="tv", title="Show32", current_season_archived=1)
+    row = db.get_tracker(32, "tv")
+
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=32, title="Show32", media_type="tv", raw={"number_of_seasons": 1}
+    )
+    tvmaze = MagicMock()
+    tvmaze.enabled = False
+
+    check_tv_show(db, tmdb, row, tvmaze=tvmaze)
+
+    tmdb.get_external_imdb_id.assert_not_called()
+    tvmaze.get_show_info_by_imdb.assert_not_called()
+
+
+def test_message_for_appends_next_episode_air_date_when_present(db):
+    db.upsert_tracker(tmdb_id=33, media_type="tv", title="Show33", current_season_archived=1)
+    tmdb = MagicMock()
+    tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=33, title="Show33", media_type="tv", raw={"number_of_seasons": 2}
+    )
+    tmdb.get_external_imdb_id.return_value = "tt0000033"
+    tvmaze = MagicMock()
+    tvmaze.enabled = True
+    tvmaze.get_show_info_by_imdb.return_value = TVmazeShowInfo(
+        tvmaze_id=1, status="Running", network=None,
+        next_episode_air_date="2026-10-01", next_episode_code="S03E01",
+    )
+
+    with patch("app.core.tracker.requests.post"):
+        check_for_updates(db, tmdb, webhook_url="https://example.com/hook", tvmaze=tvmaze)
+
+    history = db.list_notification_history()
+    assert "2026-10-01" in history[0]["message"]

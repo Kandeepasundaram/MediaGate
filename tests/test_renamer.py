@@ -200,6 +200,43 @@ def test_plan_tv_rename_part_suffix_empty_when_no_part(tmp_path):
     assert plan.dest_path.name == "Show - S01E01.mkv"
 
 
+def test_plan_tv_rename_stores_air_date(tmp_path):
+    source = tmp_path / "incoming" / "show.s01e02.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=14, title="Show", media_type="tv")
+    plan = plan_tv_rename(source, archive_root, media, season=1, episode=2, air_date="2008-01-27")
+
+    assert plan.air_date == "2008-01-27"
+
+
+def test_plan_tv_rename_air_date_template_token(tmp_path):
+    source = tmp_path / "incoming" / "show.s01e02.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=15, title="Show", media_type="tv")
+    renaming = RenamingConfig(tv_file="{show_name} - {code} - {air_date}")
+    plan = plan_tv_rename(source, archive_root, media, season=1, episode=2, air_date="2008-01-27", renaming=renaming)
+
+    assert plan.dest_path.name == "Show - S01E02 - 2008-01-27.mkv"
+
+
+def test_plan_tv_rename_air_date_defaults_to_none(tmp_path):
+    source = tmp_path / "incoming" / "show.s01e02.mkv"
+    source.parent.mkdir(parents=True)
+    source.write_text("data")
+    archive_root = tmp_path / "archive"
+
+    media = MediaResult(tmdb_id=16, title="Show", media_type="tv")
+    plan = plan_tv_rename(source, archive_root, media, season=1, episode=2)
+
+    assert plan.air_date is None
+
+
 def test_plan_tv_rename_absolute_episode_falls_back_to_in_season_episode(tmp_path):
     source = tmp_path / "incoming" / "show.s02e03.mkv"
     source.parent.mkdir(parents=True)

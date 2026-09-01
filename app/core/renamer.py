@@ -55,6 +55,7 @@ class RenamePlan:
     season: int | None = None
     episode: int | None = None
     episode_title: str | None = None
+    air_date: str | None = None
     poster_path: str | None = None
     overview: str = ""
     vote_average: float | None = None
@@ -109,6 +110,7 @@ def plan_tv_rename(
     season: int,
     episode: int,
     episode_title: str | None = None,
+    air_date: str | None = None,
     ext: str | None = None,
     renaming: RenamingConfig | None = None,
     absolute_episode: int | None = None,
@@ -133,6 +135,7 @@ def plan_tv_rename(
         "episode_title_suffix": f" - {clean_episode_title}" if clean_episode_title else "",
         "absolute_episode": absolute_episode if absolute_episode is not None else episode,
         "part_suffix": f" - {part}" if part else "",
+        "air_date": air_date or "",
     }
     season_folder = sanitize_filename(_format_template(renaming.tv_season_folder, _DEFAULT_RENAMING.tv_season_folder, context))
     file_name = sanitize_filename(_format_template(renaming.tv_file, _DEFAULT_RENAMING.tv_file, context)) + ext
@@ -147,6 +150,7 @@ def plan_tv_rename(
         season=season,
         episode=episode,
         episode_title=episode_title,
+        air_date=air_date,
         poster_path=media.poster_path,
         overview=media.overview,
         vote_average=vote_average_for(media),

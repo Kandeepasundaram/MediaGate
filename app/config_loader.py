@@ -40,6 +40,7 @@ _DEFAULT_CONFIG: dict = {
         "pushover_user_key": "",
     },
     "omdb": {"api_key": ""},
+    "tvmaze": {"enabled": False},
     "backup": {"enabled": True, "retention_days": 14},
     "watcher": {"enabled": False},
     "media_server": {
@@ -132,6 +133,15 @@ class OMDbConfig:
 
 
 @dataclass
+class TVmazeConfig:
+    # No key needed (TVmaze's API is free/keyless) -- this toggle just
+    # opts into the extra network calls (episode air dates, show
+    # status/network, next-episode tracking; see app/core/tvmaze_client.py),
+    # off by default like every other optional integration in this app.
+    enabled: bool = False
+
+
+@dataclass
 class BackupConfig:
     enabled: bool = True
     retention_days: int = 14
@@ -196,8 +206,10 @@ class RenamingConfig:
     {episode_title_suffix} (" - Title" or "" when there's no episode title),
     {absolute_episode} (cumulative episode count across seasons, for
     anime-style naming), {part_suffix} (" - CD1"/"Part2"/etc for a detected
-    multi-part rip, else ""). A movie's multi-part suffix isn't
-    template-controlled -- see plan_movie_rename.
+    multi-part rip, else ""), {air_date} (episode air date, "" when unknown --
+    only populated when TVmaze integration is enabled, see tvmaze_client.py).
+    A movie's multi-part suffix isn't template-controlled -- see
+    plan_movie_rename.
     """
     movie_folder: str = "{title}{year_suffix}"
     tv_season_folder: str = "Season {season:02d}"
@@ -225,6 +237,7 @@ class AppConfig:
     server: ServerConfig
     renaming: RenamingConfig = field(default_factory=RenamingConfig)
     watcher: WatcherConfig = field(default_factory=WatcherConfig)
+    tvmaze: TVmazeConfig = field(default_factory=TVmazeConfig)
     config_path: Path = Path("config.yaml")
     tmdb_api_key_from_env: bool = False
 
@@ -270,6 +283,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         tracker=TrackerConfig(**raw["tracker"]),
         notifications=NotificationsConfig(**raw["notifications"]),
         omdb=OMDbConfig(**raw["omdb"]),
+        tvmaze=TVmazeConfig(**raw["tvmaze"]),
         backup=BackupConfig(**raw["backup"]),
         media_server=MediaServerConfig(**raw["media_server"]),
         logging=LoggingConfig(
@@ -307,6 +321,7 @@ _EDITABLE_KEYS = {
         "low_disk_alert_enabled", "low_disk_threshold_gb",
     },
     "omdb": {"api_key"},
+    "tvmaze": {"enabled"},
     "tracker": {"auto_track_new", "digest_mode", "digest_interval_days"},
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key", "write_nfo_files"},
     "subtitles": {

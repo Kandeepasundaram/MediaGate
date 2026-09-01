@@ -310,6 +310,22 @@ def test_save_settings_updates_opensubtitles_and_never_echoes_key(client):
     assert "super-secret-key" not in resp.text
 
 
+def test_get_settings_reflects_default_tvmaze(client):
+    c, _ = client
+    body = c.get("/api/settings").json()
+    assert body["tvmaze_enabled"] is False
+
+
+def test_save_settings_updates_tvmaze_enabled(client):
+    c, _ = client
+    resp = c.post("/api/settings", json={"tvmaze_enabled": True})
+    assert resp.status_code == 200
+    assert resp.json()["tvmaze_enabled"] is True
+
+    body = c.get("/api/settings").json()
+    assert body["tvmaze_enabled"] is True
+
+
 def test_get_settings_reflects_default_webdav_backup(client):
     c, _ = client
     body = c.get("/api/settings").json()

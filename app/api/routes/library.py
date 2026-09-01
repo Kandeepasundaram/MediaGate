@@ -30,8 +30,9 @@ from app.core.scanner import SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS, scan_directo
 from app.core.media_server import notify_media_servers, sync_watched_from_media_servers
 from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, season_episode_counts, vote_average_for
 from app.core.tracker import maybe_auto_track
+from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
-from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client
+from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client, get_tvmaze_client
 from app.models import (
     ArchiveConfirmRequest,
     ArchiveConfirmResponse,
@@ -139,6 +140,7 @@ def _to_out(row: dict, viewer_watched_ids: set[int] | None = None, show_status: 
         file_name=file_name,
         size_bytes=size_bytes,
         episode_title=meta.get("episode_title"),
+        air_date=meta.get("air_date"),
         manual_override=bool(row["manual_override"]),
         vote_average=meta.get("vote_average"),
         genres=meta.get("genres") or [],
@@ -613,7 +615,11 @@ def refresh_metadata(
 
 
 @router.get("/tv-status", response_model=TvStatusOut)
-def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvStatusOut:
+def tv_status(
+    tmdb_id: int,
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    tvmaze: TVmazeClient = Depends(get_tvmaze_client),
+) -> TvStatusOut:
     """Live TMDB season/episode counts for the detail pane's "new season
     available" banner -- deliberately independent of the archive_tracker
     table (which is an opt-in, separately-added watchlist for the
@@ -622,6 +628,13 @@ def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvSt
     side effect. Scraper mode returns an empty MediaResult.raw, so
     data_available naturally comes back false and the pane shows no banner
     rather than a wrong one.
+
+    When TVmaze is enabled it's queried unconditionally (not just as a
+    scraper-mode fallback -- see tvmaze_client.py's module docstring) and
+    preferred for `status`/next-episode fields when it has an answer, since
+    it's the newer, richer signal; TMDB's own fields (already used before
+    TVmaze existed) fill in whatever TVmaze didn't return. `network` has no
+    TMDB equivalent in this endpoint, so it's TVmaze-only.
     """
     media = tmdb.get_tv_details(tmdb_id)
     if media is None:
@@ -635,14 +648,31 @@ def tv_status(tmdb_id: int, tmdb: TMDBClient = Depends(get_tmdb_client)) -> TvSt
         if num != 0
     ]
 
+    show_info = None
+    if tvmaze.enabled:
+        imdb_id = tmdb.get_external_imdb_id(tmdb_id, "tv")
+        if imdb_id:
+            show_info = tvmaze.get_show_info_by_imdb(imdb_id)
+
+    next_episode_to_air = media.raw.get("next_episode_to_air") or {}
+    next_season = next_episode_to_air.get("season_number")
+    next_number = next_episode_to_air.get("episode_number")
+    tmdb_next_code = (
+        f"S{next_season:02d}E{next_number:02d}" if next_season is not None and next_number is not None else None
+    )
+
     return TvStatusOut(
         tmdb_id=tmdb_id,
-        status=media.raw.get("status"),
+        status=(show_info.status if show_info else None) or media.raw.get("status"),
         latest_known_season=media.raw.get("number_of_seasons"),
         latest_season_episode_count=media.raw.get("latest_season_episode_count"),
         total_episodes=media.raw.get("number_of_episodes"),
-        data_available=media.source == "api",
+        data_available=media.source == "api" or show_info is not None,
         seasons=seasons,
+        network=show_info.network if show_info else None,
+        next_episode_air_date=(show_info.next_episode_air_date if show_info else None)
+        or next_episode_to_air.get("air_date"),
+        next_episode_code=(show_info.next_episode_code if show_info else None) or tmdb_next_code,
     )
 
 
@@ -1142,6 +1172,8 @@ def organize_selected(
             year=item.year,
             season=item.season,
             episode=item.episode,
+            episode_title=item.episode_title,
+            air_date=item.air_date,
             poster_path=item.poster_path,
             overview=item.overview,
             vote_average=item.vote_average,

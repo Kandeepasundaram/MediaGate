@@ -11,6 +11,7 @@ from app.core.fs_watcher import NewFileTracker
 from app.core.omdb_client import OMDbClient
 from app.core.opensubtitles_client import OpenSubtitlesClient
 from app.core.tmdb_client import TMDBClient
+from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
 
 START_TIME = time.monotonic()
@@ -45,6 +46,12 @@ def get_omdb_client() -> OMDbClient:
 def get_opensubtitles_client() -> OpenSubtitlesClient:
     cfg = get_config()
     return OpenSubtitlesClient(api_key=cfg.subtitles.opensubtitles_api_key)
+
+
+@lru_cache
+def get_tvmaze_client() -> TVmazeClient:
+    cfg = get_config()
+    return TVmazeClient(enabled=cfg.tvmaze.enabled)
 
 
 @lru_cache
@@ -106,4 +113,5 @@ def reset_singletons() -> None:
     get_tmdb_client.cache_clear()
     get_omdb_client.cache_clear()
     get_opensubtitles_client.cache_clear()
+    get_tvmaze_client.cache_clear()
     get_new_file_tracker.cache_clear()

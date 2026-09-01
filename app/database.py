@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS archive_tracker (
     snoozed_until TEXT,
     check_interval_hours REAL,
     created_at TEXT NOT NULL,
+    next_episode_air_date TEXT,
     UNIQUE (tmdb_id, media_type)
 );
 
@@ -826,6 +827,14 @@ def _migration_v15(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v16(conn: sqlite3.Connection) -> None:
+    """Add archive_tracker.next_episode_air_date -- informational only,
+    populated from TVmaze when enabled (see tracker.check_tv_show); doesn't
+    change the existing season-count-based pending_notification trigger.
+    Plain nullable column add, no rebuild needed."""
+    conn.execute("ALTER TABLE archive_tracker ADD COLUMN next_episode_air_date TEXT")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -842,4 +851,5 @@ _MIGRATIONS = {
     13: _migration_v13,
     14: _migration_v14,
     15: _migration_v15,
+    16: _migration_v16,
 }

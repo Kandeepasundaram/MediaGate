@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.core import backup
 from app.core.tracker import check_for_updates, send_digest
-from app.dependencies import get_config, get_database, get_tmdb_client
+from app.dependencies import get_config, get_database, get_tmdb_client, get_tvmaze_client
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ async def run_daily_tracker_check() -> None:
 
             db = get_database()
             tmdb = get_tmdb_client()
+            tvmaze = get_tvmaze_client()
             config = get_config()
             notifications = config.notifications
             digest_mode = config.tracker.digest_mode
@@ -75,6 +76,7 @@ async def run_daily_tracker_check() -> None:
                 notifications.pushover_api_token or None,
                 notifications.pushover_user_key or None,
                 digest_mode,
+                tvmaze,
             )
             logger.info("Scheduled tracker check complete: %d item(s) pending notification", pending)
 

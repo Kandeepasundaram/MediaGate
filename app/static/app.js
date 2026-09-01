@@ -717,10 +717,10 @@ function exportMoviesView() {
 
 function exportTvView() {
   const shows = filterAndSort(groupEpisodesByShow(state.tvItems), currentTvFilters());
-  const header = ["Show", "Year", "Rating", "Season", "Episode", "Episode Title", "Resolution", "Watched", "Genres", "Tags", "TMDB ID", "Path"];
+  const header = ["Show", "Year", "Rating", "Season", "Episode", "Episode Title", "Air Date", "Resolution", "Watched", "Genres", "Tags", "TMDB ID", "Path"];
   const rows = shows.flatMap((show) => show.episodes.map((ep) => [
     show.title, show.year ?? "", show.vote_average ?? "", ep.season_number ?? "", ep.episode_number ?? "",
-    ep.episode_title ?? "", ep.resolution ?? "", ep.watched ? "yes" : "no",
+    ep.episode_title ?? "", ep.air_date ?? "", ep.resolution ?? "", ep.watched ? "yes" : "no",
     (show.genres || []).join("; "), (show.tags || []).join("; "), show.tmdb_id ?? "", ep.final_path ?? "",
   ]));
   downloadCsv(`tv-export-${new Date().toISOString().slice(0, 10)}.csv`, rowsToCsv(header, rows));
@@ -824,6 +824,19 @@ function tvShowStatusLabel(status) {
   return TV_SHOW_STATUSES.find((s) => s.value === status)?.label || status;
 }
 
+// Real broadcast status from TMDB ("Ended", "Canceled", "Returning Series", ...)
+// or TVmaze ("Ended", "Running", "To Be Determined", ...) mapped onto our own
+// manual TvShowStatus vocabulary -- only the two terminal states have an
+// unambiguous match; "Returning Series"/"Running"/etc don't map to "watching"
+// or "running" since those are about *your* progress, not the show's.
+function mapApiStatusToManual(apiStatusLabel) {
+  if (!apiStatusLabel) return null;
+  const lower = apiStatusLabel.toLowerCase();
+  if (lower.includes("cancel")) return "cancelled";
+  if (lower.includes("end")) return "ended";
+  return null;
+}
+
 async function setTvShowStatus(tmdbId, status) {
   return api(`/api/library/tv-shows/${tmdbId}/status`, {
     method: "POST",
@@ -897,7 +910,7 @@ function renderContinueWatching(allShows) {
       <div class="continue-watching-info">
         <div class="gallery-title" title="${show.title}">${show.title}</div>
         <div class="gallery-meta">S${nextEpisode.season_number}E${nextEpisode.episode_number}${nextEpisode.episode_title ? ` — ${nextEpisode.episode_title}` : ""}</div>
-        <div class="hint">${watchedCount} of ${totalCount} watched</div>
+        <div class="hint">${watchedCount} of ${totalCount} watched${nextEpisode.air_date ? ` · aired ${nextEpisode.air_date}` : ""}</div>
       </div>
     </div>
   `).join("");
@@ -1148,6 +1161,7 @@ function renderDetailPane() {
           <select id="detail-show-status-select">
             ${TV_SHOW_STATUSES.map((s) => `<option value="${s.value}" ${s.value === show.show_status ? "selected" : ""}>${s.label}</option>`).join("")}
           </select>
+          <span id="detail-api-status-pill"></span>
         </label>
       ` : ""}
       ${hasEpisodes ? detailTagsMarkup(show.tags) : ""}
@@ -1194,7 +1208,7 @@ function renderDetailPane() {
         renderTvGallery();
       });
     }
-    if (show.tmdb_id != null) loadTvStatus(show.tmdb_id, show.episodes);
+    if (show.tmdb_id != null) loadTvStatus(show);
   }
 
   wireDetailFix();
@@ -1225,6 +1239,11 @@ function renderTvBody() {
   const seasonEpisodes = show.episodes.filter((e) => e.season_number === pane.selectedSeason);
   const allWatched = seasonEpisodes.length > 0 && seasonEpisodes.every((e) => e.watched);
   const hasEpisodeNames = show.episodes.some((e) => e.episode_title);
+  // Every episode in a season strictly before the one currently selected --
+  // lets someone who's picking up a show mid-way mark everything they're
+  // already past as watched without also touching the season they're on.
+  const earlierEpisodes = show.episodes.filter((e) => e.season_number < pane.selectedSeason);
+  const earlierAllWatched = earlierEpisodes.length > 0 && earlierEpisodes.every((e) => e.watched);
   // Recomputed on every render (not just at groupEpisodesByShow time) so it
   // stays correct after a season- or episode-level toggle changes it.
   show.watched = show.episodes.every((e) => e.watched);
@@ -1241,13 +1260,16 @@ function renderTvBody() {
         </label>
       ` : "<span></span>"}
       <button id="detail-season-watched-btn">${allWatched ? "Mark Season Unwatched" : "Mark Season Watched"}</button>
+      ${earlierEpisodes.length > 0 ? `
+        <button id="detail-earlier-watched-btn">${earlierAllWatched ? "Mark Earlier Seasons Unwatched" : "Mark Earlier Seasons Watched"}</button>
+      ` : ""}
       <button id="detail-show-watched-btn">${show.watched ? "Mark Show Unwatched" : "Mark Show Watched"}</button>
     </div>
     <div class="detail-episodes">
       ${seasonEpisodes.map((ep) => `
         <div class="detail-episode-row">
           <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
-          <span class="detail-ep-file hint" title="${ep.file_name || ""}">${(pane.nameMode === "episode" && ep.episode_title) ? ep.episode_title : (ep.file_name || "")}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
+          <span class="detail-ep-file hint" title="${ep.file_name || ""}">${(pane.nameMode === "episode" && ep.episode_title) ? ep.episode_title : (ep.file_name || "")}${ep.air_date ? ` · ${ep.air_date}` : ""}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
           <label class="watched-toggle">
             <input type="checkbox" class="detail-ep-watched" data-id="${ep.id}" ${effectiveWatched(ep) ? "checked" : ""}>
             Watched
@@ -1290,6 +1312,26 @@ function renderTvBody() {
       btn.disabled = false;
     }
   });
+
+  const earlierBtn = $("#detail-earlier-watched-btn");
+  if (earlierBtn) {
+    earlierBtn.addEventListener("click", async (e) => {
+      const btn = e.target;
+      const newWatched = !earlierAllWatched;
+      btn.disabled = true;
+      try {
+        await api("/api/library/watched-batch", {
+          method: "POST",
+          body: JSON.stringify({ ids: earlierEpisodes.map((ep) => ep.id), watched: newWatched }),
+        });
+        earlierEpisodes.forEach((ep) => { ep.watched = newWatched; });
+        renderTvBody();
+        renderTvGallery();
+      } catch (err) {
+        btn.disabled = false;
+      }
+    });
+  }
 
   $("#detail-show-watched-btn").addEventListener("click", async (e) => {
     const btn = e.target;
@@ -1356,19 +1398,20 @@ async function getTvStatus(tmdbId) {
 // shared by the gallery "new season" badge and the detail pane banner so
 // the two never disagree about what counts as "behind".
 function computeTvStatusInfo(status, episodes) {
-  if (!status || !status.data_available || status.latest_known_season == null) return null;
-  const localMaxSeason = Math.max(...episodes.map((e) => e.season_number));
-  const localEpisodeCountInMaxSeason = episodes.filter((e) => e.season_number === localMaxSeason).length;
-
+  if (!status || !status.data_available) return null;
   let gapMessage = null;
-  if (status.latest_known_season > localMaxSeason) {
-    gapMessage = `Season ${status.latest_known_season} is out — you have up to season ${localMaxSeason}.`;
-  } else if (
-    status.latest_known_season === localMaxSeason &&
-    status.latest_season_episode_count != null &&
-    status.latest_season_episode_count > localEpisodeCountInMaxSeason
-  ) {
-    gapMessage = `Season ${localMaxSeason} has ${status.latest_season_episode_count} episode(s) — you have ${localEpisodeCountInMaxSeason}.`;
+  if (status.latest_known_season != null) {
+    const localMaxSeason = Math.max(...episodes.map((e) => e.season_number));
+    const localEpisodeCountInMaxSeason = episodes.filter((e) => e.season_number === localMaxSeason).length;
+    if (status.latest_known_season > localMaxSeason) {
+      gapMessage = `Season ${status.latest_known_season} is out — you have up to season ${localMaxSeason}.`;
+    } else if (
+      status.latest_known_season === localMaxSeason &&
+      status.latest_season_episode_count != null &&
+      status.latest_season_episode_count > localEpisodeCountInMaxSeason
+    ) {
+      gapMessage = `Season ${localMaxSeason} has ${status.latest_season_episode_count} episode(s) — you have ${localEpisodeCountInMaxSeason}.`;
+    }
   }
 
   return {
@@ -1377,6 +1420,9 @@ function computeTvStatusInfo(status, episodes) {
     totalArchived: episodes.length,
     totalEpisodes: status.total_episodes,
     statusLabel: status.status,
+    network: status.network,
+    nextEpisodeAirDate: status.next_episode_air_date,
+    nextEpisodeCode: status.next_episode_code,
   };
 }
 
@@ -1400,12 +1446,13 @@ function computeMissingEpisodes(status, episodes) {
     .map((s) => ({ ...s, missing: s.expected - s.owned }));
 }
 
-async function loadTvStatus(tmdbId, episodes) {
+async function loadTvStatus(show) {
   const el = $("#detail-tv-status");
   if (!el) return;
-  const status = await getTvStatus(tmdbId);
-  const info = computeTvStatusInfo(status, episodes);
-  const missingEpisodes = computeMissingEpisodes(status, episodes);
+  const status = await getTvStatus(show.tmdb_id);
+  const info = computeTvStatusInfo(status, show.episodes);
+  const missingEpisodes = computeMissingEpisodes(status, show.episodes);
+  renderApiStatusPill(show, info);
   if (!info && missingEpisodes.length === 0) {
     el.innerHTML = "";
     return;
@@ -1418,12 +1465,50 @@ async function loadTvStatus(tmdbId, episodes) {
     const parts = info.hasGap ? [info.gapMessage, fraction] : [fraction];
     const cls = info.hasGap ? "status-banner" : "status-banner status-banner-ok";
     const icon = info.hasGap ? "📺" : "✅";
-    bannerHtml = `<div class="${cls}">${icon} ${parts.join(" · ")}${info.statusLabel ? ` <span class="hint">(${info.statusLabel})</span>` : ""}</div>`;
+    const statusBits = [info.statusLabel, info.network].filter(Boolean).join(" · ");
+    bannerHtml = `<div class="${cls}">${icon} ${parts.join(" · ")}${statusBits ? ` <span class="hint">(${statusBits})</span>` : ""}</div>`;
+    if (info.nextEpisodeAirDate) {
+      bannerHtml += `<div class="status-banner hint">📅 Next: ${info.nextEpisodeCode ? `${info.nextEpisodeCode} — ` : ""}${info.nextEpisodeAirDate}</div>`;
+    }
   }
   const missingHtml = missingEpisodes.length > 0
     ? `<div class="status-banner missing-episodes">🕳️ Missing episodes: ${missingEpisodes.map((s) => `Season ${s.season} (${s.missing} missing)`).join(", ")}</div>`
     : "";
   el.innerHTML = bannerHtml + missingHtml;
+}
+
+// Pill next to the manual Status dropdown showing the real broadcast status
+// (TMDB/TVmaze), separate from and never silently overwriting the manual
+// TvShowStatus dropdown -- clickable only when it maps to a terminal state
+// (ended/cancelled) that the dropdown doesn't already reflect, so setting it
+// is always one deliberate click, never automatic.
+function renderApiStatusPill(show, info) {
+  const pill = $("#detail-api-status-pill");
+  if (!pill) return;
+  if (!info || !info.statusLabel) {
+    pill.innerHTML = "";
+    return;
+  }
+  const mapped = mapApiStatusToManual(info.statusLabel);
+  if (mapped && mapped !== show.show_status) {
+    pill.innerHTML = `<button type="button" id="detail-api-status-apply" class="show-status-pill show-status-${mapped}" title="Set show status to match">${info.statusLabel} — set?</button>`;
+    $("#detail-api-status-apply").addEventListener("click", async (e) => {
+      const btn = e.target;
+      btn.disabled = true;
+      try {
+        await setTvShowStatus(show.tmdb_id, mapped);
+        show.show_status = mapped;
+        const select = $("#detail-show-status-select");
+        if (select) select.value = mapped;
+        renderApiStatusPill(show, info);
+        renderTvGallery();
+      } catch (err) {
+        btn.disabled = false;
+      }
+    });
+  } else {
+    pill.innerHTML = `<span class="show-status-pill">${info.statusLabel}</span>`;
+  }
 }
 
 // GET /api/library/movie-status, memoized like getTvStatus.
@@ -2580,6 +2665,7 @@ async function loadNotifications() {
           <div>${n.media_type === "tv"
             ? `Season ${n.latest_known_season} now available`
             : (n.movie_release_status || "New release detected")}</div>
+          ${n.next_episode_air_date ? `<div class="hint">📅 Next episode: ${n.next_episode_air_date}</div>` : ""}
         </div>
         <button data-id="${n.id}" class="ack-btn">Mark Downloaded</button>
         <button data-id="${n.id}" class="snooze-btn">Remind Me in 7 Days</button>
@@ -3023,6 +3109,7 @@ async function loadSettings() {
       ? "A key is currently set. Leave blank to keep it. Required for auto-fetch below."
       : "Free key at opensubtitles.com/en/consumers. Required for auto-fetch below.";
     $("#setting-auto-fetch-subtitles").checked = !!s.auto_fetch_missing_subtitles;
+    $("#setting-tvmaze-enabled").checked = !!s.tvmaze_enabled;
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
   }
@@ -3048,6 +3135,7 @@ async function saveSettings(e) {
     low_disk_alert_enabled: $("#setting-low-disk-alert-enabled").checked,
     low_disk_threshold_gb: Number($("#setting-low-disk-threshold-gb").value) || 10,
     auto_fetch_missing_subtitles: $("#setting-auto-fetch-subtitles").checked,
+    tvmaze_enabled: $("#setting-tvmaze-enabled").checked,
   };
   const keyValue = $("#setting-tmdb-key").value;
   if (keyValue) payload.tmdb_api_key = keyValue;
