@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.config_loader import AppConfig, keep_languages_for
 from app.core.archiver import ArchiveError, archive_file
-from app.core.renamer import RenamePlan, plan_movie_rename, plan_tv_rename
+from app.core.renamer import RenamePlan, fetch_episode_title, plan_movie_rename, plan_tv_rename
 from app.core.subtitle_purger import SUBTITLE_EXTENSIONS, fetch_missing_subtitle, missing_keep_language, purge_subtitles
 from app.core.media_server import notify_media_servers
 from app.core.opensubtitles_client import OpenSubtitlesClient
@@ -81,6 +81,7 @@ def preview_archive(
                     media,
                     season=season,
                     episode=episode,
+                    episode_title=_resolve_episode_title(tmdb, config.renaming, media, season, episode),
                     renaming=config.renaming,
                     absolute_episode=_resolve_absolute_episode(tmdb, config.renaming, media, season, episode),
                     part=parsed.part,
@@ -136,6 +137,20 @@ def _resolve_absolute_episode(
     if full_media is None:
         return None
     return compute_absolute_episode(full_media, season, episode)
+
+
+def _resolve_episode_title(
+    tmdb: TMDBClient, renaming, media: MediaResult, season: int, episode: int
+) -> str | None:
+    """Only looked up (API mode only -- see fetch_episode_title) when the
+    configured tv_file template actually references {episode_title} or
+    {episode_title_suffix}, same cost-avoidance reasoning as
+    _resolve_absolute_episode."""
+    if media.tmdb_id is None:
+        return None
+    if "{episode_title" not in renaming.tv_file:
+        return None
+    return fetch_episode_title(tmdb, media.tmdb_id, season, episode)
 
 
 def _resolve_tv_match(tmdb: TMDBClient, parsed, override_id: int | None) -> MediaResult:
