@@ -64,8 +64,12 @@ def get_report_summary(
 
     watched = [r for r in items if r["watched"] and r["watched_at"] and start_ts <= r["watched_at"] <= end_ts]
     viewer_counts = db.count_viewer_watched_in_range(start_ts, end_ts)
+    viewer_seconds = db.sum_viewer_watch_seconds_in_range(start_ts, end_ts)
     by_viewer = [
-        ViewerWatchCountOut(viewer_id=v["id"], viewer_name=v["name"], count=viewer_counts[v["id"]])
+        ViewerWatchCountOut(
+            viewer_id=v["id"], viewer_name=v["name"], count=viewer_counts[v["id"]],
+            watch_seconds=viewer_seconds.get(v["id"], 0.0),
+        )
         for v in db.list_viewers()
         if v["id"] in viewer_counts
     ]

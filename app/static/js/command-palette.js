@@ -5,6 +5,8 @@
 import { scanAndPreview } from "./archive-tab.js";
 import { loadBrowse } from "./browse-tab.js";
 import { $, state } from "./core.js";
+import { openDetailPane } from "./detail-pane.js";
+import { groupEpisodesByShow } from "./gallery.js";
 import { switchToTab } from "../app.js";
 import { checkPermissions } from "./settings-tab.js";
 
@@ -22,15 +24,39 @@ const COMMANDS = [
   { category: "Library", label: "Check Storage Permissions", run: () => { switchToTab("settings"); checkPermissions(); } },
   { category: "View", label: "Toggle Light / Dark Theme", run: () => $("#theme-toggle-btn").click() },
 ];
-const PALETTE_CATEGORY_ORDER = ["Navigate", "Library", "View"];
+const PALETTE_CATEGORY_ORDER = ["Navigate", "Library", "Titles", "View"];
+const TITLE_MATCH_LIMIT = 6;
 
 state.paletteVisible = [];
 state.paletteIndex = 0;
 
+// Fuzzy jump-to-title: only built when there's a query (an empty palette
+// listing every archived title would swamp the fixed command list) --
+// TV shows are grouped the same way the gallery groups them, so one
+// matching episode surfaces its show once, not once per episode.
+function matchingTitleCommands(q) {
+  const movieMatches = state.movieItems
+    .filter((item) => item.title.toLowerCase().includes(q))
+    .map((item) => ({
+      category: "Titles", label: `🎬 ${item.title}${item.year ? ` (${item.year})` : ""}`,
+      run: () => { switchToTab("movies"); openDetailPane("movie", item); },
+    }));
+  const tvMatches = groupEpisodesByShow(state.tvItems)
+    .filter((show) => show.title.toLowerCase().includes(q))
+    .map((show) => ({
+      category: "Titles", label: `📺 ${show.title}`,
+      run: () => { switchToTab("tv"); openDetailPane("tv", show); },
+    }));
+  return [...movieMatches, ...tvMatches].slice(0, TITLE_MATCH_LIMIT);
+}
+
 export function filterCommands(query) {
   const q = query.trim().toLowerCase();
-  const matches = q ? COMMANDS.filter((c) => c.label.toLowerCase().includes(q)) : COMMANDS;
-  return matches.slice().sort((a, b) => PALETTE_CATEGORY_ORDER.indexOf(a.category) - PALETTE_CATEGORY_ORDER.indexOf(b.category));
+  const matches = q ? COMMANDS.filter((c) => c.label.toLowerCase().includes(q)) : COMMANDS.slice();
+  const titleMatches = q ? matchingTitleCommands(q) : [];
+  return [...matches, ...titleMatches].sort(
+    (a, b) => PALETTE_CATEGORY_ORDER.indexOf(a.category) - PALETTE_CATEGORY_ORDER.indexOf(b.category)
+  );
 }
 
 export function renderPalette() {

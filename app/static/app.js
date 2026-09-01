@@ -7,8 +7,8 @@ import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, load
 import { loadStatus, setupGlobalSearch, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { $, $all, api, state } from "./js/core.js";
-import { closeDetailPane } from "./js/detail-pane.js";
-import { activateGalleryFocus, activeGalleryContext, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, setActiveViewerId, setupFilterPersistence, wireRecommendationsToggle } from "./js/gallery.js";
+import { closeDetailPane, closePersonModal } from "./js/detail-pane.js";
+import { activateGalleryFocus, activeGalleryContext, applyFilterPreset, applyTagBatch, deleteFilterPreset, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
 import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupUniverseTypeTabs } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
@@ -47,6 +47,7 @@ function setupKeyboardShortcuts() {
     if (e.key === "Escape") {
       $("#confirm-modal").classList.add("hidden");
       closeMatchPicker();
+      closePersonModal();
       closeDetailPane();
       return;
     }
@@ -220,6 +221,29 @@ document.addEventListener("DOMContentLoaded", () => {
     await refreshMetadataBatch(ids, $("#movies-count"));
     loadMoviesGallery();
   });
+  $("#movies-tag-apply-btn").addEventListener("click", async () => {
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    const tagInput = $("#movies-tag-input");
+    if (ids.length === 0 || !tagInput.value.trim()) return;
+    await applyTagBatch(ids, tagInput.value);
+    tagInput.value = "";
+    loadMoviesGallery();
+  });
+  $("#movies-preset-select").addEventListener("change", (e) => {
+    if (!e.target.value) return;
+    applyFilterPreset("movies", e.target.value, MOVIE_PRESET_IDS);
+    renderMoviesGallery();
+  });
+  $("#movies-preset-save-btn").addEventListener("click", () => {
+    const name = window.prompt("Save current filters/sort as:");
+    if (name) saveFilterPreset("movies", name, MOVIE_PRESET_IDS);
+  });
+  $("#movies-preset-delete-btn").addEventListener("click", async () => {
+    const name = $("#movies-preset-select").value;
+    if (!name) return;
+    const ok = await showConfirm(`Delete saved view "${name}"?`);
+    if (ok) deleteFilterPreset("movies", name);
+  });
   $("#movies-export-btn").addEventListener("click", exportMoviesView);
 
   $("#tv-search").addEventListener("input", renderTvGallery);
@@ -262,6 +286,47 @@ document.addEventListener("DOMContentLoaded", () => {
     await refreshMetadataBatch(ids, $("#tv-count"));
     loadTvGallery();
   });
+  $("#tv-tag-apply-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
+    const tagInput = $("#tv-tag-input");
+    if (ids.length === 0 || !tagInput.value.trim()) return;
+    await applyTagBatch(ids, tagInput.value);
+    tagInput.value = "";
+    loadTvGallery();
+  });
+  $("#tv-delete-selected-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    const items = state.tvItems.filter((i) => titles.has(i.title) && i.final_path);
+    if (items.length === 0) return;
+    const ok = await showConfirm(`Permanently delete ${items.length} episode file(s) from disk? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      const data = await api("/api/library/delete-batch", {
+        method: "POST",
+        body: JSON.stringify({ paths: items.map((i) => i.final_path) }),
+      });
+      if (data.errors.length) $("#tv-count").textContent = `${data.errors.length} deletion(s) failed: ${data.errors.join("; ")}`;
+      loadTvGallery();
+    } catch (e) {
+      $("#tv-count").textContent = `Error: ${e.message}`;
+    }
+  });
+  $("#tv-preset-select").addEventListener("change", (e) => {
+    if (!e.target.value) return;
+    applyFilterPreset("tv", e.target.value, TV_PRESET_IDS);
+    renderTvGallery();
+  });
+  $("#tv-preset-save-btn").addEventListener("click", () => {
+    const name = window.prompt("Save current filters/sort as:");
+    if (name) saveFilterPreset("tv", name, TV_PRESET_IDS);
+  });
+  $("#tv-preset-delete-btn").addEventListener("click", async () => {
+    const name = $("#tv-preset-select").value;
+    if (!name) return;
+    const ok = await showConfirm(`Delete saved view "${name}"?`);
+    if (ok) deleteFilterPreset("tv", name);
+  });
   $("#tv-export-btn").addEventListener("click", exportTvView);
 
   $("#history-type-filter").addEventListener("change", loadHistory);
@@ -278,5 +343,9 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#command-palette").addEventListener("click", (e) => {
     if (e.target.id === "command-palette") closeCommandPalette();
+  });
+  $("#person-modal-close-btn").addEventListener("click", closePersonModal);
+  $("#person-modal").addEventListener("click", (e) => {
+    if (e.target.id === "person-modal") closePersonModal();
   });
 });

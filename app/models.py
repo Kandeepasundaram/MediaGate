@@ -275,6 +275,7 @@ class RecommendationOut(BaseModel):
     year: int | None = None
     poster_path: str | None = None
     score: int  # how many owned titles TMDB's "similar" endpoint linked this to
+    because_of: str | None = None  # title of the (most recently archived) owned title that surfaced this candidate
 
 
 class RecommendationsResponse(BaseModel):
@@ -578,6 +579,7 @@ class TrailerOut(BaseModel):
 
 
 class CastMemberOut(BaseModel):
+    id: int | None = None  # TMDB person id -- powers the cast-card filmography click-through
     name: str | None = None
     character: str | None = None
     profile_path: str | None = None
@@ -594,6 +596,29 @@ class MoreInfoOut(BaseModel):
     cast: list[CastMemberOut] = Field(default_factory=list)
     similar: list[SimilarTitleOut] = Field(default_factory=list)
     tmdb_configured: bool = False
+
+
+class PersonCreditItemOut(BaseModel):
+    tmdb_id: int
+    media_type: MediaType
+    title: str
+    year: int | None = None
+    poster_path: str | None = None
+    owned: bool  # already in this library (by tmdb_id), same "owned" notion get_recommendations uses
+
+
+class PersonCreditsResponse(BaseModel):
+    items: list[PersonCreditItemOut] = Field(default_factory=list)
+    tmdb_configured: bool = False
+
+
+class TagsBatchRequest(BaseModel):
+    ids: list[int]
+    tag: str
+
+
+class TagsBatchResponse(BaseModel):
+    updated: int
 
 
 class BrowseItemOut(BaseModel):
@@ -892,6 +917,7 @@ class ViewerWatchCountOut(BaseModel):
     viewer_id: int
     viewer_name: str
     count: int
+    watch_seconds: float = 0  # best-effort -- only counts items whose file has been ffprobed at least once
 
 
 class ReportTrackerActivityOut(BaseModel):

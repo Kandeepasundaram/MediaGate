@@ -304,6 +304,70 @@ function restoreFilterState(prefix, controlIds) {
 
 const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution", "movies-watch", "movies-rating", "movies-added"];
 const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution", "tv-watch", "tv-rating", "tv-added"];
+export const MOVIE_PRESET_IDS = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year", "movies-tag"];
+export const TV_PRESET_IDS = [...TV_FILTER_IDS, "tv-genre", "tv-year", "tv-tag"];
+
+// ---- Named saved filter presets (per-tab, localStorage) ----
+// Distinct from the auto-persisted "last used filters" above (which always
+// restores the *most recent* combo silently): this lets a user save several
+// named combos ("Unwatched 4K", "Kids' shows") and jump between them on
+// purpose via the preset dropdown.
+const FILTER_PRESET_KEY_PREFIX = "media-manager:filter-presets:";
+
+function loadPresets(prefix) {
+  try {
+    return JSON.parse(localStorage.getItem(FILTER_PRESET_KEY_PREFIX + prefix) || "{}");
+  } catch (e) {
+    return {};
+  }
+}
+
+function persistPresets(prefix, presets) {
+  try {
+    localStorage.setItem(FILTER_PRESET_KEY_PREFIX + prefix, JSON.stringify(presets));
+  } catch (e) { /* private browsing / storage disabled -- presets just won't persist */ }
+}
+
+export function saveFilterPreset(prefix, name, controlIds) {
+  name = name.trim();
+  if (!name) return;
+  const presets = loadPresets(prefix);
+  const values = {};
+  controlIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) values[id] = el.value;
+  });
+  presets[name] = values;
+  persistPresets(prefix, presets);
+  populatePresetSelect(prefix, name);
+}
+
+export function applyFilterPreset(prefix, name, controlIds) {
+  const presets = loadPresets(prefix);
+  const values = presets[name];
+  if (!values) return false;
+  controlIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && values[id] !== undefined) el.value = values[id];
+  });
+  return true;
+}
+
+export function deleteFilterPreset(prefix, name) {
+  const presets = loadPresets(prefix);
+  delete presets[name];
+  persistPresets(prefix, presets);
+  populatePresetSelect(prefix);
+}
+
+export function populatePresetSelect(prefix, selectValue) {
+  const select = document.getElementById(`${prefix}-preset-select`);
+  if (!select) return;
+  const presets = loadPresets(prefix);
+  const names = Object.keys(presets).sort();
+  select.innerHTML = `<option value="">Saved views…</option>` + names.map((n) => `<option value="${escapeAttr(n)}">${escapeAttr(n)}</option>`).join("");
+  if (selectValue && names.includes(selectValue)) select.value = selectValue;
+}
 
 export function setupFilterPersistence() {
   const savedMovies = restoreFilterState("movies", MOVIE_FILTER_IDS);
@@ -325,6 +389,9 @@ export function setupFilterPersistence() {
     const el = document.getElementById(id);
     el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("tv", tvIds));
   });
+
+  populatePresetSelect("movies");
+  populatePresetSelect("tv");
 }
 
 function distinctGenres(items) {
@@ -375,6 +442,11 @@ export async function refreshMetadataBatch(ids, statusEl) {
 export async function markWatchedBatch(ids, watched) {
   if (ids.length === 0) return;
   await api("/api/library/watched-batch", { method: "POST", body: JSON.stringify({ ids, watched }) });
+}
+
+export async function applyTagBatch(ids, tag) {
+  if (ids.length === 0 || !tag.trim()) return;
+  await api("/api/library/tags-batch", { method: "POST", body: JSON.stringify({ ids, tag: tag.trim() }) });
 }
 
 export function renderMoviesGallery() {
@@ -595,12 +667,44 @@ function loadMovieGalleryBadges(items) {
   });
 }
 
+// ---- Best-effort offline read cache (localStorage) ----
+// Separate from sw.js's shell caching (which deliberately never caches
+// /api/* responses -- see that file's own comment on why "always live
+// data when online" matters more than instant paint here). This is a
+// browser-side fallback only: on a *failed* fetch (offline, LAN
+// unreachable from a phone that's roamed off the home network, server
+// down) the last-successful gallery response is shown read-only instead
+// of an empty error screen. Never consulted on a successful fetch.
+const GALLERY_CACHE_KEY_PREFIX = "media-manager:gallery-cache:";
+
+function cacheGalleryResponse(key, data) {
+  try {
+    localStorage.setItem(GALLERY_CACHE_KEY_PREFIX + key, JSON.stringify({ data, cachedAt: Date.now() }));
+  } catch (e) { /* private browsing / storage disabled / quota exceeded -- offline fallback just won't be available */ }
+}
+
+function readCachedGalleryResponse(key) {
+  try {
+    const raw = localStorage.getItem(GALLERY_CACHE_KEY_PREFIX + key);
+    return raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function offlineBannerMarkup(cachedAt) {
+  const when = new Date(cachedAt).toLocaleString();
+  return `<p class="gallery-offline-banner">⚠ Showing cached data from ${when} — couldn't reach the server (offline, or it's down). Reload once you're back online.</p>`;
+}
+
 export async function loadMoviesGallery() {
   const gallery = $("#movies-gallery");
   gallery.innerHTML = "Loading...";
+  const viewerId = getActiveViewerId();
+  const cacheKey = `movies${viewerId != null ? `:${viewerId}` : ""}`;
   try {
-    const viewerId = getActiveViewerId();
     const data = await api(`/api/library/movies${viewerId != null ? `?viewer_id=${viewerId}` : ""}`);
+    cacheGalleryResponse(cacheKey, data);
     state.movieItems = data.items;
     const previousGenre = state.pendingGenreRestore.movies ?? $("#movies-genre").value;
     state.pendingGenreRestore.movies = null;
@@ -614,7 +718,14 @@ export async function loadMoviesGallery() {
     checkBackfillProgress("movie", "movies", loadMoviesGallery);
     renderMoviesGallery();
   } catch (e) {
-    gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
+    const cached = readCachedGalleryResponse(cacheKey);
+    if (cached) {
+      state.movieItems = cached.data.items;
+      renderMoviesGallery();
+      gallery.insertAdjacentHTML("afterbegin", offlineBannerMarkup(cached.cachedAt));
+    } else {
+      gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
+    }
   }
 }
 
@@ -768,7 +879,7 @@ async function loadRecommendations(mediaType, rowId, cardsId) {
         ${posterMarkup(item.title, item.poster_path)}
         <div class="continue-watching-info">
           <div class="gallery-title" title="${escapeAttr(item.title)}">${escapeAttr(item.title)}</div>
-          <div class="hint">${item.year || ""}</div>
+          <div class="hint">${item.year || ""}${item.because_of ? ` · because you have ${escapeAttr(item.because_of)}` : ""}</div>
           <button class="recommendation-track-btn" data-tmdb-id="${item.tmdb_id}" data-title="${escapeAttr(item.title)}">+ Track</button>
         </div>
       </div>
@@ -874,9 +985,11 @@ function loadTvGalleryBadges(shows) {
 export async function loadTvGallery() {
   const gallery = $("#tv-gallery");
   gallery.innerHTML = "Loading...";
+  const viewerId = getActiveViewerId();
+  const cacheKey = `tv${viewerId != null ? `:${viewerId}` : ""}`;
   try {
-    const viewerId = getActiveViewerId();
     const data = await api(`/api/library/tv${viewerId != null ? `?viewer_id=${viewerId}` : ""}`);
+    cacheGalleryResponse(cacheKey, data);
     state.tvItems = data.items;
     state.tvOrphanShows = data.orphaned_shows || [];
     const previousGenre = state.pendingGenreRestore.tv ?? $("#tv-genre").value;
@@ -891,6 +1004,14 @@ export async function loadTvGallery() {
     checkBackfillProgress("tv", "tv", loadTvGallery);
     renderTvGallery();
   } catch (e) {
-    gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
+    const cached = readCachedGalleryResponse(cacheKey);
+    if (cached) {
+      state.tvItems = cached.data.items;
+      state.tvOrphanShows = cached.data.orphaned_shows || [];
+      renderTvGallery();
+      gallery.insertAdjacentHTML("afterbegin", offlineBannerMarkup(cached.cachedAt));
+    } else {
+      gallery.innerHTML = `<p class="gallery-empty">Error: ${e.message}</p>`;
+    }
   }
 }

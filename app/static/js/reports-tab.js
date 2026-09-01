@@ -6,6 +6,7 @@
  */
 import { escapeAttr } from "./archive-tab.js";
 import { $, api, formatBytes } from "./core.js";
+import { formatDuration } from "./stats-tab.js";
 
 function isoDate(d) {
   return d.toISOString().slice(0, 10);
@@ -114,8 +115,8 @@ function renderReport(data) {
     : `<p class="hint">No tracker notifications in this period.</p>`;
   const viewerRows = w.by_viewer.length
     ? `<table class="insights-table">
-        <thead><tr><th>Viewer</th><th>Watched</th></tr></thead>
-        <tbody>${w.by_viewer.map((v) => `<tr><td>${escapeAttr(v.viewer_name)}</td><td>${v.count}</td></tr>`).join("")}</tbody>
+        <thead><tr><th>Viewer</th><th>Watched</th><th>Watch time</th></tr></thead>
+        <tbody>${w.by_viewer.map((v) => `<tr><td>${escapeAttr(v.viewer_name)}</td><td>${v.count}</td><td>${v.watch_seconds > 0 ? formatDuration(v.watch_seconds) : "—"}</td></tr>`).join("")}</tbody>
       </table>`
     : `<p class="hint">No per-viewer watch state recorded for this period.</p>`;
 

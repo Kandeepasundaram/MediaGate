@@ -20,7 +20,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.api.routes.library_common import _metadata_dict, _to_out
+from app.api.routes.library_common import _metadata_dict, _tags_list, _to_out
 from app.config_loader import AppConfig
 from app.core import media_probe
 from app.core.library_adopt import adopt_new_files
@@ -41,6 +41,8 @@ from app.models import (
     MoreInfoOut,
     MovieRelatedTitleOut,
     MovieStatusOut,
+    PersonCreditItemOut,
+    PersonCreditsResponse,
     RatingsOut,
     RecommendationOut,
     RecommendationsResponse,
@@ -49,6 +51,8 @@ from app.models import (
     RematchTmdbRequest,
     SimilarTitleOut,
     SyncWatchedResponse,
+    TagsBatchRequest,
+    TagsBatchResponse,
     TagsListResponse,
     TagsUpdateRequest,
     TrailerOut,
@@ -205,9 +209,11 @@ def get_recommendations(
     # -- each title costs one TMDB request, memoized per TMDBClient instance
     # (see get_similar_titles), but still not worth doing for the whole library.
     seed_ids: list[int] = []
+    seed_titles: dict[int, str] = {}
     for row in sorted(rows, key=lambda r: r["archived_at"] or "", reverse=True):
         if row["tmdb_id"] not in seed_ids:
             seed_ids.append(row["tmdb_id"])
+            seed_titles[row["tmdb_id"]] = row["title"]
         if len(seed_ids) >= 15:
             break
 
@@ -216,9 +222,17 @@ def get_recommendations(
         for candidate in tmdb.get_similar_titles(seed_id, media_type):
             if candidate.tmdb_id is None or candidate.tmdb_id in owned_tmdb_ids:
                 continue
+            # setdefault only fires on the *first* seed to surface this
+            # candidate; since seed_ids is walked most-recently-archived
+            # first, because_of ends up naming the most recently archived
+            # owned title responsible -- the most useful "because you have
+            # X" attribution when several seeds point at the same candidate.
             entry = scores.setdefault(
                 candidate.tmdb_id,
-                {"title": candidate.title, "year": candidate.year, "poster_path": candidate.poster_path, "score": 0},
+                {
+                    "title": candidate.title, "year": candidate.year, "poster_path": candidate.poster_path,
+                    "score": 0, "because_of": seed_titles[seed_id],
+                },
             )
             entry["score"] += 1
 
@@ -526,6 +540,56 @@ def get_more_info_by_tmdb(
     )
 
 
+@router.get("/person/{person_id}/credits", response_model=PersonCreditsResponse)
+def get_person_credits(
+    person_id: int, db: Database = Depends(get_database), tmdb: TMDBClient = Depends(get_tmdb_client),
+) -> PersonCreditsResponse:
+    """Cast-card click-through: "what else has this person been in", cross-
+    referenced against the library so already-owned titles can be flagged
+    rather than offered as a duplicate track/recommendation candidate.
+    API-key-only, same as get_more_info_by_tmdb -- see TMDBClient.get_person_credits.
+    """
+    if tmdb.mode != "api":
+        return PersonCreditsResponse(items=[], tmdb_configured=False)
+
+    owned_movie_ids = {r["tmdb_id"] for r in db.list_media_items(media_type="movie") if r["tmdb_id"] is not None}
+    owned_tv_ids = {r["tmdb_id"] for r in db.list_media_items(media_type="tv") if r["tmdb_id"] is not None}
+    owned_tv_ids |= {s["tmdb_id"] for s in db.list_tv_shows()}
+
+    items = [
+        PersonCreditItemOut(
+            tmdb_id=c["tmdb_id"], media_type=c["media_type"], title=c["title"], year=c["year"],
+            poster_path=c["poster_path"],
+            owned=c["tmdb_id"] in (owned_movie_ids if c["media_type"] == "movie" else owned_tv_ids),
+        )
+        for c in tmdb.get_person_credits(person_id)
+        if c["tmdb_id"] is not None
+    ]
+    return PersonCreditsResponse(items=items, tmdb_configured=True)
+
+
+@router.post("/tags-batch", response_model=TagsBatchResponse)
+def set_tags_batch(payload: TagsBatchRequest, db: Database = Depends(get_database)) -> TagsBatchResponse:
+    """Adds one tag to every listed item without disturbing each item's
+    other tags -- unlike POST /{item_id}/tags (full-list replace, meant for
+    the detail pane's own tag editor), this is for the gallery's multi-select
+    toolbar where the whole point is applying one tag across many items at
+    once."""
+    tag = payload.tag.strip()
+    if not tag:
+        return TagsBatchResponse(updated=0)
+    updated = 0
+    for item_id in payload.ids:
+        row = db.get_media_item(item_id)
+        if row is None:
+            continue
+        tags = set(_tags_list(row))
+        tags.add(tag)
+        db.update_media_item(item_id, tags=sorted(tags))
+        updated += 1
+    return TagsBatchResponse(updated=updated)
+
+
 @router.post("/{item_id}/watched", response_model=LibraryItemOut)
 def set_watched(item_id: int, payload: WatchedUpdateRequest, db: Database = Depends(get_database)) -> LibraryItemOut:
     if db.get_media_item(item_id) is None:
@@ -775,6 +839,7 @@ def get_file_info(item_id: int, db: Database = Depends(get_database)) -> FileInf
         meta.update(
             width=probe.width, height=probe.height, video_codec=probe.video_codec,
             hdr=probe.hdr, audio_channels=probe.audio_channels,
+            duration_seconds=probe.duration_seconds,  # feeds Reports' per-viewer watch-time column
         )
         db.update_media_item(item_id, metadata=meta)
 

@@ -1067,6 +1067,20 @@ def test_search_library_escapes_wildcard_characters(client):
     assert titles == {"100% Wolf"}
 
 
+def test_search_library_matches_overview_text(client):
+    c, db = client
+    _seed_movie(
+        db, title="Totally Unrelated Name", final_path="/archive/movie1.mkv",
+        metadata={"overview": "A submarine crew battles a rogue kraken."},
+    )
+    _seed_movie(db, title="Something Else", final_path="/archive/movie2.mkv", metadata={"overview": "No sea monsters here."})
+
+    resp = c.get("/api/library/search", params={"q": "kraken"})
+    assert resp.status_code == 200
+    titles = [item["title"] for item in resp.json()["items"]]
+    assert titles == ["Totally Unrelated Name"]
+
+
 def test_set_tags_replaces_full_list(client):
     c, db = client
     item_id = _seed_movie(db, title="Movie", final_path="/archive/movie1.mkv")
@@ -1091,6 +1105,30 @@ def test_set_tags_404_for_missing_item(client):
     c, _ = client
     resp = c.post("/api/library/999/tags", json={"tags": ["x"]})
     assert resp.status_code == 404
+
+
+def test_tags_batch_adds_tag_without_removing_existing_ones(client):
+    c, db = client
+    id1 = _seed_movie(db, title="A", final_path="/archive/a.mkv")
+    id2 = _seed_movie(db, title="B", final_path="/archive/b.mkv")
+    db.update_media_item(id1, tags=["Favorites"])
+
+    resp = c.post("/api/library/tags-batch", json={"ids": [id1, id2], "tag": "4K"})
+    assert resp.status_code == 200
+    assert resp.json()["updated"] == 2
+    assert sorted(json.loads(db.get_media_item(id1)["tags"])) == ["4K", "Favorites"]
+    assert json.loads(db.get_media_item(id2)["tags"]) == ["4K"]
+
+
+def test_tags_batch_skips_missing_ids_and_blank_tag(client):
+    c, db = client
+    id1 = _seed_movie(db, title="A", final_path="/archive/a.mkv")
+
+    resp = c.post("/api/library/tags-batch", json={"ids": [id1, 999999], "tag": "4K"})
+    assert resp.json()["updated"] == 1
+
+    resp = c.post("/api/library/tags-batch", json={"ids": [id1], "tag": "   "})
+    assert resp.json()["updated"] == 0
 
 
 def test_list_tags_returns_distinct_sorted_values(client):
@@ -1339,6 +1377,34 @@ def test_recommendations_ranks_by_frequency_and_excludes_owned(client):
     assert items[0]["score"] == 2
     assert items[1]["score"] == 1
     assert all(i["tmdb_id"] != 50 for i in items)
+    # because_of names the (most recently archived) owned title that
+    # surfaced the candidate -- Owned B was archived after Owned A (default
+    # created_at ordering has no archived_at set here, so both seeds tie;
+    # the important thing asserted is that it's one of the real owned titles).
+    assert items[0]["because_of"] in {"Owned A", "Owned B"}
+
+
+def test_person_credits_flags_owned_titles_and_marks_unconfigured_in_scraper_mode(client):
+    c, db = client
+    resp = c.get("/api/library/person/123/credits")
+    assert resp.status_code == 200
+    assert resp.json() == {"items": [], "tmdb_configured": False}
+
+    _seed_movie(db, title="Owned Movie", tmdb_id=10, final_path="/archive/a.mkv")
+
+    fake_tmdb = MagicMock(mode="api")
+    fake_tmdb.get_person_credits.return_value = [
+        {"tmdb_id": 10, "media_type": "movie", "title": "Owned Movie", "year": 2001, "poster_path": "/o.jpg"},
+        {"tmdb_id": 20, "media_type": "movie", "title": "New Movie", "year": 2015, "poster_path": "/n.jpg"},
+    ]
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+
+    resp = c.get("/api/library/person/123/credits")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["tmdb_configured"] is True
+    by_id = {i["tmdb_id"]: i["owned"] for i in body["items"]}
+    assert by_id == {10: True, 20: False}
 
 
 # ---- tv_shows: persists across episode deletion, and status ----

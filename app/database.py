@@ -310,18 +310,36 @@ class Database:
         )
 
     def search_media_items(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
-        """Cross-type (movie + tv) title search for the header's global
-        search box -- unlike list_media_items (full table, client-side
-        filtered per gallery tab), this runs server-side so a match can be
-        found and jumped to without first loading every item into the page.
+        """Cross-type (movie + tv) title *and* overview search for the
+        header's global search box -- unlike list_media_items (full table,
+        client-side filtered per gallery tab), this runs server-side so a
+        match can be found and jumped to without first loading every item
+        into the page. The overview text lives inside the `metadata` JSON
+        blob, not its own column, so a plain LIKE on that column is used as
+        a cheap prefilter (over-fetches -- it can also hit unrelated JSON
+        keys like poster_path) and the real title-or-overview check happens
+        in Python on the prefiltered rows, avoiding any dependency on
+        SQLite's optional JSON1 extension being compiled in.
         """
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         like = f"%{escaped}%"
-        return self.fetch_all(
-            "SELECT * FROM media_items WHERE title LIKE ? ESCAPE '\\' "
+        rows = self.fetch_all(
+            "SELECT * FROM media_items WHERE title LIKE ? ESCAPE '\\' OR metadata LIKE ? ESCAPE '\\' "
             "ORDER BY (watched = 0) DESC, title ASC LIMIT ?",
-            (like, limit),
+            (like, like, limit * 3),
         )
+        q = query.strip().lower()
+
+        def _matches(row: dict) -> bool:
+            if q in (row["title"] or "").lower():
+                return True
+            try:
+                meta = json.loads(row["metadata"]) if row.get("metadata") else {}
+            except json.JSONDecodeError:
+                meta = {}
+            return q in (meta.get("overview") or "").lower()
+
+        return [r for r in rows if _matches(r)][:limit]
 
     def list_unmatched_media_items(self, retry_cooldown_hours: float = 6.0, limit: int = 1) -> list[dict[str, Any]]:
         """Auto-adopted items with no TMDB match yet, for the metadata
@@ -659,6 +677,35 @@ class Database:
             (since, until),
         )
         return {r["viewer_id"]: r["n"] for r in rows}
+
+    def sum_viewer_watch_seconds_in_range(self, since: str, until: str) -> dict[int, float]:
+        """viewer_id -> total duration_seconds of items that viewer marked
+        watched within [since, until], for the Reports page's watch-time
+        column -- sibling of count_viewer_watched_in_range. duration_seconds
+        only exists in a row's metadata once that file has been probed via
+        ffprobe (see media_probe.probe_file, cached on first detail-pane/
+        file-info open), so this is a best-effort figure: items never
+        opened in the detail pane contribute 0, same "best-effort ffprobe"
+        trade-off the resolution/HDR badges already accept. Summed in
+        Python rather than via SQLite's json_extract to avoid depending on
+        the optional JSON1 extension being compiled in (see
+        search_media_items)."""
+        rows = self.fetch_all(
+            "SELECT vwi.viewer_id AS viewer_id, mi.metadata AS metadata FROM viewer_watched_items vwi "
+            "JOIN media_items mi ON mi.id = vwi.media_item_id "
+            "WHERE vwi.watched_at >= ? AND vwi.watched_at <= ?",
+            (since, until),
+        )
+        totals: dict[int, float] = {}
+        for row in rows:
+            try:
+                meta = json.loads(row["metadata"]) if row["metadata"] else {}
+            except json.JSONDecodeError:
+                meta = {}
+            seconds = meta.get("duration_seconds")
+            if seconds:
+                totals[row["viewer_id"]] = totals.get(row["viewer_id"], 0.0) + float(seconds)
+        return totals
 
     def is_viewer_watched(self, viewer_id: int, media_item_id: int) -> bool:
         row = self.fetch_one(

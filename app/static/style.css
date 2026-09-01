@@ -213,6 +213,16 @@ body[data-theme="light"] select:focus {
   min-width: 200px;
 }
 
+.tag-input {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 0.7rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  width: 9rem;
+}
+
 .tracked-yes { color: var(--success); }
 .tracked-no { color: var(--text-dim); }
 
@@ -972,6 +982,16 @@ button.show-status-pill {
   color: var(--text-dim);
   font-size: 0.85rem;
   grid-column: 1 / -1;
+}
+
+.gallery-offline-banner {
+  grid-column: 1 / -1;
+  background: color-mix(in srgb, var(--warning) 15%, var(--bg-elevated));
+  border: 1px solid var(--warning);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  font-size: 0.82rem;
+  margin: 0 0 0.9rem;
 }
 
 .gallery-card { position: relative; }

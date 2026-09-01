@@ -402,6 +402,56 @@ def test_get_cast_returns_empty_on_api_error(monkeypatch):
     assert client.get_cast(278, "movie") == []
 
 
+def test_get_cast_includes_tmdb_person_id(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"cast": [{"id": 500, "name": "Top Billed", "character": "A", "profile_path": "/a.jpg", "order": 0}]}
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    cast = client.get_cast(278, "movie")
+    assert cast == [{"id": 500, "name": "Top Billed", "character": "A", "profile_path": "/a.jpg"}]
+
+
+def test_get_person_credits_returns_empty_without_api_key():
+    client = TMDBClient(api_key="", scraper=MagicMock())
+    assert client.get_person_credits(500) == []
+
+
+def test_get_person_credits_parses_and_ranks_by_popularity(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+
+    class FakeResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "cast": [
+                    {"id": 1, "media_type": "movie", "title": "Low Pop Movie", "release_date": "2010-01-01", "poster_path": "/a.jpg", "popularity": 5},
+                    {"id": 2, "media_type": "tv", "name": "High Pop Show", "first_air_date": "2015-06-01", "poster_path": "/b.jpg", "popularity": 90},
+                    {"id": 3, "media_type": "person", "popularity": 999},  # not a real credit -- excluded
+                ]
+            }
+
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: FakeResponse())
+    credits_ = client.get_person_credits(500)
+    assert [c["tmdb_id"] for c in credits_] == [2, 1]
+    assert credits_[0]["media_type"] == "tv"
+    assert credits_[0]["title"] == "High Pop Show"
+    assert credits_[0]["year"] == 2015
+
+
+def test_get_person_credits_returns_empty_on_api_error(monkeypatch):
+    client = TMDBClient(api_key="fake-key", scraper=MagicMock())
+    monkeypatch.setattr("app.core.tmdb_client.requests.get", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
+    assert client.get_person_credits(500) == []
+
+
 def test_get_season_episodes_returns_empty_without_api_key():
     client = TMDBClient(api_key="", scraper=MagicMock())
     assert client.get_season_episodes(1399, 1) == []

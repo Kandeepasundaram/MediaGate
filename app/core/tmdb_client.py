@@ -460,9 +460,44 @@ class TMDBClient:
             return []
         cast = data.get("cast", [])
         return [
-            {"name": c.get("name"), "character": c.get("character"), "profile_path": c.get("profile_path")}
+            {"id": c.get("id"), "name": c.get("name"), "character": c.get("character"), "profile_path": c.get("profile_path")}
             for c in sorted(cast, key=lambda c: c.get("order", 999))
         ]
+
+    def get_person_credits(self, person_id: int, limit: int = 16) -> list[dict]:
+        """A cast member's combined (movie + TV) filmography, for the detail
+        pane's cast-card click-through ("what else has this actor been
+        in"). API-key-only, same as get_cast/get_trailer_key -- no scraper
+        fallback (there's no per-person page to scrape). Ranked by TMDB
+        popularity rather than release date, sorted desc, so the most
+        recognizable titles surface first regardless of library size."""
+        return self._cached(("person_credits", person_id), lambda: self._get_person_credits(person_id))[:limit]
+
+    def _get_person_credits(self, person_id: int) -> list[dict]:
+        if not self._api:
+            return []
+        data = self._tmdb_get(f"person/{person_id}/combined_credits")
+        if data is None:
+            return []
+        credits = data.get("cast", [])
+        out = []
+        for c in credits:
+            media_type = c.get("media_type")
+            if media_type not in ("movie", "tv"):
+                continue
+            date = c.get("release_date") if media_type == "movie" else c.get("first_air_date")
+            out.append(
+                {
+                    "tmdb_id": c.get("id"),
+                    "media_type": media_type,
+                    "title": c.get("title") or c.get("name") or "",
+                    "year": int(date[:4]) if date else None,
+                    "poster_path": c.get("poster_path"),
+                    "popularity": c.get("popularity") or 0,
+                }
+            )
+        out.sort(key=lambda c: c["popularity"], reverse=True)
+        return out
 
     def get_similar_titles(self, tmdb_id: int, media_type: str, limit: int = 8) -> list[MediaResult]:
         """Other titles TMDB considers similar, for detail-pane discovery.

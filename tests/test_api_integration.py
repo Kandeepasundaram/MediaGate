@@ -1825,7 +1825,7 @@ def test_more_info_returns_cast_and_similar(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["tmdb_configured"] is True
-    assert body["cast"] == [{"name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"}]
+    assert body["cast"] == [{"id": None, "name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"}]
     assert body["similar"][0]["title"] == "Related Movie"
     assert body["similar"][0]["year"] == 2018
     fake_tmdb.get_cast.assert_called_once_with(99, "movie")
@@ -1906,7 +1906,7 @@ def test_more_info_by_tmdb_needs_no_media_item(client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["tmdb_configured"] is True
-    assert body["cast"] == [{"name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"}]
+    assert body["cast"] == [{"id": None, "name": "Actor One", "character": "Hero", "profile_path": "/a.jpg"}]
     assert body["similar"][0]["title"] == "Related Show"
     fake_tmdb.get_cast.assert_called_once_with(1399, "tv")
     fake_tmdb.get_similar_titles.assert_called_once_with(1399, "tv")
@@ -2244,7 +2244,33 @@ def test_report_summary_per_viewer_watch_activity(client):
 
     resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
     by_viewer = resp.json()["watch_activity"]["by_viewer"]
-    assert by_viewer == [{"viewer_id": viewer_id, "viewer_name": "Alex", "count": 1}]
+    assert by_viewer == [{"viewer_id": viewer_id, "viewer_name": "Alex", "count": 1, "watch_seconds": 0.0}]
+
+
+def test_report_summary_per_viewer_watch_seconds_sums_probed_duration(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    viewer_id = db.create_viewer("Alex")
+    item1 = db.create_media_item(
+        original_path="m1", final_path="m1.mkv", title="Movie 1", media_type="movie",
+        metadata={"duration_seconds": 3600.0},
+    )
+    item2 = db.create_media_item(
+        original_path="m2", final_path="m2.mkv", title="Movie 2", media_type="movie",
+        metadata={"duration_seconds": 1800.0},
+    )
+    item3_never_probed = db.create_media_item(original_path="m3", final_path="m3.mkv", title="Movie 3", media_type="movie")
+    for item_id in (item1, item2, item3_never_probed):
+        db.set_viewer_watched(viewer_id, item_id, True)
+    with db.connect() as conn:
+        conn.execute(
+            "UPDATE viewer_watched_items SET watched_at = ? WHERE viewer_id = ?",
+            ("2026-02-15T00:00:00+00:00", viewer_id),
+        )
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    by_viewer = resp.json()["watch_activity"]["by_viewer"]
+    assert by_viewer == [{"viewer_id": viewer_id, "viewer_name": "Alex", "count": 3, "watch_seconds": 5400.0}]
 
 
 # ---- Tracker bulk-add ----

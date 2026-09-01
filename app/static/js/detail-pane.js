@@ -664,7 +664,7 @@ function renderMoreInfo(info) {
       <h4>Cast</h4>
       <div class="cast-row">
         ${info.cast.map((c) => `
-          <div class="cast-card" title="${c.name || ""}${c.character ? ` as ${c.character}` : ""}">
+          <div class="cast-card${c.id != null ? " cast-card-clickable" : ""}" title="${c.name || ""}${c.character ? ` as ${c.character}` : ""}${c.id != null ? " — click for filmography" : ""}" ${c.id != null ? `data-person-id="${c.id}" data-person-name="${escapeAttr(c.name || "")}"` : ""}>
             ${c.profile_path
               ? `<img src="https://image.tmdb.org/t/p/w185${c.profile_path}" alt="${c.name || ""}">`
               : `<div class="cast-card-placeholder"></div>`}
@@ -689,6 +689,47 @@ function renderMoreInfo(info) {
     </div>
   ` : "";
   el.innerHTML = castHtml + similarHtml;
+  el.querySelectorAll(".cast-card-clickable").forEach((card) => {
+    card.addEventListener("click", () => openPersonModal(Number(card.dataset.personId), card.dataset.personName));
+  });
+}
+
+// ---- Cast-card filmography click-through ----
+export async function openPersonModal(personId, name) {
+  const modal = $("#person-modal");
+  if (!modal) return;
+  $("#person-modal-title").textContent = name || "Filmography";
+  $("#person-modal-results").innerHTML = `<p class="hint">Loading…</p>`;
+  modal.classList.remove("hidden");
+  try {
+    const data = await api(`/api/library/person/${personId}/credits`);
+    renderPersonCredits(data);
+  } catch (e) {
+    $("#person-modal-results").innerHTML = `<p class="hint">Error: ${e.message}</p>`;
+  }
+}
+
+export function closePersonModal() {
+  $("#person-modal")?.classList.add("hidden");
+}
+
+function renderPersonCredits(data) {
+  const el = $("#person-modal-results");
+  if (!data.tmdb_configured) {
+    el.innerHTML = `<p class="hint">Filmography needs a TMDB key -- configure one in Settings.</p>`;
+    return;
+  }
+  if (data.items.length === 0) {
+    el.innerHTML = `<p class="hint">No credits found.</p>`;
+    return;
+  }
+  el.innerHTML = `<div class="cast-row">${data.items.map((c) => `
+    <div class="cast-card" title="${escapeAttr(c.title)}${c.year ? ` (${c.year})` : ""}">
+      ${posterMarkup(c.title, c.poster_path)}
+      <span class="cast-name">${escapeAttr(c.title)}</span>
+      <span class="hint">${c.year || ""}${c.owned ? " · in your library" : ""}</span>
+    </div>
+  `).join("")}</div>`;
 }
 
 async function loadMoreInfo(itemId) {

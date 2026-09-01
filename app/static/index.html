@@ -93,11 +93,16 @@
         <option value="90">Last 90 days</option>
         <option value="365">Last year</option>
       </select>
+      <select id="movies-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
+      <button id="movies-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
+      <button id="movies-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
       <button id="movies-select-all-btn">Select All</button>
       <button id="movies-mark-watched-btn">Mark Watched</button>
       <button id="movies-mark-unwatched-btn">Mark Unwatched</button>
       <button id="movies-rename-selected-btn">Rename Selected</button>
       <button id="movies-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
+      <input type="text" id="movies-tag-input" placeholder="Tag name…" class="tag-input">
+      <button id="movies-tag-apply-btn" title="Add this tag to every selected movie">Tag Selected</button>
       <button id="movies-delete-selected-btn" class="danger">Delete Selected</button>
       <button id="movies-export-btn" title="Export the currently filtered/sorted list, not the full library">Export View (CSV)</button>
       <span id="movies-count" class="hint"></span>
@@ -162,11 +167,17 @@
         <option value="90">Last 90 days</option>
         <option value="365">Last year</option>
       </select>
+      <select id="tv-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
+      <button id="tv-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
+      <button id="tv-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
       <button id="tv-select-all-btn">Select All</button>
       <button id="tv-mark-watched-btn">Mark Watched</button>
       <button id="tv-mark-unwatched-btn">Mark Unwatched</button>
       <button id="tv-rename-selected-btn">Rename Selected</button>
       <button id="tv-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
+      <input type="text" id="tv-tag-input" placeholder="Tag name…" class="tag-input">
+      <button id="tv-tag-apply-btn" title="Add this tag to every selected show's episodes">Tag Selected</button>
+      <button id="tv-delete-selected-btn" class="danger">Delete Selected</button>
       <button id="tv-export-btn" title="Export the currently filtered/sorted list, not the full library">Export View (CSV)</button>
       <span id="tv-count" class="hint"></span>
     </div>
@@ -636,6 +647,14 @@
     </div>
     <div id="match-results"></div>
     <button id="match-cancel-btn">Cancel</button>
+  </div>
+</div>
+
+<div id="person-modal" class="modal hidden">
+  <div class="modal-content">
+    <h4 id="person-modal-title"></h4>
+    <div id="person-modal-results"></div>
+    <button id="person-modal-close-btn">Close</button>
   </div>
 </div>
 
