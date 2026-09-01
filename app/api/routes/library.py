@@ -935,6 +935,19 @@ def get_more_info(
     )
 
 
+class NoteError(Exception):
+    """Raised by _generate_movie_note/_generate_tv_note when a note can't
+    be built -- the four note routes below catch this and translate it to
+    the matching HTTPException, so these generation helpers stay
+    HTTP-agnostic, the same core-raises/route-translates convention
+    ArchiveError and OrganizeError already use elsewhere in this app."""
+
+    def __init__(self, detail: str, status_code: int = 404):
+        super().__init__(detail)
+        self.detail = detail
+        self.status_code = status_code
+
+
 def _generate_movie_note(item_id: int, db: Database, omdb: OMDbClient) -> tuple[str, str]:
     """Returns (markdown_text, filename). Shared by the download and
     save-to-folder routes below so they can never drift out of sync with
@@ -946,9 +959,9 @@ def _generate_movie_note(item_id: int, db: Database, omdb: OMDbClient) -> tuple[
     """
     item = db.get_media_item(item_id)
     if item is None:
-        raise HTTPException(status_code=404, detail="Media item not found")
+        raise NoteError("Media item not found")
     if item["media_type"] != "movie":
-        raise HTTPException(status_code=400, detail="Notes are only generated for movies")
+        raise NoteError("Notes are only generated for movies", status_code=400)
 
     meta = _metadata_dict(item)
     poster_path = meta.get("poster_path")
@@ -986,6 +999,32 @@ def _content_disposition(filename: str) -> str:
     return f'attachment; filename="{ascii_fallback}"; filename*=UTF-8\'\'{encoded}'
 
 
+def _note_download_response(markdown: str, filename: str) -> Response:
+    """Shared by both download routes below -- the download shape (plain
+    text/markdown body, RFC 5987 Content-Disposition) never differs
+    between a movie note and a show note."""
+    return Response(
+        content=markdown,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": _content_disposition(filename)},
+    )
+
+
+def _write_note_to_folder(markdown: str, filename: str, folder: Path, *, what: str) -> NoteSaveResponse:
+    """Shared by both save-to-folder routes below. `what` (e.g. "Movie",
+    "Show") only shapes the 404 message -- which folder is passed in, and
+    what "no longer exists" would mean for it, is entirely the caller's
+    concern (a movie's own folder vs. two levels up from an episode)."""
+    if not folder.is_dir():
+        raise HTTPException(status_code=404, detail=f"{what} folder no longer exists: {folder}")
+    dest = folder / filename
+    try:
+        dest.write_text(markdown, encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to write note: {exc}") from exc
+    return NoteSaveResponse(path=str(dest))
+
+
 @router.get("/{item_id}/note")
 def download_movie_note(
     item_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
@@ -993,12 +1032,11 @@ def download_movie_note(
     """Downloads the generated note without touching the archive folder --
     for saving it anywhere the user wants (e.g. an existing Obsidian vault
     outside this app's own media paths)."""
-    markdown, filename = _generate_movie_note(item_id, db, omdb)
-    return Response(
-        content=markdown,
-        media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": _content_disposition(filename)},
-    )
+    try:
+        markdown, filename = _generate_movie_note(item_id, db, omdb)
+    except NoteError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return _note_download_response(markdown, filename)
 
 
 @router.post("/{item_id}/note/save", response_model=NoteSaveResponse)
@@ -1008,19 +1046,15 @@ def save_movie_note(
     """Writes the generated note directly into the movie's own archive
     folder, alongside the video file -- for a vault that watches the
     library's own folders rather than a separate notes directory."""
-    markdown, filename = _generate_movie_note(item_id, db, omdb)
+    try:
+        markdown, filename = _generate_movie_note(item_id, db, omdb)
+    except NoteError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     item = db.get_media_item(item_id)
     if not item["final_path"]:
         raise HTTPException(status_code=400, detail="This item has no archived file on disk")
     folder = Path(item["final_path"]).parent
-    if not folder.is_dir():
-        raise HTTPException(status_code=404, detail=f"Movie folder no longer exists: {folder}")
-    dest = folder / filename
-    try:
-        dest.write_text(markdown, encoding="utf-8")
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to write note: {exc}") from exc
-    return NoteSaveResponse(path=str(dest))
+    return _write_note_to_folder(markdown, filename, folder, what="Movie")
 
 
 def _generate_tv_note(tmdb_id: int, db: Database, omdb: OMDbClient) -> tuple[str, str, list[dict]]:
@@ -1034,7 +1068,7 @@ def _generate_tv_note(tmdb_id: int, db: Database, omdb: OMDbClient) -> tuple[str
     """
     episodes = [r for r in db.list_media_items(media_type="tv") if r["tmdb_id"] == tmdb_id]
     if not episodes:
-        raise HTTPException(status_code=404, detail="No episodes found for this show")
+        raise NoteError("No episodes found for this show")
 
     first = episodes[0]
     meta = _metadata_dict(first)
@@ -1073,12 +1107,11 @@ def download_tv_note(
 ) -> Response:
     """TV counterpart of download_movie_note -- one note for the whole
     show, aggregated across every archived episode sharing this tmdb_id."""
-    markdown, filename, _ = _generate_tv_note(tmdb_id, db, omdb)
-    return Response(
-        content=markdown,
-        media_type="text/markdown; charset=utf-8",
-        headers={"Content-Disposition": _content_disposition(filename)},
-    )
+    try:
+        markdown, filename, _ = _generate_tv_note(tmdb_id, db, omdb)
+    except NoteError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+    return _note_download_response(markdown, filename)
 
 
 @router.post("/tv-shows/{tmdb_id}/note/save", response_model=NoteSaveResponse)
@@ -1089,19 +1122,15 @@ def save_tv_note(
     up from any episode's file (Show/Season NN/episode.ext), not the
     season folder itself, so it sits alongside the show as a whole rather
     than inside whichever season happened to be picked."""
-    markdown, filename, episodes = _generate_tv_note(tmdb_id, db, omdb)
+    try:
+        markdown, filename, episodes = _generate_tv_note(tmdb_id, db, omdb)
+    except NoteError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     episode_with_file = next((e for e in episodes if e["final_path"]), None)
     if episode_with_file is None:
         raise HTTPException(status_code=400, detail="This show has no archived episodes on disk")
     folder = Path(episode_with_file["final_path"]).parent.parent
-    if not folder.is_dir():
-        raise HTTPException(status_code=404, detail=f"Show folder no longer exists: {folder}")
-    dest = folder / filename
-    try:
-        dest.write_text(markdown, encoding="utf-8")
-    except OSError as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to write note: {exc}") from exc
-    return NoteSaveResponse(path=str(dest))
+    return _write_note_to_folder(markdown, filename, folder, what="Show")
 
 
 @router.get("/{item_id}/file-info", response_model=FileInfoOut)
