@@ -372,7 +372,7 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 20
+    assert version == 21
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -444,6 +444,10 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     backfilled = db.get_tracker(1, "tv")
     assert backfilled["poster_path"] == "/poster.jpg"
     assert backfilled["overview"] == "Synopsis"
+
+    # v21's archive_tracker.category column exists and defaults to 'watching'
+    # for a row that predates it.
+    assert backfilled["category"] == "watching"
 
 
 def test_create_and_list_viewers(db):

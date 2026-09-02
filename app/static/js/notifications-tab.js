@@ -53,25 +53,28 @@ export async function loadNotifications() {
   }
 }
 
-export async function loadUpcomingReleases() {
-  const container = $("#upcoming-releases-list");
-  container.innerHTML = "Loading...";
+// Renders into every matching container passed (both the Notifications
+// tab's own widget and the Tracker tab's copy render the same data -- the
+// endpoint is cheap and re-fetching per container keeps this simple).
+export async function loadUpcomingReleases(selectors = ["#upcoming-releases-list"]) {
+  const containers = selectors.map((sel) => $(sel)).filter(Boolean);
+  if (containers.length === 0) return;
+  containers.forEach((c) => { c.innerHTML = "Loading..."; });
   try {
     const data = await api("/api/tracker/upcoming");
-    if (data.items.length === 0) {
-      container.innerHTML = "<p>Nothing due in the next 90 days.</p>";
-      return;
-    }
-    container.innerHTML = data.items.map((i) => `
-      <div class="notification-item">
-        <div>
-          <strong>${i.title}</strong>
-          <div>${i.label} — ${i.release_date}</div>
+    const html = data.items.length === 0
+      ? "<p>Nothing due in the next 90 days.</p>"
+      : data.items.map((i) => `
+        <div class="notification-item">
+          <div>
+            <strong>${i.title}</strong>
+            <div>${i.label} — ${i.release_date}</div>
+          </div>
         </div>
-      </div>
-    `).join("");
+      `).join("");
+    containers.forEach((c) => { c.innerHTML = html; });
   } catch (e) {
-    container.innerHTML = `<p>Error loading upcoming releases: ${e.message}</p>`;
+    containers.forEach((c) => { c.innerHTML = `<p>Error loading upcoming releases: ${e.message}</p>`; });
   }
 }
 
@@ -126,10 +129,12 @@ export async function loadTrackedList() {
   try {
     const data = await api("/api/tracker/list");
     const filtered = data.tracked.filter(
-      (t) => t.media_type === state.activeUniverseType && !state.universeMemberIds.has(t.tmdb_id)
+      (t) => t.media_type === state.activeUniverseType
+        && t.category === state.activeTrackerCategory
+        && !state.universeMemberIds.has(t.tmdb_id)
     );
     if (filtered.length === 0) {
-      container.innerHTML = "<p>No standalone tracked titles yet.</p>";
+      container.innerHTML = `<p>No titles under "${trackerCategoryLabel(state.activeTrackerCategory)}" yet.</p>`;
       return;
     }
     container.innerHTML = filtered.map((t) => `
@@ -137,6 +142,7 @@ export async function loadTrackedList() {
         <div class="gallery-badges">
           ${t.pending_notification ? `<span class="badge badge-new" title="${t.media_type === "tv" ? `Season ${t.latest_known_season} available` : (t.movie_release_status || "New release detected")}">⚡</span>` : ""}
           ${t.muted ? `<span class="badge" title="Muted">🔇</span>` : ""}
+          ${t.category === "watched" ? `<span class="badge" title="Deleted from the archive">🗑</span>` : ""}
         </div>
         ${posterMarkup(t.title, t.poster_path)}
         <div class="gallery-info">
@@ -166,6 +172,7 @@ export async function loadTrackedList() {
 
 // ---- Tracker tab: universes (franchise/shared-universe groupings) ----
 export async function loadTrackerTab() {
+  loadUpcomingReleases(["#tracker-upcoming-list"]);
   await loadUniverses();
   await loadTrackedList();
 }
@@ -178,6 +185,28 @@ export function setupUniverseTypeTabs() {
       $all("#universe-type-tabs .season-tab-btn").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       loadTrackerTab();
+    });
+  });
+}
+
+export const TRACKER_CATEGORIES = [
+  { value: "watching", label: "Watching" },
+  { value: "interested", label: "Interested" },
+  { value: "watched", label: "Watched / History" },
+];
+
+export function trackerCategoryLabel(category) {
+  return TRACKER_CATEGORIES.find((c) => c.value === category)?.label || category;
+}
+
+export function setupTrackerCategoryTabs() {
+  $all("#tracker-category-tabs .season-tab-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.classList.contains("active")) return;
+      state.activeTrackerCategory = btn.dataset.trackerCategory;
+      $all("#tracker-category-tabs .season-tab-btn").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      loadTrackedList();
     });
   });
 }

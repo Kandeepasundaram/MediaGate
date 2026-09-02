@@ -11,6 +11,12 @@ MediaType = Literal["movie", "tv"]
 # set by the user (see TvShowStatusUpdateRequest), never inferred from TMDB.
 TvShowStatus = Literal["watching", "running", "season_done", "cancelled", "ended"]
 
+# Why a title sits in the tracker: owned and watched for a new season/sequel
+# (the historical default), a recommendation/wishlist entry not owned yet,
+# or auto-moved here after its file(s) were deleted from the archive -- see
+# library_browse.py's _delete_target and core/tracker.py's maybe_auto_track.
+TrackerCategory = Literal["watching", "interested", "watched"]
+
 
 class ScannedFileOut(BaseModel):
     path: str
@@ -129,6 +135,11 @@ class TrackerAddRequest(BaseModel):
     current_season_archived: int | None = None
     poster_path: str | None = None
     overview: str | None = None
+    category: TrackerCategory = "watching"
+
+
+class TrackerCategoryRequest(BaseModel):
+    category: TrackerCategory
 
 
 class TrackerNotificationOut(BaseModel):
@@ -149,6 +160,7 @@ class TrackerNotificationOut(BaseModel):
     overview: str | None = None
     watched_through_season: int | None = None  # tv only -- see TrackerWatchProgressRequest
     watched_through_episode: int | None = None
+    category: TrackerCategory = "watching"
 
 
 class TrackerWatchProgressRequest(BaseModel):

@@ -5,7 +5,7 @@
 import { closeMatchPicker, escapeAttr, openMatchModal } from "./archive-tab.js";
 import { $, api, formatBytes, state } from "./core.js";
 import { TV_SHOW_STATUSES, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, saveMovieNote, saveTvNote, setTvShowStatus, toggleWatched } from "./gallery.js";
-import { loadNotifications, loadTrackerTab } from "./notifications-tab.js";
+import { loadNotifications, loadTrackerTab, TRACKER_CATEGORIES } from "./notifications-tab.js";
 import { formatDuration } from "./stats-tab.js";
 
 // ---- Detail pane ----
@@ -75,6 +75,12 @@ export function renderDetailPane() {
       ${posterMarkupLarge(item.title, item.poster_path)}
       <div class="detail-title">${escapeAttr(item.title)}</div>
       <div class="detail-year">${item.media_type === "tv" ? "TV Show" : "Movie"}${item.muted ? " · Muted" : ""}</div>
+      <label class="show-status-select-label">
+        Category
+        <select id="detail-tracker-category-select">
+          ${TRACKER_CATEGORIES.map((c) => `<option value="${c.value}" ${c.value === item.category ? "selected" : ""}>${c.label}</option>`).join("")}
+        </select>
+      </label>
       <p class="detail-overview">${item.overview || "No overview available."}</p>
       <div class="detail-file-info">
         <div class="detail-file-row"><span>Status</span><span>${statusLine}</span></div>
@@ -113,6 +119,20 @@ export function renderDetailPane() {
       item.muted = e.target.checked;
       renderDetailPane();
       loadTrackerTab();
+    });
+    $("#detail-tracker-category-select").addEventListener("change", async (e) => {
+      const select = e.target;
+      const previous = item.category;
+      select.disabled = true;
+      try {
+        await api(`/api/tracker/${item.id}/category`, { method: "POST", body: JSON.stringify({ category: select.value }) });
+        item.category = select.value;
+        loadTrackerTab();
+      } catch (err) {
+        select.value = previous;
+      } finally {
+        select.disabled = false;
+      }
     });
     $("#detail-tracker-check-now-btn").addEventListener("click", async (e) => {
       const btn = e.target;
@@ -1086,13 +1106,25 @@ function wireDetailFix() {
   });
 }
 
+// Guards the click that opens the pane (e.g. a gallery card click) from
+// also bubbling to the document listener below and immediately closing it.
+let justOpened = false;
+
 export function openDetailPane(kind, data) {
   state.detailPane = { kind, data };
   renderDetailPane();
   $("#detail-pane").classList.remove("hidden");
+  justOpened = true;
+  setTimeout(() => { justOpened = false; }, 0);
 }
 
 export function closeDetailPane() {
   state.detailPane = null;
   $("#detail-pane").classList.add("hidden");
 }
+
+document.addEventListener("click", (e) => {
+  if (!state.detailPane || justOpened) return;
+  const pane = $("#detail-pane");
+  if (pane && !pane.classList.contains("hidden") && !pane.contains(e.target)) closeDetailPane();
+});

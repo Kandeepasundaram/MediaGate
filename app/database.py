@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS archive_tracker (
     overview TEXT,
     watched_through_season INTEGER,
     watched_through_episode INTEGER,
+    category TEXT NOT NULL DEFAULT 'watching',
     UNIQUE (tmdb_id, media_type)
 );
 
@@ -262,6 +263,16 @@ class Database:
 
     def delete_media_item(self, item_id: int) -> None:
         self.execute_query("DELETE FROM media_items WHERE id = ?", (item_id,))
+
+    def count_media_items_for_tmdb(self, tmdb_id: int, media_type: str) -> int:
+        """Used after a delete to tell whether a title has fully left the
+        archive (0) or is still partially owned (e.g. other TV episodes
+        remain) -- see library_browse.py's _delete_target."""
+        row = self.fetch_one(
+            "SELECT COUNT(*) AS n FROM media_items WHERE tmdb_id = ? AND media_type = ?",
+            (tmdb_id, media_type),
+        )
+        return row["n"]
 
     def get_media_item_by_final_path(self, path: str) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM media_items WHERE final_path = ?", (path,))
@@ -1062,6 +1073,17 @@ def _migration_v20(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE archive_tracker ADD COLUMN watched_through_episode INTEGER")
 
 
+def _migration_v21(conn: sqlite3.Connection) -> None:
+    """Add archive_tracker.category -- distinguishes why a title is tracked:
+    'watching' (owned, watching for a new season/sequel -- the prior,
+    implicit default for every row), 'interested' (a recommendation/wishlist
+    entry, not owned), or 'watched' (was owned, its file(s) were deleted --
+    an auto-populated history bucket, see library_browse.py's _delete_target).
+    No CHECK constraint (would need the table-rebuild pattern _migration_v2
+    used) -- validated at the API boundary via a Pydantic Literal instead."""
+    conn.execute("ALTER TABLE archive_tracker ADD COLUMN category TEXT NOT NULL DEFAULT 'watching'")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -1083,4 +1105,5 @@ _MIGRATIONS = {
     18: _migration_v18,
     19: _migration_v19,
     20: _migration_v20,
+    21: _migration_v21,
 }

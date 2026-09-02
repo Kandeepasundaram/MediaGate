@@ -266,6 +266,23 @@ def test_maybe_auto_track_season_never_regresses(db):
     assert row["current_season_archived"] == 3
 
 
+def test_upsert_tracker_defaults_category_to_watching(db):
+    db.upsert_tracker(tmdb_id=50, media_type="movie", title="Movie")
+    assert db.get_tracker(50, "movie")["category"] == "watching"
+
+
+def test_maybe_auto_track_moves_watched_title_back_to_watching_even_when_disabled(db):
+    db.upsert_tracker(tmdb_id=51, media_type="movie", title="Movie", category="watched")
+    maybe_auto_track(db, False, tmdb_id=51, media_type="movie", title="Movie")
+    assert db.get_tracker(51, "movie")["category"] == "watching"
+
+
+def test_maybe_auto_track_leaves_non_watched_category_alone(db):
+    db.upsert_tracker(tmdb_id=52, media_type="movie", title="Movie", category="interested")
+    maybe_auto_track(db, False, tmdb_id=52, media_type="movie", title="Movie")
+    assert db.get_tracker(52, "movie")["category"] == "interested"
+
+
 def test_check_for_updates_logs_notification_history(db):
     db.upsert_tracker(tmdb_id=1, media_type="tv", title="Show", current_season_archived=1)
 

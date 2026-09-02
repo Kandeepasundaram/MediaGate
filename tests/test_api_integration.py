@@ -638,9 +638,36 @@ def test_tracker_add_and_notifications(client):
     c, _ = client
     add_resp = c.post("/api/tracker/add", json={"tmdb_id": 5, "media_type": "tv", "title": "Show"})
     assert add_resp.status_code == 200
+    assert add_resp.json()["tracker"]["category"] == "watching"
 
     status_resp = c.get("/api/tracker/status")
     assert status_resp.json()["total_tracked"] == 1
+
+
+def test_tracker_add_with_interested_category(client):
+    c, _ = client
+    add_resp = c.post(
+        "/api/tracker/add",
+        json={"tmdb_id": 5, "media_type": "tv", "title": "Show", "category": "interested"},
+    )
+    assert add_resp.json()["tracker"]["category"] == "interested"
+
+
+def test_tracker_set_category(client):
+    c, _ = client
+    add_resp = c.post("/api/tracker/add", json={"tmdb_id": 5, "media_type": "tv", "title": "Show"})
+    tracker_id = add_resp.json()["tracker"]["id"]
+
+    resp = c.post(f"/api/tracker/{tracker_id}/category", json={"category": "watched"})
+    assert resp.status_code == 200
+    assert resp.json()["tracker"]["category"] == "watched"
+    assert c.get("/api/tracker/list").json()["tracked"][0]["category"] == "watched"
+
+
+def test_tracker_set_category_404_for_missing_tracker(client):
+    c, _ = client
+    resp = c.post("/api/tracker/999/category", json={"category": "watching"})
+    assert resp.status_code == 404
 
 
 def test_preview_flags_duplicate_against_existing_media_item(client):

@@ -20,6 +20,7 @@ export const state = {
   tvFilterSignature: "",
   activeUniverseType: "movie", // "movie" | "tv" -- which sub-tab the Tracker tab is showing
   universeMemberIds: new Set(), // tmdb_ids already in a universe of activeUniverseType, so the standalone Tracked Titles list can exclude them
+  activeTrackerCategory: "watching", // "watching" | "interested" | "watched" -- which Tracked Titles sub-tab is showing
 };
 
 export function $(sel) { return document.querySelector(sel); }

@@ -32,7 +32,15 @@ def maybe_auto_track(
     episode out of order shouldn't make the tracker think the show
     regressed and re-flag a season the user already has.
     """
-    if not auto_track_enabled or tmdb_id is None:
+    if tmdb_id is None:
+        return
+    existing_row = db.get_tracker(tmdb_id, media_type)
+    if existing_row is not None and existing_row["category"] == "watched":
+        # A previously-deleted title just came back into the archive --
+        # move it out of "Watched / History" regardless of auto_track_enabled,
+        # since this corrects stale state rather than opting into new tracking.
+        db.update_tracker(existing_row["id"], category="watching")
+    if not auto_track_enabled:
         return
     fields: dict = {}
     if media_type == "tv" and season is not None:

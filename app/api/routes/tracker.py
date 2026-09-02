@@ -22,6 +22,7 @@ from app.models import (
     TrackerBulkPreviewItemOut,
     TrackerBulkPreviewRequest,
     TrackerBulkPreviewResponse,
+    TrackerCategoryRequest,
     TrackerIntervalRequest,
     TrackerMuteRequest,
     TrackerNotificationOut,
@@ -55,6 +56,7 @@ def _to_out(row: dict) -> TrackerNotificationOut:
         overview=row["overview"],
         watched_through_season=row["watched_through_season"],
         watched_through_episode=row["watched_through_episode"],
+        category=row["category"],
     )
 
 
@@ -79,6 +81,7 @@ def add_tracker(payload: TrackerAddRequest, db: Database = Depends(get_database)
         current_season_archived=payload.current_season_archived,
         poster_path=payload.poster_path,
         overview=payload.overview,
+        category=payload.category,
         last_checked=datetime.now(timezone.utc).isoformat(),
     )
     row = db.get_tracker(payload.tmdb_id, payload.media_type)
@@ -252,6 +255,20 @@ def snooze_tracker(tracker_id: int, payload: TrackerSnoozeRequest, db: Database 
         notification_sent_at=datetime.now(timezone.utc).isoformat(),
         snoozed_until=until,
     )
+    return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
+
+
+@router.post("/{tracker_id}/category")
+def set_tracker_category(tracker_id: int, payload: TrackerCategoryRequest, db: Database = Depends(get_database)) -> dict:
+    """Manually reclassifies a tracked title -- e.g. "Interested" once you
+    start actually watching it, or out of "Watched / History" if you don't
+    want it back under "Watching" yet. Auto-set otherwise: /add defaults new
+    rows to "watching", library_browse.py's _delete_target flips a title to
+    "watched" when its last file is deleted, and maybe_auto_track flips it
+    back to "watching" on re-archive."""
+    if db.get_tracker_by_id(tracker_id) is None:
+        raise HTTPException(status_code=404, detail="Tracked title not found")
+    db.update_tracker(tracker_id, category=payload.category)
     return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
 
 

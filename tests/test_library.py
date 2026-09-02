@@ -285,6 +285,55 @@ def test_delete_file_removes_tracked_file_and_db_row(client):
     assert ops[0]["status"] == "success"
 
 
+def test_delete_movie_file_moves_tracker_to_watched_history(client):
+    c, db = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Movie", media_type="movie", tmdb_id=99,
+    )
+
+    resp = c.post("/api/library/delete-file", json={"path": str(video)})
+    assert resp.status_code == 200
+
+    row = db.get_tracker(99, "movie")
+    assert row is not None
+    assert row["category"] == "watched"
+
+
+def test_delete_one_of_several_tv_episodes_does_not_mark_watched(client):
+    c, db = client
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    ep1 = season / "Show - S01E01 - Pilot.mkv"
+    ep2 = season / "Show - S01E02 - Second.mkv"
+    ep1.write_bytes(b"1")
+    ep2.write_bytes(b"2")
+    db.create_media_item(original_path="x1", final_path=str(ep1), title="Show", media_type="tv", tmdb_id=100)
+    db.create_media_item(original_path="x2", final_path=str(ep2), title="Show", media_type="tv", tmdb_id=100)
+
+    resp = c.post("/api/library/delete-file", json={"path": str(ep1)})
+    assert resp.status_code == 200
+
+    assert db.get_tracker(100, "tv") is None
+
+
+def test_delete_last_tv_episode_moves_tracker_to_watched_history(client):
+    c, db = client
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    ep1 = season / "Show - S01E01 - Pilot.mkv"
+    ep1.write_bytes(b"1")
+    db.create_media_item(original_path="x1", final_path=str(ep1), title="Show", media_type="tv", tmdb_id=101)
+
+    resp = c.post("/api/library/delete-file", json={"path": str(ep1)})
+    assert resp.status_code == 200
+
+    row = db.get_tracker(101, "tv")
+    assert row is not None
+    assert row["category"] == "watched"
+
+
 def test_delete_file_dry_run_reports_without_deleting(client):
     c, db = client
     folder = _archive_movies_dir(c) / "Movie (2020)"

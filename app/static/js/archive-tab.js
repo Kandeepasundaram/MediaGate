@@ -311,22 +311,27 @@ export function closeMatchPicker() {
 }
 
 // ---- Manually track a title not yet in the library (wishlist/wanted) ----
-export function openTrackAddModal(mediaType) {
-  openMatchModal(mediaType, "", (candidate) => addTrackedTitle(mediaType, candidate), { hideIdEntry: true });
+// category="watching" (default) is the existing "own it, alert me on a new
+// season/sequel" flow; category="interested" is the same search-and-pick UX
+// used to add a recommendation you don't own yet -- see the Tracker tab's
+// "+ Add Recommendation" buttons.
+export function openTrackAddModal(mediaType, category = "watching") {
+  openMatchModal(mediaType, "", (candidate) => addTrackedTitle(mediaType, candidate, category), { hideIdEntry: true });
 }
 
-async function addTrackedTitle(mediaType, candidate) {
+async function addTrackedTitle(mediaType, candidate, category = "watching") {
   closeMatchPicker();
-  $("#track-add-status").textContent = `Tracking "${candidate.title}"...`;
+  $("#track-add-status").textContent = `${category === "interested" ? "Adding" : "Tracking"} "${candidate.title}"...`;
   try {
     await api("/api/tracker/add", {
       method: "POST",
       body: JSON.stringify({
         tmdb_id: candidate.tmdb_id, media_type: mediaType, title: candidate.title,
         poster_path: candidate.poster_path || null, overview: candidate.overview || null,
+        category,
       }),
     });
-    $("#track-add-status").textContent = `Now tracking "${candidate.title}".`;
+    $("#track-add-status").textContent = category === "interested" ? `Added "${candidate.title}" to Interested.` : `Now tracking "${candidate.title}".`;
     loadTrackedList();
   } catch (e) {
     $("#track-add-status").textContent = `Error: ${e.message}`;

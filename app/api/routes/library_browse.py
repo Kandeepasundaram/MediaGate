@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.routes.archive import _dry_run_result
+from app.api.routes.library_common import _metadata_dict
 from app.config_loader import AppConfig
 from app.core.orphan_artwork import ARTWORK_NAMES
 from app.core.organizer import OrganizeError, organize_file
@@ -175,7 +176,34 @@ def _delete_target(target: Path, db: Database, config: AppConfig) -> None:
     )
     if tracked_row:
         db.delete_media_item(tracked_row["id"])
+        _maybe_move_to_watched_history(db, tracked_row)
     logger.info("Deleted %s (was tracked: %s)", target, bool(tracked_row))
+
+
+def _maybe_move_to_watched_history(db: Database, deleted_row: dict) -> None:
+    """After a tracked media_items row is deleted, files a "Watched /
+    History" entry in the tracker for it -- a movie is always the whole
+    title, so one delete is always the end of it; a TV episode only counts
+    once no other episodes of that show remain on disk, so deleting one
+    episode out of a still-owned season doesn't wrongly mark the whole show
+    watched. Reuses upsert_tracker's partial-merge semantics (see
+    Database.upsert_tracker), so a title already being tracked for
+    sequels/seasons keeps that state -- only its category (and poster/
+    overview) change.
+    """
+    tmdb_id = deleted_row["tmdb_id"]
+    if tmdb_id is None:
+        return
+    media_type = deleted_row["media_type"]
+    if media_type == "tv" and db.count_media_items_for_tmdb(tmdb_id, "tv") > 0:
+        return
+    meta = _metadata_dict(deleted_row)
+    fields: dict = {"category": "watched"}
+    if meta.get("poster_path"):
+        fields["poster_path"] = meta["poster_path"]
+    if meta.get("overview"):
+        fields["overview"] = meta["overview"]
+    db.upsert_tracker(tmdb_id=tmdb_id, media_type=media_type, title=deleted_row["title"], **fields)
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tbn"}

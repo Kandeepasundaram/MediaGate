@@ -299,6 +299,10 @@
       <button class="season-tab-btn" data-universe-type="tv">TV</button>
     </div>
 
+    <h3>Upcoming</h3>
+    <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
+    <div id="tracker-upcoming-list"></div>
+
     <h3>Universes</h3>
     <p class="hint">Group related titles (a franchise, a shared universe) so a new season, sequel, or spinoff in any of them is flagged together.</p>
     <div class="toolbar">
@@ -310,9 +314,16 @@
 
     <h3>Tracked Titles</h3>
     <p class="hint">Tracked on their own, not part of any universe above.</p>
+    <div class="season-tabs" id="tracker-category-tabs">
+      <button class="season-tab-btn active" data-tracker-category="watching">Watching</button>
+      <button class="season-tab-btn" data-tracker-category="interested">Interested</button>
+      <button class="season-tab-btn" data-tracker-category="watched">Watched / History</button>
+    </div>
     <div class="toolbar">
       <button id="track-add-movie-btn">+ Track New Movie</button>
       <button id="track-add-tv-btn">+ Track New TV Show</button>
+      <button id="track-add-recommend-movie-btn">+ Add Recommendation (Movie)</button>
+      <button id="track-add-recommend-tv-btn">+ Add Recommendation (TV)</button>
       <button id="track-add-bulk-btn">+ Bulk Add</button>
       <span id="track-add-status" class="hint"></span>
     </div>

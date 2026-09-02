@@ -10,7 +10,7 @@ import { $, $all, api, state } from "./js/core.js";
 import { closeDetailPane, closePersonModal } from "./js/detail-pane.js";
 import { activateGalleryFocus, activeGalleryContext, applyFilterPreset, applyTagBatch, deleteFilterPreset, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
-import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupUniverseTypeTabs } from "./js/notifications-tab.js";
+import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackerCategoryTabs, setupUniverseTypeTabs } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
 import { checkPermissions, createApiToken, createViewerAction, disableApiToken, exportLibrary, importLibrary, loadViewers, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, syncWatchedFromMediaServers } from "./js/settings-tab.js";
 
@@ -89,6 +89,7 @@ if ("serviceWorker" in navigator) {
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupUniverseTypeTabs();
+  setupTrackerCategoryTabs();
   setupGlobalSearch();
   setupTheme();
   setupKeyboardShortcuts();
@@ -113,6 +114,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#bulk-change-match-btn").addEventListener("click", openBulkMatchPicker);
   $("#track-add-movie-btn").addEventListener("click", () => openTrackAddModal("movie"));
   $("#track-add-tv-btn").addEventListener("click", () => openTrackAddModal("tv"));
+  $("#track-add-recommend-movie-btn").addEventListener("click", () => openTrackAddModal("movie", "interested"));
+  $("#track-add-recommend-tv-btn").addEventListener("click", () => openTrackAddModal("tv", "interested"));
   $("#track-add-bulk-btn").addEventListener("click", openBulkTrackModal);
   $("#bulk-track-preview-btn").addEventListener("click", previewBulkTrack);
   $("#bulk-track-confirm-btn").addEventListener("click", confirmBulkTrack);
