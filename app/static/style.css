@@ -65,9 +65,9 @@ body[data-theme="claymorphism"] {
   --text: #3b2e57;
   --text-dim: #8677a3;
   --accent: #7c5cff;
-  --success: #4ade80;
-  --danger: #fb7185;
-  --warning: #fbbf24;
+  --success: #1f9d63;
+  --danger: #d43c4c;
+  --warning: #b3781f;
   --radius-sm: 14px;
   --radius-md: 18px;
   --radius-lg: 24px;
@@ -84,7 +84,7 @@ body[data-theme="glassmorphism"] {
   --border: rgba(255,255,255,.18);
   --text: #f1f5f9;
   --text-dim: #b8c0d4;
-  --accent: #a78bfa;
+  --accent: #7c5cff;
   --success: #4ade80;
   --danger: #fb7185;
   --warning: #fbbf24;
@@ -154,12 +154,14 @@ body {
   left: 0;
   right: 0;
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);
   max-height: 360px;
   overflow-y: auto;
   z-index: 50;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  backdrop-filter: var(--surface-blur, none);
+  -webkit-backdrop-filter: var(--surface-blur, none);
 }
 
 .global-search-result {
