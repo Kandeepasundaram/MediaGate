@@ -113,6 +113,15 @@ body[data-theme="claymorphism"] select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23626976' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
+/* Native <select> popups are a separate OS-level layer: they don't composite
+   backdrop-filter or page content, so glassmorphism's translucent
+   --bg-elevated renders as near-white there while --text stays near-white
+   too, making unselected options invisible. Force an opaque option list. */
+body[data-theme="glassmorphism"] select option {
+  background-color: #1e2440;
+  color: var(--text);
+}
+
 * { box-sizing: border-box; }
 
 body {
