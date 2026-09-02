@@ -80,7 +80,7 @@ body[data-theme="claymorphism"] {
 
 body[data-theme="glassmorphism"] {
   --bg: #0f172a;
-  --bg-elevated: rgba(255,255,255,0.08);
+  --bg-elevated: rgba(255,255,255,0.14);
   --border: rgba(255,255,255,.18);
   --text: #f1f5f9;
   --text-dim: #b8c0d4;
@@ -664,11 +664,13 @@ textarea {
   width: 500px;
   max-width: 90vw;
   background: var(--bg-elevated);
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--surface-border);
   box-shadow: -8px 0 24px rgba(0,0,0,0.3);
   overflow-y: auto;
   padding: 1.2rem;
   z-index: 40;
+  backdrop-filter: var(--surface-blur, none);
+  -webkit-backdrop-filter: var(--surface-blur, none);
 }
 
 .detail-pane.hidden { display: none; }
