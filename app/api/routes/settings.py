@@ -84,6 +84,9 @@ def _to_out(config: AppConfig) -> SettingsOut:
         auto_fetch_missing_subtitles=config.subtitles.auto_fetch_missing_subtitles,
         write_nfo_files=config.media_server.write_nfo_files,
         tvmaze_enabled=config.tvmaze.enabled,
+        reports_enabled=config.reports.enabled,
+        reports_frequency=config.reports.frequency,
+        reports_cron_time=config.reports.cron_time,
     )
 
 
@@ -96,7 +99,7 @@ def get_settings(config: AppConfig = Depends(get_config)) -> SettingsOut:
 def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(get_config)) -> SettingsOut:
     updates: dict[str, dict] = {
         "paths": {}, "server": {}, "tmdb": {}, "notifications": {}, "omdb": {}, "tvmaze": {}, "tracker": {},
-        "media_server": {}, "subtitles": {}, "renaming": {}, "watcher": {}, "backup": {},
+        "media_server": {}, "subtitles": {}, "renaming": {}, "watcher": {}, "backup": {}, "reports": {},
     }
 
     if payload.incoming_movies is not None:
@@ -185,6 +188,14 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         if payload.collision_policy not in ("suffix", "overwrite", "skip"):
             raise HTTPException(status_code=400, detail="collision_policy must be 'suffix', 'overwrite', or 'skip'")
         updates["renaming"]["collision_policy"] = payload.collision_policy
+    if payload.reports_enabled is not None:
+        updates["reports"]["enabled"] = payload.reports_enabled
+    if payload.reports_frequency is not None:
+        if payload.reports_frequency not in ("weekly", "monthly", "quarterly"):
+            raise HTTPException(status_code=400, detail="reports_frequency must be 'weekly', 'monthly', or 'quarterly'")
+        updates["reports"]["frequency"] = payload.reports_frequency
+    if payload.reports_cron_time is not None:
+        updates["reports"]["cron_time"] = payload.reports_cron_time
 
     updates = {k: v for k, v in updates.items() if v}
     new_config = update_settings(config.config_path, updates)

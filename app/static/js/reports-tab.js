@@ -4,9 +4,19 @@
  * client-side into a plain start/end date range, then handed to
  * GET /api/reports/summary, which knows nothing about calendar quarters.
  */
-import { escapeAttr } from "./archive-tab.js";
+import { escapeAttr, showConfirm } from "./archive-tab.js";
 import { $, api, formatBytes } from "./core.js";
+import {
+  applyFilterPreset, deleteFilterPreset, downloadCsv, populatePresetSelect, rowsToCsv, saveFilterPreset,
+} from "./gallery.js";
 import { formatDuration } from "./stats-tab.js";
+
+let lastReport = null;
+
+// Saved report periods (period dropdown + custom start/end) -- same named
+// localStorage-preset mechanism the Movies/TV tabs use for saved filter
+// views (see gallery.js), just applied to report-period/-start-date/-end-date.
+const REPORT_PRESET_IDS = ["report-period", "report-start-date", "report-end-date"];
 
 function isoDate(d) {
   return d.toISOString().slice(0, 10);
@@ -66,6 +76,85 @@ export function setupReportsTab() {
   $("#report-period").addEventListener("change", updateCustomRangeVisibility);
   updateCustomRangeVisibility();
   $("#report-generate-btn").addEventListener("click", generateReport);
+  $("#report-export-csv-btn").addEventListener("click", exportReportCsv);
+  $("#report-print-btn").addEventListener("click", () => window.print());
+
+  $("#report-preset-select").addEventListener("change", (e) => {
+    if (!e.target.value) return;
+    applyFilterPreset("report", e.target.value, REPORT_PRESET_IDS);
+    updateCustomRangeVisibility();
+    generateReport();
+  });
+  $("#report-preset-save-btn").addEventListener("click", () => {
+    const name = window.prompt("Save current period as:");
+    if (name) saveFilterPreset("report", name, REPORT_PRESET_IDS);
+  });
+  $("#report-preset-delete-btn").addEventListener("click", async () => {
+    const name = $("#report-preset-select").value;
+    if (!name) return;
+    const ok = await showConfirm(`Delete saved period "${name}"?`);
+    if (ok) deleteFilterPreset("report", name);
+  });
+  populatePresetSelect("report");
+}
+
+// Flat "section,metric,value" rows -- one CSV covering every card rather
+// than a table per section, since the sections have unrelated shapes
+// (scalars, per-viewer rows, genre/resolution/month breakdowns) and a
+// single flat sheet is easier to paste into a spreadsheet than several.
+function exportReportCsv() {
+  if (!lastReport) return;
+  const data = lastReport;
+  const g = data.growth;
+  const w = data.watch_activity;
+  const t = data.tracker_activity;
+  const rows = [
+    ["Growth", "Movies added", g.movies_added],
+    ["Growth", "TV episodes added", g.tv_episodes_added],
+    ["Growth", "Total size added (bytes)", g.total_size_bytes_added],
+    ["Watch Activity", "Movies watched", w.movies_watched],
+    ["Watch Activity", "TV episodes watched", w.tv_episodes_watched],
+    ["Tracker Activity", "Notifications sent", t.notifications_sent],
+    ["Tracker Activity", "Movies notified", t.movies_notified],
+    ["Tracker Activity", "TV shows notified", t.tv_shows_notified],
+  ];
+  for (const v of w.by_viewer) {
+    rows.push([`Watch Activity / ${v.viewer_name}`, "Items watched", v.count]);
+    rows.push([`Watch Activity / ${v.viewer_name}`, "Watch seconds", v.watch_seconds]);
+  }
+  for (const gen of data.insights.top_genres) {
+    rows.push(["Genres", gen.genre, gen.count]);
+  }
+  for (const res of data.insights.resolution_breakdown) {
+    rows.push(["Resolution", res.resolution, res.count]);
+  }
+  for (const m of data.insights.growth_by_month) {
+    rows.push(["Growth by Month", m.month, m.count]);
+  }
+  const mb = data.metadata_backlog;
+  rows.push(["Metadata Backlog", "Pending movies", mb.pending_movies]);
+  rows.push(["Metadata Backlog", "Pending TV episodes", mb.pending_tv]);
+  rows.push(["Metadata Backlog", "Failed-match movies", mb.failed_movies]);
+  rows.push(["Metadata Backlog", "Failed-match TV episodes", mb.failed_tv]);
+  const c = data.cleanup_activity;
+  rows.push(["Cleanup Activity", "Files deleted", c.deleted_count]);
+  rows.push(["Cleanup Activity", "Failed deletes", c.failed_count]);
+  const csv = rowsToCsv(["Section", "Metric", "Value"], rows);
+  downloadCsv(`report-${data.start_date}-to-${data.end_date}.csv`, csv);
+}
+
+// Delta badge vs. the same-length previous period -- "+12%", "-3", or "new"
+// when the previous period had zero (percentage would be undefined/infinite).
+function deltaBadge(current, previous) {
+  if (previous === 0) {
+    return current === 0 ? "" : ` <span class="hint delta-up">(new)</span>`;
+  }
+  const diff = current - previous;
+  if (diff === 0) return ` <span class="hint">(flat)</span>`;
+  const pct = Math.round((diff / previous) * 100);
+  const cls = diff > 0 ? "delta-up" : "delta-down";
+  const sign = diff > 0 ? "+" : "";
+  return ` <span class="hint ${cls}">(${sign}${pct}% vs prior period)</span>`;
 }
 
 function barRows(items, labelKey, countKey, suffix = "") {
@@ -98,10 +187,16 @@ async function generateReport() {
   }
 
   output.innerHTML = "Generating report...";
+  $("#report-export-csv-btn").classList.add("hidden");
+  $("#report-print-btn").classList.add("hidden");
   try {
     const data = await api(`/api/reports/summary?start=${start}&end=${end}`);
+    lastReport = data;
     output.innerHTML = renderReport(data);
+    $("#report-export-csv-btn").classList.remove("hidden");
+    $("#report-print-btn").classList.remove("hidden");
   } catch (e) {
+    lastReport = null;
     output.innerHTML = `<p>Error generating report: ${e.message}</p>`;
   }
 }
@@ -110,6 +205,10 @@ function renderReport(data) {
   const g = data.growth;
   const w = data.watch_activity;
   const t = data.tracker_activity;
+  const p = data.previous_period;
+  const prevNote = p
+    ? `<p class="hint">vs. ${p.start_date} to ${p.end_date}</p>`
+    : "";
   const trackerTitles = t.titles.length
     ? `<p class="hint">${t.titles.map(escapeAttr).join(", ")}</p>`
     : `<p class="hint">No tracker notifications in this period.</p>`;
@@ -129,26 +228,35 @@ function renderReport(data) {
       </table>`
     : "";
 
+  const mb = data.metadata_backlog;
+  const cleanup = data.cleanup_activity;
+  const cleanupPaths = cleanup.deleted_paths.length
+    ? `<p class="hint">${cleanup.deleted_paths.map(escapeAttr).join(", ")}</p>`
+    : "";
+
   return `
     <h4>Report: ${data.start_date} to ${data.end_date}</h4>
 
     <div class="card">
       <h5>Library Growth</h5>
-      <p>Movies added: <strong>${g.movies_added}</strong></p>
-      <p>TV episodes added: <strong>${g.tv_episodes_added}</strong></p>
-      <p>Total size added: <strong>${formatBytes(g.total_size_bytes_added)}</strong></p>
+      ${prevNote}
+      <p>Movies added: <strong>${g.movies_added}</strong>${p ? deltaBadge(g.movies_added, p.movies_added) : ""}</p>
+      <p>TV episodes added: <strong>${g.tv_episodes_added}</strong>${p ? deltaBadge(g.tv_episodes_added, p.tv_episodes_added) : ""}</p>
+      <p>Total size added: <strong>${formatBytes(g.total_size_bytes_added)}</strong>${p ? deltaBadge(g.total_size_bytes_added, p.total_size_bytes_added) : ""}</p>
     </div>
 
     <div class="card">
       <h5>Watch Activity</h5>
-      <p>Movies watched: <strong>${w.movies_watched}</strong></p>
-      <p>TV episodes watched: <strong>${w.tv_episodes_watched}</strong></p>
+      ${prevNote}
+      <p>Movies watched: <strong>${w.movies_watched}</strong>${p ? deltaBadge(w.movies_watched, p.movies_watched) : ""}</p>
+      <p>TV episodes watched: <strong>${w.tv_episodes_watched}</strong>${p ? deltaBadge(w.tv_episodes_watched, p.tv_episodes_watched) : ""}</p>
       ${viewerRows}
     </div>
 
     <div class="card">
       <h5>Tracker Activity</h5>
-      <p>Notifications sent: <strong>${t.notifications_sent}</strong> (${t.movies_notified} movie(s), ${t.tv_shows_notified} show(s))</p>
+      ${prevNote}
+      <p>Notifications sent: <strong>${t.notifications_sent}</strong>${p ? deltaBadge(t.notifications_sent, p.notifications_sent) : ""} (${t.movies_notified} movie(s), ${t.tv_shows_notified} show(s))</p>
       ${trackerTitles}
     </div>
 
@@ -159,6 +267,20 @@ function renderReport(data) {
       ${resolutionRows || `<p class="hint">No resolution data for this period.</p>`}
       <h5>By Month</h5>
       ${growthRows || `<p class="hint">No archive activity in this period.</p>`}
+    </div>
+
+    <div class="card">
+      <h5>Metadata Backlog</h5>
+      <p class="hint">Current TMDB match backlog as of report generation -- not scoped to the period above.</p>
+      <p>Pending movies: <strong>${mb.pending_movies}</strong> (${mb.failed_movies} failed match)</p>
+      <p>Pending TV episodes: <strong>${mb.pending_tv}</strong> (${mb.failed_tv} failed match)</p>
+    </div>
+
+    <div class="card">
+      <h5>Cleanup Activity</h5>
+      ${prevNote}
+      <p>Files deleted: <strong>${cleanup.deleted_count}</strong>${cleanup.failed_count ? ` <span class="hint delta-down">(${cleanup.failed_count} failed)</span>` : ""}</p>
+      ${cleanupPaths}
     </div>
   `;
 }

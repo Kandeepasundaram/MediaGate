@@ -11,7 +11,7 @@ import contextlib
 import logging
 from datetime import datetime, timedelta, timezone
 
-from app.core import backup
+from app.core import backup, report_delivery
 from app.core.tracker import check_for_updates, send_digest
 from app.dependencies import get_config, get_database, get_tmdb_client, get_tvmaze_client
 
@@ -31,7 +31,14 @@ _last_digest_sent: datetime | None = None
 _task_status: dict[str, dict] = {
     "backup": {"last_run_at": None, "last_error": None},
     "maintenance": {"last_run_at": None, "last_error": None},
+    "reports": {"last_run_at": None, "last_error": None},
 }
+
+# Period label ("2026-02", "2026-Q1", "2026-W07") last successfully
+# delivered -- in-memory, same tradeoff as _last_digest_sent above: a
+# restart just means the next check re-evaluates and, worst case, sends one
+# extra periodic report.
+_last_report_period_sent: str | None = None
 
 
 def get_task_status() -> dict[str, dict]:
@@ -177,6 +184,47 @@ def start_backup() -> asyncio.Task:
 
 
 async def stop_backup(task: asyncio.Task) -> None:
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+
+
+async def run_periodic_report_delivery() -> None:
+    """Wakes daily at reports.cron_time and checks whether the most recently
+    completed period (per reports.frequency) has already been delivered --
+    same daily-wake-then-check shape as run_daily_backup, so a
+    weekly/monthly/quarterly cadence doesn't need its own long-sleep math on
+    top of the existing _seconds_until(cron_time) helper."""
+    while True:
+        try:
+            delay = _seconds_until(get_config().reports.cron_time)
+            await asyncio.sleep(delay)
+
+            config = get_config()
+            if config.reports.enabled:
+                global _last_report_period_sent
+                today = datetime.now().date()
+                _, _, due_label = report_delivery.previous_complete_period(config.reports.frequency, today)
+                if due_label != _last_report_period_sent:
+                    db = get_database()
+                    label = await asyncio.to_thread(report_delivery.generate_and_deliver, config, db, today)
+                    if label:
+                        _last_report_period_sent = label
+                        _task_status["reports"] = {
+                            "last_run_at": datetime.now(timezone.utc).isoformat(), "last_error": None
+                        }
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("Periodic report delivery failed; retrying next cycle")
+            _task_status["reports"] = {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_error": str(exc)}
+
+
+def start_reports() -> asyncio.Task:
+    return asyncio.ensure_future(run_periodic_report_delivery())
+
+
+async def stop_reports(task: asyncio.Task) -> None:
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task

@@ -283,6 +283,9 @@ tr:hover td { background: var(--bg-elevated); }
   background: var(--accent);
 }
 
+.delta-up { color: var(--success); }
+.delta-down { color: var(--danger); }
+
 .notification-item {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -1189,4 +1192,18 @@ button.show-status-pill {
      awkward sliver of the gallery visible behind it on a phone -- go full
      width instead, same as a native app's detail screen. */
   .detail-pane { width: 100%; max-width: 100vw; border-left: none; }
+}
+
+/* Print / Save PDF on the Reports tab -- everything except the generated
+   report card stack is chrome (nav, toolbar, other tabs) that shouldn't
+   end up in a printed/PDF'd report. */
+@media print {
+  body * { visibility: hidden; }
+  #report-output, #report-output * { visibility: visible; }
+  #report-output {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
 }

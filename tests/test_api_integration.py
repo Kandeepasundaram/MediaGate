@@ -2273,6 +2273,60 @@ def test_report_summary_per_viewer_watch_seconds_sums_probed_duration(client):
     assert by_viewer == [{"viewer_id": viewer_id, "viewer_name": "Alex", "count": 3, "watch_seconds": 5400.0}]
 
 
+def test_report_summary_previous_period_is_same_length_immediately_before(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.create_media_item(
+        original_path="m1", final_path="m1.mkv", title="This Quarter", media_type="movie",
+        archived_at="2026-02-15T00:00:00+00:00",
+    )
+    db.create_media_item(
+        original_path="m2", final_path="m2.mkv", title="Last Quarter", media_type="movie",
+        archived_at="2025-12-15T00:00:00+00:00",
+    )
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    body = resp.json()
+    prev = body["previous_period"]
+    assert prev["start_date"] == "2025-10-03"
+    assert prev["end_date"] == "2025-12-31"
+    assert prev["movies_added"] == 1
+    assert body["growth"]["movies_added"] == 1
+
+
+def test_report_summary_metadata_backlog_counts_current_unmatched_items(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.create_media_item(original_path="m1", final_path="m1.mkv", title="Never Tried", media_type="movie")
+    failed_id = db.create_media_item(original_path="m2", final_path="m2.mkv", title="Failed", media_type="tv")
+    db.update_media_item(failed_id, match_attempted_at="2026-01-01T00:00:00+00:00")
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    backlog = resp.json()["metadata_backlog"]
+    assert backlog["pending_movies"] == 1
+    assert backlog["failed_movies"] == 0
+    assert backlog["pending_tv"] == 1
+    assert backlog["failed_tv"] == 1
+
+
+def test_report_summary_cleanup_activity_counts_deletes_within_range(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    in_range = db.log_operation(operation_type="delete", status="success", details={"path": "/media/movies/Old Movie.mkv"})
+    out_of_range = db.log_operation(operation_type="delete", status="success", details={"path": "/media/movies/Other.mkv"})
+    failed = db.log_operation(operation_type="delete", status="failed", details={"path": "/media/movies/Locked.mkv"})
+    with db.connect() as conn:
+        conn.execute("UPDATE operation_log SET created_at = ? WHERE id = ?", ("2026-02-15T00:00:00+00:00", in_range))
+        conn.execute("UPDATE operation_log SET created_at = ? WHERE id = ?", ("2026-05-01T00:00:00+00:00", out_of_range))
+        conn.execute("UPDATE operation_log SET created_at = ? WHERE id = ?", ("2026-02-15T00:00:00+00:00", failed))
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    cleanup = resp.json()["cleanup_activity"]
+    assert cleanup["deleted_count"] == 1
+    assert cleanup["failed_count"] == 1
+    assert cleanup["deleted_paths"] == ["Old Movie.mkv"]
+
+
 # ---- Tracker bulk-add ----
 
 

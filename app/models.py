@@ -350,6 +350,7 @@ class BackgroundTasksStatusOut(BaseModel):
     backfill: BackfillTaskStatusOut
     backup: SimpleTaskStatusOut
     maintenance: SimpleTaskStatusOut
+    reports: SimpleTaskStatusOut
 
 
 class StoragePathOut(BaseModel):
@@ -779,6 +780,9 @@ class SettingsOut(BaseModel):
     auto_fetch_missing_subtitles: bool = False
     write_nfo_files: bool = True
     tvmaze_enabled: bool = False
+    reports_enabled: bool = False
+    reports_frequency: str = "monthly"
+    reports_cron_time: str = "08:00"
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -821,6 +825,9 @@ class SettingsUpdateRequest(BaseModel):
     auto_fetch_missing_subtitles: bool | None = None
     tvmaze_enabled: bool | None = None
     write_nfo_files: bool | None = None
+    reports_enabled: bool | None = None
+    reports_frequency: str | None = None
+    reports_cron_time: str | None = None
 
 
 class ConfigHistoryEntryOut(BaseModel):
@@ -942,6 +949,46 @@ class ReportWatchActivityOut(BaseModel):
     by_viewer: list[ViewerWatchCountOut] = Field(default_factory=list)
 
 
+class ReportComparisonOut(BaseModel):
+    """Same-length period immediately preceding the requested range, for
+    period-over-period deltas -- raw totals only (no per-viewer/insights
+    breakdown, which the previous period doesn't need for a delta badge)."""
+
+    start_date: str
+    end_date: str
+    movies_added: int = 0
+    tv_episodes_added: int = 0
+    total_size_bytes_added: int = 0
+    movies_watched: int = 0
+    tv_episodes_watched: int = 0
+    notifications_sent: int = 0
+
+
+class ReportMetadataBacklogOut(BaseModel):
+    """Current (as of report generation, not filtered to the report's date
+    range -- there's no historical snapshot table for this, unlike storage
+    usage) TMDB match backlog, split movie/TV. `failed_*` is a subset of
+    `pending_*` (unmatched items that HAVE been tried at least once and
+    still have no tmdb_id) -- see Database.count_unmatched_media_items /
+    count_failed_match_items."""
+
+    pending_movies: int = 0
+    pending_tv: int = 0
+    failed_movies: int = 0
+    failed_tv: int = 0
+
+
+class ReportCleanupActivityOut(BaseModel):
+    """Files removed via Browse & Clean Up / archive-undo during the report
+    period (operation_log operation_type='delete') -- subtitle purging isn't
+    included here since subtitle_purger.py doesn't write its own
+    operation_log entries, only the archive step it runs inside of does."""
+
+    deleted_count: int = 0
+    failed_count: int = 0
+    deleted_paths: list[str] = Field(default_factory=list)
+
+
 class ReportSummaryOut(BaseModel):
     start_date: str
     end_date: str
@@ -949,6 +996,9 @@ class ReportSummaryOut(BaseModel):
     watch_activity: ReportWatchActivityOut
     tracker_activity: ReportTrackerActivityOut
     insights: StatsInsightsResponse
+    previous_period: ReportComparisonOut | None = None
+    metadata_backlog: ReportMetadataBacklogOut = Field(default_factory=ReportMetadataBacklogOut)
+    cleanup_activity: ReportCleanupActivityOut = Field(default_factory=ReportCleanupActivityOut)
 
 
 # ---- Bulk-add tracking (paste titles -> review TMDB matches -> confirm) ----

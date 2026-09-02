@@ -42,6 +42,7 @@ _DEFAULT_CONFIG: dict = {
     "omdb": {"api_key": ""},
     "tvmaze": {"enabled": False},
     "backup": {"enabled": True, "retention_days": 14},
+    "reports": {"enabled": False, "frequency": "monthly", "cron_time": "08:00"},
     "watcher": {"enabled": False},
     "media_server": {
         "plex_url": "", "plex_token": "", "jellyfin_url": "", "jellyfin_api_key": "", "write_nfo_files": True,
@@ -156,6 +157,22 @@ class BackupConfig:
 
 
 @dataclass
+class ReportDeliveryConfig:
+    """Opt-in periodic push of the Reports tab's own summary (see
+    app/core/report_delivery.py) through the same Discord/Telegram/Pushover/
+    generic-webhook channels notifications.* already uses -- no separate
+    channel config, just a schedule for when to fire. Off by default, like
+    every other optional push in this app."""
+
+    enabled: bool = False
+    # "weekly" (last full Mon-Sun week), "monthly" (previous calendar month),
+    # or "quarterly" (previous calendar quarter) -- see
+    # report_delivery.py::previous_complete_period.
+    frequency: str = "monthly"
+    cron_time: str = "08:00"
+
+
+@dataclass
 class WatcherConfig:
     # Off by default: a native OS filesystem watch (inotify/ReadDirectoryChangesW)
     # can behave oddly on some network-mounted volumes (NFS/SMB), which is a
@@ -238,6 +255,7 @@ class AppConfig:
     renaming: RenamingConfig = field(default_factory=RenamingConfig)
     watcher: WatcherConfig = field(default_factory=WatcherConfig)
     tvmaze: TVmazeConfig = field(default_factory=TVmazeConfig)
+    reports: ReportDeliveryConfig = field(default_factory=ReportDeliveryConfig)
     config_path: Path = Path("config.yaml")
     tmdb_api_key_from_env: bool = False
 
@@ -285,6 +303,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         omdb=OMDbConfig(**raw["omdb"]),
         tvmaze=TVmazeConfig(**raw["tvmaze"]),
         backup=BackupConfig(**raw["backup"]),
+        reports=ReportDeliveryConfig(**raw["reports"]),
         media_server=MediaServerConfig(**raw["media_server"]),
         logging=LoggingConfig(
             level=raw["logging"]["level"],
@@ -331,6 +350,7 @@ _EDITABLE_KEYS = {
     "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy"},
     "watcher": {"enabled"},
     "backup": {"webdav_url", "webdav_username", "webdav_password", "webdav_remote_path"},
+    "reports": {"enabled", "frequency", "cron_time"},
 }
 
 

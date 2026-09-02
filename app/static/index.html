@@ -357,6 +357,11 @@
         <label>To <input type="date" id="report-end-date"></label>
       </span>
       <button id="report-generate-btn" class="primary">Generate Report</button>
+      <button id="report-export-csv-btn" class="hidden">Export CSV</button>
+      <button id="report-print-btn" class="hidden">Print / Save PDF</button>
+      <select id="report-preset-select" title="Saved report periods"><option value="">Saved periods…</option></select>
+      <button id="report-preset-save-btn" title="Save the current period selection under a name">Save Period</button>
+      <button id="report-preset-delete-btn" title="Delete the selected saved period">Delete Period</button>
     </div>
     <div id="report-output"></div>
   </section>
@@ -416,6 +421,21 @@
       <label>Low disk threshold (GB)
         <input type="number" id="setting-low-disk-threshold-gb" min="0.1" step="0.5" placeholder="10">
       </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="setting-reports-enabled">
+        Push a periodic library/watch-activity report (via the channels above)
+      </label>
+      <label>Report frequency
+        <select id="setting-reports-frequency">
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="quarterly">Quarterly</option>
+        </select>
+      </label>
+      <label>Report check time (24h, local)
+        <input type="text" id="setting-reports-cron-time" placeholder="08:00">
+      </label>
+      <p class="hint">Sent once per completed period (e.g. the whole previous month) -- covers the same data as the Reports tab.</p>
       <label>OMDb API key (optional)
         <input type="password" id="setting-omdb-key" placeholder="leave blank to keep current">
       </label>

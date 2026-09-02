@@ -53,6 +53,9 @@ export async function loadSettings() {
     $("#setting-collision-policy").value = s.collision_policy || "suffix";
     $("#setting-low-disk-alert-enabled").checked = !!s.low_disk_alert_enabled;
     $("#setting-low-disk-threshold-gb").value = s.low_disk_threshold_gb ?? 10;
+    $("#setting-reports-enabled").checked = !!s.reports_enabled;
+    $("#setting-reports-frequency").value = s.reports_frequency || "monthly";
+    $("#setting-reports-cron-time").value = s.reports_cron_time || "08:00";
     $("#setting-webdav-url").value = s.webdav_url || "";
     $("#setting-webdav-username").value = s.webdav_username || "";
     $("#webdav-password-note").textContent = s.webdav_password_set ? "A password is currently set. Leave blank to keep it." : "";
@@ -86,6 +89,9 @@ export async function saveSettings(e) {
     subtitle_keep_languages_tv: $("#setting-subtitle-languages-tv").value.split(",").map((s) => s.trim()).filter(Boolean),
     low_disk_alert_enabled: $("#setting-low-disk-alert-enabled").checked,
     low_disk_threshold_gb: Number($("#setting-low-disk-threshold-gb").value) || 10,
+    reports_enabled: $("#setting-reports-enabled").checked,
+    reports_frequency: $("#setting-reports-frequency").value,
+    reports_cron_time: $("#setting-reports-cron-time").value.trim() || "08:00",
     auto_fetch_missing_subtitles: $("#setting-auto-fetch-subtitles").checked,
     tvmaze_enabled: $("#setting-tvmaze-enabled").checked,
   };

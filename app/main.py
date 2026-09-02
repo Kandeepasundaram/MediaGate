@@ -35,6 +35,7 @@ async def lifespan(app: FastAPI):
     scheduler_task = scheduler.start()
     maintenance_task = scheduler.start_maintenance()
     backup_task = scheduler.start_backup()
+    reports_task = scheduler.start_reports()
     backfill_task = metadata_backfill.start()
 
     watcher_observer = None
@@ -55,6 +56,7 @@ async def lifespan(app: FastAPI):
     await scheduler.stop(scheduler_task)
     await scheduler.stop_maintenance(maintenance_task)
     await scheduler.stop_backup(backup_task)
+    await scheduler.stop_reports(reports_task)
     await metadata_backfill.stop(backfill_task)
     if watcher_observer is not None:
         fs_watcher.stop_watching(watcher_observer)

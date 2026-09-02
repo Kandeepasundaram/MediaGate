@@ -86,6 +86,11 @@ def get_background_tasks_status(
             last_run_at=task_status["maintenance"]["last_run_at"],
             last_error=task_status["maintenance"]["last_error"],
         ),
+        reports=SimpleTaskStatusOut(
+            last_run_at=task_status["reports"]["last_run_at"],
+            last_error=task_status["reports"]["last_error"],
+            enabled=config.reports.enabled,
+        ),
     )
 
 
