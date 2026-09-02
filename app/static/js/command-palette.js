@@ -9,6 +9,7 @@ import { openDetailPane } from "./detail-pane.js";
 import { groupEpisodesByShow } from "./gallery.js";
 import { switchToTab } from "../app.js";
 import { checkPermissions } from "./settings-tab.js";
+import { setTheme } from "./chrome.js";
 
 // ---- Command palette ----
 const COMMANDS = [
@@ -22,7 +23,11 @@ const COMMANDS = [
   { category: "Library", label: "Scan Library", run: () => { switchToTab("archive"); scanAndPreview(); } },
   { category: "Library", label: "Refresh Browse & Clean Up", run: () => { switchToTab("browse"); loadBrowse(); } },
   { category: "Library", label: "Check Storage Permissions", run: () => { switchToTab("settings"); checkPermissions(); } },
-  { category: "View", label: "Toggle Light / Dark Theme", run: () => $("#theme-toggle-btn").click() },
+  { category: "View", label: "Switch to Dark Theme", run: () => setTheme("dark") },
+  { category: "View", label: "Switch to Light Theme", run: () => setTheme("light") },
+  { category: "View", label: "Switch to Neumorphism Theme", run: () => setTheme("neumorphism") },
+  { category: "View", label: "Switch to Claymorphism Theme", run: () => setTheme("claymorphism") },
+  { category: "View", label: "Switch to Glassmorphism Theme", run: () => setTheme("glassmorphism") },
 ];
 const PALETTE_CATEGORY_ORDER = ["Navigate", "Library", "Titles", "View"];
 const TITLE_MATCH_LIMIT = 6;

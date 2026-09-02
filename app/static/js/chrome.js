@@ -123,24 +123,27 @@ function jumpToGlobalSearchResult(mediaType, title) {
 
 // ---- Theme ----
 const THEME_KEY = "media-manager:theme";
+const THEMES = ["dark", "light", "neumorphism", "claymorphism", "glassmorphism"];
 
 function applyTheme(theme) {
   document.body.dataset.theme = theme;
-  $("#theme-toggle-btn").textContent = theme === "light" ? "☀️" : "🌙";
+  $("#theme-select").value = theme;
+}
+
+export function setTheme(theme) {
+  applyTheme(theme);
+  try { localStorage.setItem(THEME_KEY, theme); } catch (e) { /* ignore */ }
 }
 
 export function setupTheme() {
   let saved = "dark";
   try {
-    saved = localStorage.getItem(THEME_KEY) || "dark";
+    const stored = localStorage.getItem(THEME_KEY);
+    saved = THEMES.includes(stored) ? stored : "dark";
   } catch (e) { /* localStorage unavailable, default to dark */ }
   applyTheme(saved);
 
-  $("#theme-toggle-btn").addEventListener("click", () => {
-    const next = document.body.dataset.theme === "light" ? "dark" : "light";
-    applyTheme(next);
-    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* ignore */ }
-  });
+  $("#theme-select").addEventListener("change", (e) => setTheme(e.target.value));
 }
 
 // ---- Status badge ----
