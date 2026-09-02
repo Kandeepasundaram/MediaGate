@@ -947,6 +947,18 @@ class ReportTrackerActivityOut(BaseModel):
     # quick "what was flagged" list, not one row per notification (a show
     # that got flagged for two seasons in the same period still counts once).
     titles: list[str] = Field(default_factory=list)
+    # New archive_tracker rows created within the period, split by category
+    # (see _migration_v21 -- 'watching'/'interested'/'watched').
+    new_trackers_added: int = 0
+    new_trackers_watching: int = 0
+    new_trackers_interested: int = 0
+    new_trackers_watched: int = 0
+    # Current (not period-scoped) muted-tracker count -- how much of the
+    # tracker list is deliberately silenced right now.
+    muted_trackers_total: int = 0
+    # operation_log operation_type='tracker_check' rows in the period, i.e.
+    # how many times the scheduler/cron actually ran the TMDB check.
+    tracker_checks_run: int = 0
 
 
 class ReportGrowthOut(BaseModel):
@@ -990,6 +1002,77 @@ class ReportMetadataBacklogOut(BaseModel):
     failed_tv: int = 0
 
 
+class ReportContentProfileOut(BaseModel):
+    """Shape of what was added in the period, beyond raw counts -- file size
+    distribution and how "new" (by release year) the additions skew."""
+
+    avg_file_size_bytes: int = 0
+    median_file_size_bytes: int = 0
+    largest_title: str | None = None
+    largest_size_bytes: int = 0
+    avg_release_year: float | None = None
+
+
+class ReportMatchQualityOut(BaseModel):
+    """TMDB match health of items added in the period -- distinct from
+    metadata_backlog (current, whole-library) since this is scoped to what
+    was actually added now, e.g. "did this batch match cleanly"."""
+
+    matched_count: int = 0
+    unmatched_count: int = 0
+    match_rate_pct: float | None = None
+    manual_override_count: int = 0
+    imdb_linked_count: int = 0
+
+
+class ReportUniverseActivityOut(BaseModel):
+    """Titles added to any franchise/universe collection (see
+    app/api/routes/universes.py) within the period."""
+
+    titles_added_count: int = 0
+    titles: list[str] = Field(default_factory=list)
+
+
+class StorageTrendPointOut(BaseModel):
+    label: str
+    start_used_bytes: int
+    end_used_bytes: int
+    delta_bytes: int
+
+
+class ReportStorageTrendOut(BaseModel):
+    """Disk usage change over the period, per configured path label -- built
+    from whatever storage_snapshots rows already exist in-range (recorded
+    daily by GET /api/status/storage); empty if the dashboard wasn't opened
+    during the period, since that's the only thing that writes a snapshot."""
+
+    paths: list[StorageTrendPointOut] = Field(default_factory=list)
+
+
+class ReportBacklogOut(BaseModel):
+    """Current (not period-scoped) unwatched library backlog -- "how much
+    have I archived but never gotten around to watching," size included
+    since that's the more visceral number for a homelab disk-space context."""
+
+    unwatched_count: int = 0
+    unwatched_size_bytes: int = 0
+
+
+class ReportEngagementOut(BaseModel):
+    distinct_active_viewers: int = 0
+    top_tags: list[GenreCountOut] = Field(default_factory=list)
+
+
+class ReportOperationsHealthOut(BaseModel):
+    """Success/failure rate of archive + rename (organize) operations logged
+    in the period -- 'delete' has its own dedicated section (cleanup_activity)
+    already, and 'tracker_check' is covered under tracker_activity above."""
+
+    succeeded: int = 0
+    failed: int = 0
+    success_rate_pct: float | None = None
+
+
 class ReportCleanupActivityOut(BaseModel):
     """Files removed via Browse & Clean Up / archive-undo during the report
     period (operation_log operation_type='delete') -- subtitle purging isn't
@@ -1011,6 +1094,13 @@ class ReportSummaryOut(BaseModel):
     previous_period: ReportComparisonOut | None = None
     metadata_backlog: ReportMetadataBacklogOut = Field(default_factory=ReportMetadataBacklogOut)
     cleanup_activity: ReportCleanupActivityOut = Field(default_factory=ReportCleanupActivityOut)
+    content_profile: ReportContentProfileOut = Field(default_factory=ReportContentProfileOut)
+    match_quality: ReportMatchQualityOut = Field(default_factory=ReportMatchQualityOut)
+    universe_activity: ReportUniverseActivityOut = Field(default_factory=ReportUniverseActivityOut)
+    storage_trend: ReportStorageTrendOut = Field(default_factory=ReportStorageTrendOut)
+    backlog: ReportBacklogOut = Field(default_factory=ReportBacklogOut)
+    engagement: ReportEngagementOut = Field(default_factory=ReportEngagementOut)
+    operations_health: ReportOperationsHealthOut = Field(default_factory=ReportOperationsHealthOut)
 
 
 # ---- Bulk-add tracking (paste titles -> review TMDB matches -> confirm) ----

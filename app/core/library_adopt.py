@@ -8,6 +8,8 @@ it's cheap enough to run on every gallery load.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from app.config_loader import AppConfig
 from app.core.scanner import scan_directory
 from app.database import Database
@@ -29,6 +31,11 @@ def adopt_new_files(db: Database, config: AppConfig, media_type: str) -> int:
             season_number=f.parsed.season,
             episode_number=f.parsed.episode,
             metadata={},
+            # No true "date added" for a file this app didn't archive itself
+            # (e.g. Radarr/Sonarr-managed) -- stamp adoption time so growth
+            # reports/insights (which key off archived_at) count it instead
+            # of silently dropping it forever, per reports.py/status.py.
+            archived_at=datetime.now(timezone.utc).isoformat(),
         )
         adopted += 1
     return adopted

@@ -7,22 +7,33 @@ quarters/halves.
 from __future__ import annotations
 
 import json
+import statistics
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.api.routes.library_common import _tags_list
 from app.api.routes.status import compute_insights
 from app.database import Database
 from app.dependencies import get_database
 from app.models import (
+    GenreCountOut,
+    ReportBacklogOut,
     ReportCleanupActivityOut,
     ReportComparisonOut,
+    ReportContentProfileOut,
+    ReportEngagementOut,
     ReportGrowthOut,
+    ReportMatchQualityOut,
     ReportMetadataBacklogOut,
+    ReportOperationsHealthOut,
+    ReportStorageTrendOut,
     ReportSummaryOut,
     ReportTrackerActivityOut,
+    ReportUniverseActivityOut,
     ReportWatchActivityOut,
+    StorageTrendPointOut,
     ViewerWatchCountOut,
 )
 
@@ -108,6 +119,116 @@ def _cleanup_activity(db: Database, start_ts: str, end_ts: str) -> ReportCleanup
     )
 
 
+def _content_profile(added: list[dict]) -> ReportContentProfileOut:
+    sizes = [(r, _file_size(r["final_path"])) for r in added if r.get("final_path")]
+    sizes = [(r, s) for r, s in sizes if s > 0]
+    years = [r["year"] for r in added if r.get("year")]
+    if not sizes:
+        return ReportContentProfileOut(avg_release_year=round(statistics.mean(years), 1) if years else None)
+    just_sizes = [s for _, s in sizes]
+    largest_row, largest_size = max(sizes, key=lambda pair: pair[1])
+    return ReportContentProfileOut(
+        avg_file_size_bytes=int(statistics.mean(just_sizes)),
+        median_file_size_bytes=int(statistics.median(just_sizes)),
+        largest_title=largest_row["title"],
+        largest_size_bytes=largest_size,
+        avg_release_year=round(statistics.mean(years), 1) if years else None,
+    )
+
+
+def _match_quality(added: list[dict]) -> ReportMatchQualityOut:
+    if not added:
+        return ReportMatchQualityOut()
+    matched = sum(1 for r in added if r.get("tmdb_id"))
+    unmatched = len(added) - matched
+    return ReportMatchQualityOut(
+        matched_count=matched,
+        unmatched_count=unmatched,
+        match_rate_pct=round(matched / len(added) * 100, 1),
+        manual_override_count=sum(1 for r in added if r.get("manual_override")),
+        imdb_linked_count=sum(1 for r in added if r.get("imdb_id")),
+    )
+
+
+def _universe_activity(db: Database, start_ts: str, end_ts: str) -> ReportUniverseActivityOut:
+    members = [m for m in db.list_all_universe_members() if start_ts <= m["added_at"] <= end_ts]
+    return ReportUniverseActivityOut(
+        titles_added_count=len(members), titles=sorted({m["title"] for m in members})
+    )
+
+
+def _storage_trend(db: Database, start_ts: str, end_ts: str) -> ReportStorageTrendOut:
+    by_label: dict[str, list[dict]] = {}
+    for snap in db.list_storage_snapshots_in_range(start_ts, end_ts):
+        by_label.setdefault(snap["label"], []).append(snap)
+    paths = [
+        StorageTrendPointOut(
+            label=label,
+            start_used_bytes=snaps[0]["used_bytes"],
+            end_used_bytes=snaps[-1]["used_bytes"],
+            delta_bytes=snaps[-1]["used_bytes"] - snaps[0]["used_bytes"],
+        )
+        for label, snaps in by_label.items()
+    ]
+    return ReportStorageTrendOut(paths=sorted(paths, key=lambda p: p.label))
+
+
+def _backlog(items: list[dict]) -> ReportBacklogOut:
+    unwatched = [r for r in items if not r["watched"]]
+    return ReportBacklogOut(
+        unwatched_count=len(unwatched),
+        unwatched_size_bytes=sum(_file_size(r["final_path"]) for r in unwatched if r.get("final_path")),
+    )
+
+
+def _engagement(added: list[dict], viewer_counts: dict[int, int]) -> ReportEngagementOut:
+    tag_counts: dict[str, int] = {}
+    for row in added:
+        for tag in _tags_list(row):
+            tag_counts[tag] = tag_counts.get(tag, 0) + 1
+    top_tags = [
+        GenreCountOut(genre=tag, count=count)
+        for tag, count in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
+    ]
+    return ReportEngagementOut(
+        distinct_active_viewers=sum(1 for v in viewer_counts.values() if v > 0), top_tags=top_tags
+    )
+
+
+def _operations_health(db: Database, start_ts: str, end_ts: str) -> ReportOperationsHealthOut:
+    ops = [
+        op
+        for op_type in ("archive", "rename")
+        for op in db.list_operations(operation_type=op_type, since=start_ts, until=end_ts, limit=_OPERATION_LOG_SCAN_LIMIT)
+    ]
+    succeeded = sum(1 for op in ops if op["status"] == "success")
+    failed = sum(1 for op in ops if op["status"] == "failed")
+    total = succeeded + failed
+    return ReportOperationsHealthOut(
+        succeeded=succeeded, failed=failed,
+        success_rate_pct=round(succeeded / total * 100, 1) if total else None,
+    )
+
+
+def _tracker_activity_extra(db: Database, start_ts: str, end_ts: str) -> dict:
+    """Extra archive_tracker fields merged into ReportTrackerActivityOut --
+    kept separate from build_report_summary's notification-based totals
+    since this reads archive_tracker directly instead of notification_history."""
+    trackers = db.list_tracked()
+    new_trackers = [t for t in trackers if start_ts <= t["created_at"] <= end_ts]
+    checks = db.list_operations(
+        operation_type="tracker_check", since=start_ts, until=end_ts, limit=_OPERATION_LOG_SCAN_LIMIT
+    )
+    return {
+        "new_trackers_added": len(new_trackers),
+        "new_trackers_watching": sum(1 for t in new_trackers if t["category"] == "watching"),
+        "new_trackers_interested": sum(1 for t in new_trackers if t["category"] == "interested"),
+        "new_trackers_watched": sum(1 for t in new_trackers if t["category"] == "watched"),
+        "muted_trackers_total": sum(1 for t in trackers if t["muted"]),
+        "tracker_checks_run": len(checks),
+    }
+
+
 def build_report_summary(db: Database, start: date, end: date) -> ReportSummaryOut:
     """Core report computation -- shared by GET /api/reports/summary (below)
     and the periodic report-delivery scheduler (app/core/report_delivery.py),
@@ -154,6 +275,7 @@ def build_report_summary(db: Database, start: date, end: date) -> ReportSummaryO
         movies_notified=sum(1 for n in notifications if n["media_type"] == "movie"),
         tv_shows_notified=sum(1 for n in notifications if n["media_type"] == "tv"),
         titles=sorted({n["title"] for n in notifications}),
+        **_tracker_activity_extra(db, start_ts, end_ts),
     )
 
     prev_start, prev_end = _previous_period(start, end)
@@ -173,6 +295,13 @@ def build_report_summary(db: Database, start: date, end: date) -> ReportSummaryO
         previous_period=previous_period,
         metadata_backlog=_metadata_backlog(db),
         cleanup_activity=_cleanup_activity(db, start_ts, end_ts),
+        content_profile=_content_profile(added),
+        match_quality=_match_quality(added),
+        universe_activity=_universe_activity(db, start_ts, end_ts),
+        storage_trend=_storage_trend(db, start_ts, end_ts),
+        backlog=_backlog(items),
+        engagement=_engagement(added, viewer_counts),
+        operations_health=_operations_health(db, start_ts, end_ts),
     )
 
 

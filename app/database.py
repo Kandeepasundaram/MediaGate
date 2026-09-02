@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 21
+SCHEMA_VERSION = 22
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -320,6 +320,18 @@ class Database:
             (label, cutoff),
         )
 
+    def list_storage_snapshots_in_range(self, since: str, until: str) -> list[dict[str, Any]]:
+        """All snapshot rows (any label) within [since, until], ordered so
+        the Reports page can take the first/last row per label as that
+        label's start/end usage for the period -- no config dependency
+        (unlike get_storage_status, labels here are whatever's already been
+        recorded, not re-derived from configured paths)."""
+        return self.fetch_all(
+            "SELECT * FROM storage_snapshots WHERE created_at >= ? AND created_at <= ? "
+            "ORDER BY label ASC, created_at ASC",
+            (since, until),
+        )
+
     def search_media_items(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
         """Cross-type (movie + tv) title *and* overview search for the
         header's global search box -- unlike list_media_items (full table,
@@ -528,6 +540,13 @@ class Database:
         self.execute_query(
             "DELETE FROM universe_members WHERE id = ? AND universe_id = ?", (member_id, universe_id)
         )
+
+    def list_all_universe_members(self) -> list[dict[str, Any]]:
+        """Every universe_members row across every universe, for the Reports
+        page's period-scoped "titles added to a universe" metric -- avoids
+        an N+1 loop over list_universes() + list_universe_members() per
+        universe (homelab-scale, but no reason not to do it in one query)."""
+        return self.fetch_all("SELECT * FROM universe_members ORDER BY added_at ASC")
 
     def list_universe_member_tmdb_ids(self, media_type: str) -> set[int]:
         """Every tmdb_id already a member of any universe of this type --
@@ -1084,6 +1103,20 @@ def _migration_v21(conn: sqlite3.Connection) -> None:
     conn.execute("ALTER TABLE archive_tracker ADD COLUMN category TEXT NOT NULL DEFAULT 'watching'")
 
 
+def _migration_v22(conn: sqlite3.Connection) -> None:
+    """Backfill media_items.archived_at for rows adopted from a pre-existing
+    library (app/core/library_adopt.py) before it started stamping archived_at
+    itself -- those rows were inserted with archived_at left NULL, which made
+    them permanently invisible to growth reporting (reports.py, status.py's
+    monthly chart) since both filter/bucket on archived_at. created_at is set
+    on every row (create_media_item's own default) and is the closest
+    available proxy for "date this file entered the app"."""
+    conn.execute(
+        "UPDATE media_items SET archived_at = created_at "
+        "WHERE archived_at IS NULL AND created_at IS NOT NULL"
+    )
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -1106,4 +1139,5 @@ _MIGRATIONS = {
     19: _migration_v19,
     20: _migration_v20,
     21: _migration_v21,
+    22: _migration_v22,
 }

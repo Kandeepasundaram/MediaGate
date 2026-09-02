@@ -2354,6 +2354,127 @@ def test_report_summary_cleanup_activity_counts_deletes_within_range(client):
     assert cleanup["deleted_paths"] == ["Old Movie.mkv"]
 
 
+def test_report_summary_content_profile_and_match_quality(client, tmp_path):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    small_file = tmp_path / "m1.mkv"
+    big_file = tmp_path / "m2.mkv"
+    small_file.write_bytes(b"x" * 100)
+    big_file.write_bytes(b"x" * 1000)
+    db.create_media_item(
+        original_path="m1", final_path=str(small_file), title="Small", media_type="movie", year=2020,
+        tmdb_id=1, archived_at="2026-02-01T00:00:00+00:00",
+    )
+    db.create_media_item(
+        original_path="m2", final_path=str(big_file), title="Big", media_type="movie", year=2024,
+        manual_override=1, imdb_id="tt123", archived_at="2026-02-10T00:00:00+00:00",
+    )
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    body = resp.json()
+    cp = body["content_profile"]
+    assert cp["largest_title"] == "Big"
+    assert cp["largest_size_bytes"] == 1000
+    assert cp["avg_release_year"] == 2022.0
+
+    mq = body["match_quality"]
+    assert mq["matched_count"] == 1
+    assert mq["unmatched_count"] == 1
+    assert mq["match_rate_pct"] == 50.0
+    assert mq["manual_override_count"] == 1
+    assert mq["imdb_linked_count"] == 1
+
+
+def test_report_summary_universe_activity_within_range(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    universe_id = db.create_universe("Marvel", "movie")
+    db.add_universe_member(universe_id, 1, "In Range Movie")
+    with db.connect() as conn:
+        conn.execute("UPDATE universe_members SET added_at = ?", ("2026-02-01T00:00:00+00:00",))
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    ua = resp.json()["universe_activity"]
+    assert ua["titles_added_count"] == 1
+    assert ua["titles"] == ["In Range Movie"]
+
+    resp_out = c.get("/api/reports/summary", params={"start": "2025-01-01", "end": "2025-03-31"})
+    assert resp_out.json()["universe_activity"]["titles_added_count"] == 0
+
+
+def test_report_summary_storage_trend_uses_first_and_last_snapshot_in_range(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.record_storage_snapshot("Movies", 1000, 5000)
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO storage_snapshots (label, used_bytes, total_bytes, created_at) VALUES (?, ?, ?, ?)",
+            ("Movies", 1500, 5000, "2026-02-01T00:00:00+00:00"),
+        )
+        conn.execute("UPDATE storage_snapshots SET created_at = ? WHERE used_bytes = 1000", ("2026-01-05T00:00:00+00:00",))
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    paths = resp.json()["storage_trend"]["paths"]
+    assert paths == [{"label": "Movies", "start_used_bytes": 1000, "end_used_bytes": 1500, "delta_bytes": 500}]
+
+
+def test_report_summary_backlog_counts_current_unwatched(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.create_media_item(original_path="m1", final_path="m1.mkv", title="Unwatched", media_type="movie", watched=0)
+    watched_id = db.create_media_item(original_path="m2", final_path="m2.mkv", title="Watched", media_type="movie")
+    db.update_media_item(watched_id, watched=1)
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    assert resp.json()["backlog"]["unwatched_count"] == 1
+
+
+def test_report_summary_engagement_top_tags_from_items_added_in_range(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    item_id = db.create_media_item(
+        original_path="m1", final_path="m1.mkv", title="Tagged", media_type="movie",
+        archived_at="2026-02-01T00:00:00+00:00",
+    )
+    db.update_media_item(item_id, tags=["favorite"])
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    top_tags = resp.json()["engagement"]["top_tags"]
+    assert top_tags == [{"genre": "favorite", "count": 1}]
+
+
+def test_report_summary_operations_health_counts_archive_and_rename(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    ok_id = db.log_operation(operation_type="archive", status="success")
+    fail_id = db.log_operation(operation_type="rename", status="failed")
+    with db.connect() as conn:
+        conn.execute("UPDATE operation_log SET created_at = ? WHERE id IN (?, ?)", ("2026-02-01T00:00:00+00:00", ok_id, fail_id))
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    oh = resp.json()["operations_health"]
+    assert oh["succeeded"] == 1
+    assert oh["failed"] == 1
+    assert oh["success_rate_pct"] == 50.0
+
+
+def test_report_summary_tracker_activity_new_trackers_and_checks(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    db.upsert_tracker(tmdb_id=1, media_type="movie", title="New Tracker", category="interested")
+    tracker_id = db.get_tracker(1, "movie")["id"]
+    check_id = db.log_operation(operation_type="tracker_check", status="success")
+    with db.connect() as conn:
+        conn.execute("UPDATE archive_tracker SET created_at = ? WHERE id = ?", ("2026-02-01T00:00:00+00:00", tracker_id))
+        conn.execute("UPDATE operation_log SET created_at = ? WHERE id = ?", ("2026-02-01T00:00:00+00:00", check_id))
+
+    resp = c.get("/api/reports/summary", params={"start": "2026-01-01", "end": "2026-03-31"})
+    t = resp.json()["tracker_activity"]
+    assert t["new_trackers_added"] == 1
+    assert t["new_trackers_interested"] == 1
+    assert t["tracker_checks_run"] == 1
+
+
 # ---- Tracker bulk-add ----
 
 

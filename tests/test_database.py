@@ -368,11 +368,18 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
             "INSERT INTO operation_log (operation_type, status, created_at) VALUES ('archive', 'success', ?)",
             (_now(),),
         )
+        # Simulates a row adopted by library_adopt.py before it stamped
+        # archived_at -- archived_at NULL, created_at set.
+        conn.execute(
+            "INSERT INTO media_items (original_path, title, media_type, created_at) "
+            "VALUES ('/x/Movie.mkv', 'Movie', 'movie', ?)",
+            (_now(),),
+        )
 
     db.migrate()
 
     version = db.fetch_one("SELECT version FROM schema_meta")["version"]
-    assert version == 21
+    assert version == 22
 
     # Pre-existing row survived the table rebuild.
     ops = db.list_operations(operation_type="archive")
@@ -381,6 +388,10 @@ def test_migrations_upgrade_v1_database_to_current(tmp_path):
     # And 'delete' is now a valid operation_type.
     db.log_operation("delete", "success", details={"path": "/x"})
     assert len(db.list_operations(operation_type="delete")) == 1
+
+    # _migration_v22 backfilled the previously-NULL archived_at from created_at.
+    item = db.list_media_items(media_type="movie")[0]
+    assert item["archived_at"] == item["created_at"]
 
     # v3's match_attempted_at column exists and is usable.
     item_id = db.create_media_item(original_path="x", title="T", media_type="movie")

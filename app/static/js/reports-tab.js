@@ -139,6 +139,52 @@ function exportReportCsv() {
   const c = data.cleanup_activity;
   rows.push(["Cleanup Activity", "Files deleted", c.deleted_count]);
   rows.push(["Cleanup Activity", "Failed deletes", c.failed_count]);
+
+  const cp = data.content_profile;
+  rows.push(["Content Profile", "Avg file size (bytes)", cp.avg_file_size_bytes]);
+  rows.push(["Content Profile", "Median file size (bytes)", cp.median_file_size_bytes]);
+  rows.push(["Content Profile", "Largest title", cp.largest_title ?? ""]);
+  rows.push(["Content Profile", "Largest file (bytes)", cp.largest_size_bytes]);
+  rows.push(["Content Profile", "Avg release year", cp.avg_release_year ?? ""]);
+
+  const mq = data.match_quality;
+  rows.push(["Match Quality", "Matched", mq.matched_count]);
+  rows.push(["Match Quality", "Unmatched", mq.unmatched_count]);
+  rows.push(["Match Quality", "Match rate (%)", mq.match_rate_pct ?? ""]);
+  rows.push(["Match Quality", "Manual overrides", mq.manual_override_count]);
+  rows.push(["Match Quality", "IMDb-linked", mq.imdb_linked_count]);
+
+  const ua = data.universe_activity;
+  rows.push(["Universe Activity", "Titles added", ua.titles_added_count]);
+  for (const title of ua.titles) rows.push(["Universe Activity", "Title", title]);
+
+  for (const p of data.storage_trend.paths) {
+    rows.push([`Storage Trend / ${p.label}`, "Start used (bytes)", p.start_used_bytes]);
+    rows.push([`Storage Trend / ${p.label}`, "End used (bytes)", p.end_used_bytes]);
+    rows.push([`Storage Trend / ${p.label}`, "Delta (bytes)", p.delta_bytes]);
+  }
+
+  const bl = data.backlog;
+  rows.push(["Backlog", "Unwatched items", bl.unwatched_count]);
+  rows.push(["Backlog", "Unwatched size (bytes)", bl.unwatched_size_bytes]);
+
+  const eg = data.engagement;
+  rows.push(["Engagement", "Distinct active viewers", eg.distinct_active_viewers]);
+  for (const tag of eg.top_tags) rows.push(["Engagement / Top Tags", tag.genre, tag.count]);
+
+  const oh = data.operations_health;
+  rows.push(["Operations Health", "Succeeded", oh.succeeded]);
+  rows.push(["Operations Health", "Failed", oh.failed]);
+  rows.push(["Operations Health", "Success rate (%)", oh.success_rate_pct ?? ""]);
+
+  const ta = data.tracker_activity;
+  rows.push(["Tracker Activity", "New trackers added", ta.new_trackers_added]);
+  rows.push(["Tracker Activity", "New watching", ta.new_trackers_watching]);
+  rows.push(["Tracker Activity", "New interested", ta.new_trackers_interested]);
+  rows.push(["Tracker Activity", "New watched (history)", ta.new_trackers_watched]);
+  rows.push(["Tracker Activity", "Muted trackers (current)", ta.muted_trackers_total]);
+  rows.push(["Tracker Activity", "Tracker checks run", ta.tracker_checks_run]);
+
   const csv = rowsToCsv(["Section", "Metric", "Value"], rows);
   downloadCsv(`report-${data.start_date}-to-${data.end_date}.csv`, csv);
 }
@@ -206,6 +252,16 @@ function renderReport(data) {
   const w = data.watch_activity;
   const t = data.tracker_activity;
   const p = data.previous_period;
+  const cp = data.content_profile;
+  const mq = data.match_quality;
+  const ua = data.universe_activity;
+  const bl = data.backlog;
+  const eg = data.engagement;
+  const oh = data.operations_health;
+  const tagRows = barRows(eg.top_tags, "genre", "count");
+  const storageRows = data.storage_trend.paths.map((sp) => `
+    <div class="storage-row"><span>${escapeAttr(sp.label)}</span><span class="hint">${formatBytes(sp.start_used_bytes)} → ${formatBytes(sp.end_used_bytes)} (${sp.delta_bytes >= 0 ? "+" : "-"}${formatBytes(Math.abs(sp.delta_bytes))})</span></div>
+  `).join("");
   const prevNote = p
     ? `<p class="hint">vs. ${p.start_date} to ${p.end_date}</p>`
     : "";
@@ -258,6 +314,9 @@ function renderReport(data) {
       ${prevNote}
       <p>Notifications sent: <strong>${t.notifications_sent}</strong>${p ? deltaBadge(t.notifications_sent, p.notifications_sent) : ""} (${t.movies_notified} movie(s), ${t.tv_shows_notified} show(s))</p>
       ${trackerTitles}
+      <p>New trackers added: <strong>${t.new_trackers_added}</strong> (${t.new_trackers_watching} watching, ${t.new_trackers_interested} interested, ${t.new_trackers_watched} watched)</p>
+      <p>Tracker checks run: <strong>${t.tracker_checks_run}</strong></p>
+      <p class="hint">Muted trackers (current, not period-scoped): ${t.muted_trackers_total}</p>
     </div>
 
     <div class="card">
@@ -267,6 +326,52 @@ function renderReport(data) {
       ${resolutionRows || `<p class="hint">No resolution data for this period.</p>`}
       <h5>By Month</h5>
       ${growthRows || `<p class="hint">No archive activity in this period.</p>`}
+    </div>
+
+    <div class="card">
+      <h5>Content Profile</h5>
+      <p class="hint">Shape of what was added in this period.</p>
+      <p>Avg file size: <strong>${formatBytes(cp.avg_file_size_bytes)}</strong> &middot; Median: <strong>${formatBytes(cp.median_file_size_bytes)}</strong></p>
+      <p>Largest file added: <strong>${cp.largest_title ? escapeAttr(cp.largest_title) : "—"}</strong>${cp.largest_title ? ` (${formatBytes(cp.largest_size_bytes)})` : ""}</p>
+      <p>Avg release year: <strong>${cp.avg_release_year ?? "—"}</strong></p>
+    </div>
+
+    <div class="card">
+      <h5>Match Quality</h5>
+      <p class="hint">TMDB match health of items added in this period.</p>
+      <p>Matched: <strong>${mq.matched_count}</strong> / Unmatched: <strong>${mq.unmatched_count}</strong>${mq.match_rate_pct !== null ? ` (${mq.match_rate_pct}% match rate)` : ""}</p>
+      <p>Manual overrides: <strong>${mq.manual_override_count}</strong> &middot; IMDb-linked: <strong>${mq.imdb_linked_count}</strong></p>
+    </div>
+
+    <div class="card">
+      <h5>Universe Activity</h5>
+      <p>Titles added to a franchise/universe: <strong>${ua.titles_added_count}</strong></p>
+      ${ua.titles.length ? `<p class="hint">${ua.titles.map(escapeAttr).join(", ")}</p>` : `<p class="hint">No universe additions in this period.</p>`}
+    </div>
+
+    <div class="card">
+      <h5>Storage Trend</h5>
+      <p class="hint">From daily snapshots recorded while the dashboard was open (Settings/status page) -- empty if none fell in this period.</p>
+      ${storageRows || `<p class="hint">No storage snapshots in this period.</p>`}
+    </div>
+
+    <div class="card">
+      <h5>Unwatched Backlog</h5>
+      <p class="hint">Current, not scoped to the period above.</p>
+      <p>Unwatched items: <strong>${bl.unwatched_count}</strong> &middot; Size: <strong>${formatBytes(bl.unwatched_size_bytes)}</strong></p>
+    </div>
+
+    <div class="card">
+      <h5>Engagement</h5>
+      <p>Distinct active viewers this period: <strong>${eg.distinct_active_viewers}</strong></p>
+      <h5>Top Tags (items added)</h5>
+      ${tagRows || `<p class="hint">No tagged items added in this period.</p>`}
+    </div>
+
+    <div class="card">
+      <h5>Operations Health</h5>
+      <p class="hint">Archive + organize operations logged in this period.</p>
+      <p>Succeeded: <strong>${oh.succeeded}</strong> &middot; Failed: <strong>${oh.failed}</strong>${oh.success_rate_pct !== null ? ` (${oh.success_rate_pct}% success rate)` : ""}</p>
     </div>
 
     <div class="card">
