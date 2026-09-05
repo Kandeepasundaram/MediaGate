@@ -11,6 +11,10 @@ export function setPreviewMode(mode) {
   $("#approve-btn").textContent = mode === "organize" ? "Approve & Organize (Move)" : "Approve & Archive";
 }
 
+function setScanProgressVisible(visible) {
+  $("#scan-progress-bar").classList.toggle("hidden", !visible);
+}
+
 export async function previewPaths(paths, sizeByPath = {}) {
   const tbody = $("#archive-table tbody");
   tbody.innerHTML = "";
@@ -19,10 +23,12 @@ export async function previewPaths(paths, sizeByPath = {}) {
 
   if (paths.length === 0) {
     $("#scan-status").textContent = "No files selected";
+    setScanProgressVisible(false);
     return;
   }
 
   $("#scan-status").textContent = "Fetching metadata...";
+  setScanProgressVisible(true);
   try {
     const preview = await api("/api/archive/preview", {
       method: "POST",
@@ -35,12 +41,15 @@ export async function previewPaths(paths, sizeByPath = {}) {
       (preview.errors.length ? `, ${preview.errors.length} error(s)` : "");
   } catch (e) {
     $("#scan-status").textContent = `Error: ${e.message}`;
+  } finally {
+    setScanProgressVisible(false);
   }
 }
 
 export async function scanAndPreview() {
   setPreviewMode("archive");
   $("#scan-status").textContent = "Scanning...";
+  setScanProgressVisible(true);
   try {
     const scan = await api("/api/scan");
     refreshNewFilesBadge(); // the scan itself just cleared the watcher's queue server-side
@@ -48,12 +57,14 @@ export async function scanAndPreview() {
       $("#scan-status").textContent = `No new media files found in ${scan.directories.join(", ")}`;
       $("#archive-table tbody").innerHTML = "";
       state.previewItems = [];
+      setScanProgressVisible(false);
       return;
     }
     const sizeByPath = Object.fromEntries(scan.files.map((f) => [f.path, f.size_bytes]));
     await previewPaths(scan.files.map((f) => f.path), sizeByPath);
   } catch (e) {
     $("#scan-status").textContent = `Error: ${e.message}`;
+    setScanProgressVisible(false);
   }
 }
 
@@ -144,6 +155,7 @@ function renderArchiveTable(items) {
         item.dest_path = `${folder}/${currentFileName}`;
       }
       stemInput.title = item.dest_path;
+      updateDestDiff(idx);
     });
   });
 
@@ -161,8 +173,38 @@ function renderArchiveTable(items) {
       const dir = dirOf(item.dest_path);
       item.dest_path = dir ? `${dir}/${raw}` : raw;
       input.title = item.dest_path;
+      updateDestDiff(idx);
     });
   });
+}
+
+// Highlights the part of the computed new filename that differs from the
+// original -- a longest-common-prefix/suffix diff (not a full LCS), which
+// is cheap and reads well for the common case (year/season/episode
+// reformatted, resolution/release tags stripped) even though it isn't a
+// true minimal diff for edits scattered across the middle of the name.
+function highlightDiff(oldName, newName) {
+  let prefixLen = 0;
+  const maxPrefix = Math.min(oldName.length, newName.length);
+  while (prefixLen < maxPrefix && oldName[prefixLen] === newName[prefixLen]) prefixLen++;
+  let suffixLen = 0;
+  const maxSuffix = maxPrefix - prefixLen;
+  while (suffixLen < maxSuffix && oldName[oldName.length - 1 - suffixLen] === newName[newName.length - 1 - suffixLen]) suffixLen++;
+  const prefix = newName.slice(0, prefixLen);
+  const middle = newName.slice(prefixLen, newName.length - suffixLen);
+  const suffix = newName.slice(newName.length - suffixLen);
+  return `${escapeAttr(prefix)}${middle ? `<mark class="diff-highlight">${escapeAttr(middle)}</mark>` : ""}${escapeAttr(suffix)}`;
+}
+
+function destDiffMarkup(item, i) {
+  const oldName = item.source_path.split(/[\\/]/).pop();
+  const newName = item.dest_path.split(/[\\/]/).pop();
+  return `<div class="dest-diff hint" data-diff-index="${i}" title="Original: ${escapeAttr(oldName)}">→ ${highlightDiff(oldName, newName)}</div>`;
+}
+
+function updateDestDiff(index) {
+  const el = $(`.dest-diff[data-diff-index="${index}"]`);
+  if (el) el.outerHTML = destDiffMarkup(state.previewItems[index], index);
 }
 
 function renderMovieNameCell(item, i) {
@@ -173,12 +215,18 @@ function renderMovieNameCell(item, i) {
       <label class="dest-rename-file-toggle">
         <input type="checkbox" class="dest-rename-file-checkbox" data-index="${i}" checked> also rename file
       </label>
+      ${destDiffMarkup(item, i)}
     </div>
   `;
 }
 
 function renderTvNameCell(item, i) {
-  return `<input type="text" class="dest-name-input" data-index="${i}" title="${item.dest_path}" value="${escapeAttr(item.dest_path.split(/[\\/]/).pop())}">`;
+  return `
+    <div class="dest-name-cell">
+      <input type="text" class="dest-name-input" data-index="${i}" title="${item.dest_path}" value="${escapeAttr(item.dest_path.split(/[\\/]/).pop())}">
+      ${destDiffMarkup(item, i)}
+    </div>
+  `;
 }
 
 function extBaseOf(fileName) {

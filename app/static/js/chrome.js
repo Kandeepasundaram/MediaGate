@@ -13,11 +13,53 @@ import { loadBackgroundTaskStatus, loadInsights, loadStats, loadStorageStatus } 
 import { loadWatchlist } from "./watchlist-tab.js";
 
 // ---- Tabs ----
+const LAST_TAB_KEY = "media-manager:last-tab";
+const SCROLL_KEY_PREFIX = "media-manager:scroll:";
+
+function saveScrollPosition(tabName) {
+  if (!tabName) return;
+  try { localStorage.setItem(SCROLL_KEY_PREFIX + tabName, String(window.scrollY)); } catch (e) { /* private browsing / storage disabled */ }
+}
+
+// Content for the newly-active tab loads asynchronously (a gallery fetch,
+// a table render, ...), so scrolling once immediately would just land at
+// 0 on a page that isn't tall enough yet -- retry a handful of times as
+// the content renders in instead of trying to await every tab's own load
+// function (each has a different shape/signature).
+export function restoreScrollPosition(tabName) {
+  let y = null;
+  try { y = localStorage.getItem(SCROLL_KEY_PREFIX + tabName); } catch (e) { /* private browsing / storage disabled */ }
+  if (y == null) return;
+  const target = Number(y);
+  let attempts = 0;
+  const tryScroll = () => {
+    attempts++;
+    window.scrollTo(0, target);
+    if (attempts < 6) setTimeout(tryScroll, 150);
+  };
+  tryScroll();
+}
+
+let scrollSaveDebounce = null;
+export function setupScrollPersistence() {
+  window.addEventListener("scroll", () => {
+    clearTimeout(scrollSaveDebounce);
+    scrollSaveDebounce = setTimeout(() => {
+      const active = $(".tab-btn.active");
+      if (active) saveScrollPosition(active.dataset.tab);
+    }, 200);
+  });
+}
+
 function activateTab(tabName) {
+  const previous = $(".tab-btn.active");
+  if (previous) saveScrollPosition(previous.dataset.tab);
   $all(".tab-btn").forEach((b) => b.classList.remove("active"));
   $all(".tab-panel").forEach((p) => p.classList.remove("active"));
   $(`.tab-btn[data-tab="${tabName}"]`).classList.add("active");
   $(`#tab-${tabName}`).classList.add("active");
+  try { localStorage.setItem(LAST_TAB_KEY, tabName); } catch (e) { /* private browsing / storage disabled -- just won't be remembered */ }
+  restoreScrollPosition(tabName);
   if (tabName === "movies") loadMoviesGallery();
   if (tabName === "tv") loadTvGallery();
   if (tabName === "browse") loadBrowse();
@@ -32,6 +74,20 @@ export function setupTabs() {
   $all(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => activateTab(btn.dataset.tab));
   });
+}
+
+// Restores whichever tab was open on the last visit, run once at startup
+// instead of always defaulting to Movies -- a no-op (stays on Movies, the
+// markup's default-active tab) if nothing was saved yet or the saved name
+// no longer matches a real tab button.
+export function restoreLastTab() {
+  let tabName = null;
+  try { tabName = localStorage.getItem(LAST_TAB_KEY); } catch (e) { /* private browsing / storage disabled */ }
+  if (tabName && tabName !== "movies" && $(`.tab-btn[data-tab="${tabName}"]`)) {
+    activateTab(tabName);
+    return true;
+  }
+  return false;
 }
 
 // ---- Global search ----

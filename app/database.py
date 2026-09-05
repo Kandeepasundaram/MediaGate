@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS media_items (
     manual_override INTEGER NOT NULL DEFAULT 0,
     tags TEXT,
     watched_at TEXT,
+    personal_rating INTEGER,
+    personal_note TEXT,
     created_at TEXT NOT NULL
 );
 
@@ -124,6 +126,8 @@ CREATE TABLE IF NOT EXISTS tv_shows (
     overview TEXT,
     genres TEXT,
     status TEXT NOT NULL DEFAULT 'watching' CHECK (status IN ('watching', 'running', 'season_done', 'cancelled', 'ended')),
+    personal_rating INTEGER,
+    personal_note TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -785,6 +789,12 @@ class Database:
             (status, _now(), tmdb_id),
         )
 
+    def set_tv_show_personal(self, tmdb_id: int, rating: int | None, note: str | None) -> None:
+        self.execute_query(
+            "UPDATE tv_shows SET personal_rating = ?, personal_note = ?, updated_at = ? WHERE tmdb_id = ?",
+            (rating, note, _now(), tmdb_id),
+        )
+
     # ---- maintenance ----
 
     def maintenance_checkpoint_and_vacuum(self) -> None:
@@ -1117,6 +1127,19 @@ def _migration_v22(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v23(conn: sqlite3.Connection) -> None:
+    """Add personal_rating/personal_note to media_items (movies, one row
+    per file) and tv_shows (one row per show, independent of episode
+    files, same rationale as status -- see tv_shows's own comment). A
+    personal star rating/freeform note is a purely user-entered opinion,
+    distinct from TMDB's vote_average, which the app already displays.
+    Plain nullable column adds, no rebuild needed."""
+    conn.execute("ALTER TABLE media_items ADD COLUMN personal_rating INTEGER")
+    conn.execute("ALTER TABLE media_items ADD COLUMN personal_note TEXT")
+    conn.execute("ALTER TABLE tv_shows ADD COLUMN personal_rating INTEGER")
+    conn.execute("ALTER TABLE tv_shows ADD COLUMN personal_note TEXT")
+
+
 _MIGRATIONS = {
     1: _migration_v1,
     2: _migration_v2,
@@ -1140,4 +1163,5 @@ _MIGRATIONS = {
     20: _migration_v20,
     21: _migration_v21,
     22: _migration_v22,
+    23: _migration_v23,
 }

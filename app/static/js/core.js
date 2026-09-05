@@ -26,6 +26,29 @@ export const state = {
 export function $(sel) { return document.querySelector(sel); }
 export function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
 
+// ---- Toasts ----
+// For actions that reload silently on success with no adjacent status text
+// (gallery batch buttons, preset save/delete, viewer create) -- most forms
+// in this app already have their own dedicated inline status element and
+// should keep using that instead of a toast.
+let toastSeq = 0;
+
+export function showToast(message, type = "info", duration = 4000) {
+  const container = $("#toast-container");
+  if (!container) return;
+  const id = ++toastSeq;
+  const el = document.createElement("div");
+  el.className = `toast toast-${type}`;
+  el.dataset.toastId = id;
+  el.innerHTML = `<span class="toast-message"></span><button class="toast-close" aria-label="Dismiss">×</button>`;
+  el.querySelector(".toast-message").textContent = message;
+  const remove = () => el.remove();
+  el.querySelector(".toast-close").addEventListener("click", remove);
+  container.appendChild(el);
+  setTimeout(remove, duration);
+  return id;
+}
+
 export function formatBytes(bytes) {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

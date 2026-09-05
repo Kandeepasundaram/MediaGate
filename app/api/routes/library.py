@@ -41,6 +41,7 @@ from app.models import (
     MoreInfoOut,
     MovieRelatedTitleOut,
     MovieStatusOut,
+    PersonalRatingUpdateRequest,
     PersonCreditItemOut,
     PersonCreditsResponse,
     RatingsOut,
@@ -135,15 +136,21 @@ def list_tv(
             poster_path=meta.get("poster_path"), overview=meta.get("overview"), genres=meta.get("genres"),
         )
 
-    status_by_tmdb_id = {s["tmdb_id"]: s["status"] for s in db.list_tv_shows()}
-    items = [_to_out(r, watched_ids, status_by_tmdb_id.get(r["tmdb_id"])) for r in rows]
+    all_shows = db.list_tv_shows()
+    status_by_tmdb_id = {s["tmdb_id"]: s["status"] for s in all_shows}
+    personal_by_tmdb_id = {s["tmdb_id"]: (s["personal_rating"], s["personal_note"]) for s in all_shows}
+    items = [
+        _to_out(r, watched_ids, status_by_tmdb_id.get(r["tmdb_id"]), personal_by_tmdb_id.get(r["tmdb_id"]))
+        for r in rows
+    ]
 
     orphaned_shows = [
         TvShowSummaryOut(
             tmdb_id=s["tmdb_id"], title=s["title"], imdb_id=s["imdb_id"], poster_path=s["poster_path"],
             overview=s["overview"] or "", genres=json.loads(s["genres"]) if s["genres"] else [], status=s["status"],
+            personal_rating=s["personal_rating"], personal_note=s["personal_note"],
         )
-        for s in db.list_tv_shows() if s["tmdb_id"] not in present_tmdb_ids
+        for s in all_shows if s["tmdb_id"] not in present_tmdb_ids
     ]
     return TvLibraryResponse(items=items, orphaned_shows=orphaned_shows)
 
@@ -158,6 +165,39 @@ def set_tv_show_status(tmdb_id: int, payload: TvShowStatusUpdateRequest, db: Dat
     return TvShowSummaryOut(
         tmdb_id=show["tmdb_id"], title=show["title"], imdb_id=show["imdb_id"], poster_path=show["poster_path"],
         overview=show["overview"] or "", genres=json.loads(show["genres"]) if show["genres"] else [], status=show["status"],
+        personal_rating=show["personal_rating"], personal_note=show["personal_note"],
+    )
+
+
+def _validate_rating(rating: int | None) -> None:
+    if rating is not None and not (1 <= rating <= 5):
+        raise HTTPException(status_code=400, detail="rating must be 1-5, or null to clear it")
+
+
+@router.post("/{item_id}/personal", response_model=LibraryItemOut)
+def set_personal(item_id: int, payload: PersonalRatingUpdateRequest, db: Database = Depends(get_database)) -> LibraryItemOut:
+    """Movie personal rating/note -- lives on the media_items row itself,
+    unlike a TV show's (see set_tv_show_personal below), since one movie
+    is one row."""
+    _validate_rating(payload.rating)
+    if db.get_media_item(item_id) is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    db.update_media_item(item_id, personal_rating=payload.rating, personal_note=payload.note)
+    return _to_out(db.get_media_item(item_id))
+
+
+@router.post("/tv-shows/{tmdb_id}/personal", response_model=TvShowSummaryOut)
+def set_tv_show_personal(tmdb_id: int, payload: PersonalRatingUpdateRequest, db: Database = Depends(get_database)) -> TvShowSummaryOut:
+    _validate_rating(payload.rating)
+    show = db.get_tv_show(tmdb_id)
+    if show is None:
+        raise HTTPException(status_code=404, detail="Show not tracked yet -- open its TV tab entry first")
+    db.set_tv_show_personal(tmdb_id, payload.rating, payload.note)
+    show = db.get_tv_show(tmdb_id)
+    return TvShowSummaryOut(
+        tmdb_id=show["tmdb_id"], title=show["title"], imdb_id=show["imdb_id"], poster_path=show["poster_path"],
+        overview=show["overview"] or "", genres=json.loads(show["genres"]) if show["genres"] else [], status=show["status"],
+        personal_rating=show["personal_rating"], personal_note=show["personal_note"],
     )
 
 

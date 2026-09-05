@@ -27,8 +27,16 @@ def _tags_list(row: dict) -> list[str]:
     return tags if isinstance(tags, list) else []
 
 
-def _to_out(row: dict, viewer_watched_ids: set[int] | None = None, show_status: str | None = None) -> LibraryItemOut:
+def _to_out(
+    row: dict, viewer_watched_ids: set[int] | None = None, show_status: str | None = None,
+    show_personal: tuple[int | None, str | None] | None = None,
+) -> LibraryItemOut:
     meta = _metadata_dict(row)
+    # TV rows: personal rating/note live on tv_shows (one per show), passed
+    # in by the caller (list_tv already looks it up alongside show_status)
+    # -- a per-episode media_items.personal_rating would be meaningless.
+    # Movies: each row IS the item, so its own column is authoritative.
+    personal_rating, personal_note = show_personal if show_personal is not None else (row["personal_rating"], row["personal_note"])
 
     file_name = None
     size_bytes = None
@@ -66,4 +74,6 @@ def _to_out(row: dict, viewer_watched_ids: set[int] | None = None, show_status: 
         tags=_tags_list(row),
         viewer_watched=(row["id"] in viewer_watched_ids) if viewer_watched_ids is not None else None,
         show_status=show_status,
+        personal_rating=personal_rating,
+        personal_note=personal_note,
     )

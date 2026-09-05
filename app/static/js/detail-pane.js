@@ -28,6 +28,7 @@ export function renderDetailPane() {
         <input type="checkbox" id="detail-watched-toggle" data-id="${item.id}" ${effectiveWatched(item) ? "checked" : ""}>
         Watched${getActiveViewerId() != null ? ` (${escapeAttr(state.viewers?.find((v) => v.id === getActiveViewerId())?.name || "viewer")})` : ""}
       </label>
+      ${personalRatingMarkup(item.personal_rating, item.personal_note)}
       ${detailTagsMarkup(item.tags)}
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
@@ -64,6 +65,11 @@ export function renderDetailPane() {
     loadFileInfo(item.id, "#detail-file-extra");
     if (item.tmdb_id != null) loadMovieStatus(item.tmdb_id);
     wireDetailTags([item.id], (tags) => { item.tags = tags; renderMoviesGallery(); });
+    wirePersonalRating(
+      item.personal_rating,
+      async (rating) => { await api(`/api/library/${item.id}/personal`, { method: "POST", body: JSON.stringify({ rating, note: item.personal_note ?? null }) }); item.personal_rating = rating; },
+      async (note) => { await api(`/api/library/${item.id}/personal`, { method: "POST", body: JSON.stringify({ rating: item.personal_rating ?? null, note }) }); item.personal_note = note; },
+    );
   } else if (pane.kind === "tracker") {
     const item = pane.data;
     const statusLine = item.media_type === "tv"
@@ -184,6 +190,7 @@ export function renderDetailPane() {
           <span id="detail-api-status-pill"></span>
         </label>
       ` : ""}
+      ${show.tmdb_id != null ? personalRatingMarkup(show.personal_rating, show.personal_note) : ""}
       ${hasEpisodes ? detailTagsMarkup(show.tags) : ""}
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
@@ -216,6 +223,11 @@ export function renderDetailPane() {
           select.disabled = false;
         }
       });
+      wirePersonalRating(
+        show.personal_rating,
+        async (rating) => { await api(`/api/library/tv-shows/${show.tmdb_id}/personal`, { method: "POST", body: JSON.stringify({ rating, note: show.personal_note ?? null }) }); show.personal_rating = rating; },
+        async (note) => { await api(`/api/library/tv-shows/${show.tmdb_id}/personal`, { method: "POST", body: JSON.stringify({ rating: show.personal_rating ?? null, note }) }); show.personal_note = note; },
+      );
     }
     renderTvBody();
     if (hasEpisodes) {
@@ -958,6 +970,74 @@ function posterMarkupLarge(title, posterPath) {
   return url
     ? `<img class="detail-poster" src="${url}" alt="${title}">`
     : `<div class="detail-poster-placeholder">${title}</div>`;
+}
+
+// ---- Personal rating/note (distinct from TMDB's vote_average and from
+// the AI-generated note file above) -- a plain user-entered star rating
+// and freeform note, stored per-movie (media_items row) or per-show
+// (tv_shows row, since a show's episodes don't each get their own).
+function escapeHtml(str) {
+  return (str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function personalRatingMarkup(rating, note) {
+  const stars = [1, 2, 3, 4, 5].map((n) => `<button class="personal-star-btn${n <= (rating || 0) ? " filled" : ""}" data-star="${n}" title="${n} star${n > 1 ? "s" : ""}">★</button>`).join("");
+  return `
+    <div class="detail-personal">
+      <div class="detail-personal-stars" id="detail-personal-stars">
+        ${stars}
+        ${rating ? `<button class="personal-star-clear-btn" id="detail-personal-clear-btn" title="Clear rating">Clear</button>` : ""}
+      </div>
+      <textarea id="detail-personal-note" class="detail-personal-note" placeholder="Your notes about this title…" rows="3">${escapeHtml(note)}</textarea>
+      <div class="toolbar">
+        <button id="detail-personal-note-save-btn">Save Note</button>
+        <span id="detail-personal-status" class="hint"></span>
+      </div>
+    </div>
+  `;
+}
+
+function renderPersonalStars(rating, saveRating) {
+  const starsEl = $("#detail-personal-stars");
+  if (!starsEl) return;
+  const stars = [1, 2, 3, 4, 5].map((n) => `<button class="personal-star-btn${n <= (rating || 0) ? " filled" : ""}" data-star="${n}" title="${n} star${n > 1 ? "s" : ""}">★</button>`).join("");
+  starsEl.innerHTML = `${stars}${rating ? `<button class="personal-star-clear-btn" id="detail-personal-clear-btn" title="Clear rating">Clear</button>` : ""}`;
+  starsEl.querySelectorAll(".personal-star-btn").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      try {
+        const rating = Number(btn.dataset.star);
+        await saveRating(rating);
+        renderPersonalStars(rating, saveRating);
+      } catch (e) {
+        $("#detail-personal-status").textContent = `Error: ${e.message}`;
+      }
+    });
+  });
+  const clearBtn = $("#detail-personal-clear-btn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", async () => {
+      try {
+        await saveRating(null);
+        renderPersonalStars(null, saveRating);
+      } catch (e) {
+        $("#detail-personal-status").textContent = `Error: ${e.message}`;
+      }
+    });
+  }
+}
+
+function wirePersonalRating(rating, saveRating, saveNote) {
+  renderPersonalStars(rating, saveRating);
+  $("#detail-personal-note-save-btn").addEventListener("click", async () => {
+    const status = $("#detail-personal-status");
+    status.textContent = "Saving…";
+    try {
+      await saveNote($("#detail-personal-note").value);
+      status.textContent = "Saved.";
+    } catch (e) {
+      status.textContent = `Error: ${e.message}`;
+    }
+  });
 }
 
 function detailTagsMarkup(tags) {

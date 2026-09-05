@@ -4,7 +4,7 @@
 
 import { escapeAttr, showConfirm } from "./archive-tab.js";
 import { loadStatus } from "./chrome.js";
-import { $, api, formatBytes, setStoredApiToken, state } from "./core.js";
+import { $, api, formatBytes, setStoredApiToken, showToast, state } from "./core.js";
 import { getActiveViewerId, loadMoviesGallery, loadTvGallery, setActiveViewerId } from "./gallery.js";
 
 // ---- Settings tab ----
@@ -301,9 +301,11 @@ export async function createViewerAction() {
   try {
     await api("/api/library/viewers", { method: "POST", body: JSON.stringify({ name }) });
     input.value = "";
+    showToast(`Added viewer "${name}".`, "success");
     loadViewers();
   } catch (e) {
     $("#viewers-list").insertAdjacentHTML("afterbegin", `<p>Error: ${e.message}</p>`);
+    showToast(`Could not add viewer: ${e.message}`, "error");
   }
 }
 

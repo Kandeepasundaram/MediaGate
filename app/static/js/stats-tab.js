@@ -36,6 +36,22 @@ export async function loadStats() {
   }
 }
 
+// Plain inline SVG polyline -- no charting library needed for one line.
+// viewBox-scaled so it stays crisp at any container width via CSS.
+function sparklineSvg(values, width = 280, height = 48) {
+  if (values.length < 2) return "";
+  const max = Math.max(1, ...values);
+  const stepX = width / (values.length - 1);
+  const points = values.map((v, i) => `${(i * stepX).toFixed(1)},${(height - (v / max) * height).toFixed(1)}`);
+  const areaPoints = `0,${height} ${points.join(" ")} ${width},${height}`;
+  return `
+    <svg class="growth-sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none" role="img" aria-label="Library growth trend over the last 12 months">
+      <polygon points="${areaPoints}" class="growth-sparkline-area"></polygon>
+      <polyline points="${points.join(" ")}" class="growth-sparkline-line"></polyline>
+    </svg>
+  `;
+}
+
 export async function loadInsights() {
   const card = $("#insights-card");
   card.textContent = "Loading...";
@@ -58,9 +74,11 @@ export async function loadInsights() {
         </table>`
       : `<p class="hint">No resolution data yet -- open a title's file details to probe it.</p>`;
 
-    const maxGrowthCount = Math.max(1, ...data.growth_by_month.map((m) => m.count));
+    const recentGrowth = data.growth_by_month.slice(-12);
+    const maxGrowthCount = Math.max(1, ...recentGrowth.map((m) => m.count));
+    const growthSparkline = sparklineSvg(recentGrowth.map((m) => m.count));
     const growthRows = data.growth_by_month.length
-      ? data.growth_by_month.slice(-12).map((m) => `
+      ? recentGrowth.map((m) => `
           <div class="storage-row"><span>${m.month}</span><span class="hint">${m.count} added</span></div>
           <div class="storage-bar"><div class="storage-bar-fill" style="width:${Math.round((m.count / maxGrowthCount) * 100)}%"></div></div>
         `).join("")
@@ -73,6 +91,7 @@ export async function loadInsights() {
       <h5>Average Size by Resolution</h5>
       ${resolutionRows}
       <h5>Library Growth (last 12 months)</h5>
+      ${growthSparkline}
       ${growthRows}
     `;
   } catch (e) {

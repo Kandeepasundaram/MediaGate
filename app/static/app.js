@@ -4,9 +4,9 @@
 
 import { approveSelected, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
 import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable } from "./js/browse-tab.js";
-import { loadStatus, setupGlobalSearch, setupTabs, setupTheme } from "./js/chrome.js";
+import { loadStatus, restoreLastTab, restoreScrollPosition, setupGlobalSearch, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
-import { $, $all, api, state } from "./js/core.js";
+import { $, $all, api, showToast, state } from "./js/core.js";
 import { closeDetailPane, closePersonModal } from "./js/detail-pane.js";
 import { activateGalleryFocus, activeGalleryContext, applyFilterPreset, applyTagBatch, deleteFilterPreset, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
@@ -46,6 +46,7 @@ function setupKeyboardShortcuts() {
     }
     if (e.key === "Escape") {
       $("#confirm-modal").classList.add("hidden");
+      $("#shortcuts-modal").classList.add("hidden");
       closeMatchPicker();
       closePersonModal();
       closeDetailPane();
@@ -54,6 +55,17 @@ function setupKeyboardShortcuts() {
 
     const typing = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
     if (typing) return;
+
+    if (e.key === "?") {
+      e.preventDefault();
+      $("#shortcuts-modal").classList.remove("hidden");
+      return;
+    }
+    if (e.key === "s" || e.key === "S") {
+      e.preventDefault();
+      $("#global-search").focus();
+      return;
+    }
 
     if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(e.key)) {
       const ctx = activeGalleryContext();
@@ -88,6 +100,7 @@ if ("serviceWorker" in navigator) {
 
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
+  setupScrollPersistence();
   setupUniverseTypeTabs();
   setupTrackerCategoryTabs();
   setupGlobalSearch();
@@ -96,7 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupFilterPersistence();
   setupReportsTab();
   loadStatus();
-  loadMoviesGallery();
+  if (!restoreLastTab()) { loadMoviesGallery(); restoreScrollPosition("movies"); }
   loadViewers();
   wireRecommendationsToggle("movie", "movies-recommendations-row", "movies-recommendations-cards");
   wireRecommendationsToggle("tv", "tv-recommendations-row", "tv-recommendations-cards");
@@ -187,12 +200,16 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#movies-mark-watched-btn").addEventListener("click", async () => {
     const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    if (ids.length === 0) return;
     await markWatchedBatch(ids, true);
+    showToast(`Marked ${ids.length} movie(s) watched.`, "success");
     loadMoviesGallery();
   });
   $("#movies-mark-unwatched-btn").addEventListener("click", async () => {
     const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    if (ids.length === 0) return;
     await markWatchedBatch(ids, false);
+    showToast(`Marked ${ids.length} movie(s) unwatched.`, "success");
     loadMoviesGallery();
   });
   $("#movies-rename-selected-btn").addEventListener("click", async () => {
@@ -213,10 +230,16 @@ document.addEventListener("DOMContentLoaded", () => {
         method: "POST",
         body: JSON.stringify({ paths: items.map((i) => i.final_path) }),
       });
-      if (data.errors.length) $("#movies-count").textContent = `${data.errors.length} deletion(s) failed: ${data.errors.join("; ")}`;
+      if (data.errors.length) {
+        $("#movies-count").textContent = `${data.errors.length} deletion(s) failed: ${data.errors.join("; ")}`;
+        showToast(`${data.errors.length} deletion(s) failed.`, "error");
+      } else {
+        showToast(`Deleted ${items.length} movie file(s).`, "success");
+      }
       loadMoviesGallery();
     } catch (e) {
       $("#movies-count").textContent = `Error: ${e.message}`;
+      showToast(`Delete failed: ${e.message}`, "error");
     }
   });
   $("#movies-refresh-metadata-btn").addEventListener("click", async () => {
@@ -229,6 +252,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const tagInput = $("#movies-tag-input");
     if (ids.length === 0 || !tagInput.value.trim()) return;
     await applyTagBatch(ids, tagInput.value);
+    showToast(`Tagged ${ids.length} movie(s) "${tagInput.value.trim()}".`, "success");
     tagInput.value = "";
     loadMoviesGallery();
   });
@@ -239,13 +263,19 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#movies-preset-save-btn").addEventListener("click", () => {
     const name = window.prompt("Save current filters/sort as:");
-    if (name) saveFilterPreset("movies", name, MOVIE_PRESET_IDS);
+    if (name) {
+      saveFilterPreset("movies", name, MOVIE_PRESET_IDS);
+      showToast(`Saved view "${name}".`, "success");
+    }
   });
   $("#movies-preset-delete-btn").addEventListener("click", async () => {
     const name = $("#movies-preset-select").value;
     if (!name) return;
     const ok = await showConfirm(`Delete saved view "${name}"?`);
-    if (ok) deleteFilterPreset("movies", name);
+    if (ok) {
+      deleteFilterPreset("movies", name);
+      showToast(`Deleted saved view "${name}".`, "info");
+    }
   });
   $("#movies-export-btn").addEventListener("click", exportMoviesView);
 
@@ -266,14 +296,18 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#tv-mark-watched-btn").addEventListener("click", async () => {
     const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    if (titles.size === 0) return;
     const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
     await markWatchedBatch(ids, true);
+    showToast(`Marked ${titles.size} show(s) watched.`, "success");
     loadTvGallery();
   });
   $("#tv-mark-unwatched-btn").addEventListener("click", async () => {
     const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    if (titles.size === 0) return;
     const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
     await markWatchedBatch(ids, false);
+    showToast(`Marked ${titles.size} show(s) unwatched.`, "success");
     loadTvGallery();
   });
   $("#tv-rename-selected-btn").addEventListener("click", async () => {
@@ -295,6 +329,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const tagInput = $("#tv-tag-input");
     if (ids.length === 0 || !tagInput.value.trim()) return;
     await applyTagBatch(ids, tagInput.value);
+    showToast(`Tagged ${titles.size} show(s) "${tagInput.value.trim()}".`, "success");
     tagInput.value = "";
     loadTvGallery();
   });
@@ -309,10 +344,16 @@ document.addEventListener("DOMContentLoaded", () => {
         method: "POST",
         body: JSON.stringify({ paths: items.map((i) => i.final_path) }),
       });
-      if (data.errors.length) $("#tv-count").textContent = `${data.errors.length} deletion(s) failed: ${data.errors.join("; ")}`;
+      if (data.errors.length) {
+        $("#tv-count").textContent = `${data.errors.length} deletion(s) failed: ${data.errors.join("; ")}`;
+        showToast(`${data.errors.length} deletion(s) failed.`, "error");
+      } else {
+        showToast(`Deleted ${items.length} episode file(s).`, "success");
+      }
       loadTvGallery();
     } catch (e) {
       $("#tv-count").textContent = `Error: ${e.message}`;
+      showToast(`Delete failed: ${e.message}`, "error");
     }
   });
   $("#tv-preset-select").addEventListener("change", (e) => {
@@ -322,13 +363,19 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#tv-preset-save-btn").addEventListener("click", () => {
     const name = window.prompt("Save current filters/sort as:");
-    if (name) saveFilterPreset("tv", name, TV_PRESET_IDS);
+    if (name) {
+      saveFilterPreset("tv", name, TV_PRESET_IDS);
+      showToast(`Saved view "${name}".`, "success");
+    }
   });
   $("#tv-preset-delete-btn").addEventListener("click", async () => {
     const name = $("#tv-preset-select").value;
     if (!name) return;
     const ok = await showConfirm(`Delete saved view "${name}"?`);
-    if (ok) deleteFilterPreset("tv", name);
+    if (ok) {
+      deleteFilterPreset("tv", name);
+      showToast(`Deleted saved view "${name}".`, "info");
+    }
   });
   $("#tv-export-btn").addEventListener("click", exportTvView);
 
@@ -350,5 +397,9 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#person-modal-close-btn").addEventListener("click", closePersonModal);
   $("#person-modal").addEventListener("click", (e) => {
     if (e.target.id === "person-modal") closePersonModal();
+  });
+  $("#shortcuts-close-btn").addEventListener("click", () => $("#shortcuts-modal").classList.add("hidden"));
+  $("#shortcuts-modal").addEventListener("click", (e) => {
+    if (e.target.id === "shortcuts-modal") $("#shortcuts-modal").classList.add("hidden");
   });
 });

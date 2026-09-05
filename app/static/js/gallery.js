@@ -39,6 +39,23 @@ export function posterMarkup(title, posterPath) {
     : `<div class="gallery-poster-placeholder">${title}</div>`;
 }
 
+// Hover preview: reuses overview/rating/genres already in state from the
+// gallery's own load call, so this costs nothing extra over the network --
+// just a CSS opacity reveal on an overlay div that ships hidden in the card.
+function posterWithOverlayMarkup(title, posterPath, overview, voteAverage, genres) {
+  const meta = [voteAverage ? `★ ${voteAverage.toFixed(1)}` : null, (genres || []).slice(0, 2).join(", ") || null]
+    .filter(Boolean).join(" · ");
+  return `
+    <div class="gallery-poster-wrap">
+      ${posterMarkup(title, posterPath)}
+      <div class="gallery-poster-overlay">
+        ${meta ? `<div class="gallery-poster-overlay-meta">${meta}</div>` : ""}
+        <div class="gallery-poster-overlay-text">${overview || "No overview available."}</div>
+      </div>
+    </div>
+  `;
+}
+
 // Per-viewer watch state: state.activeViewerId (null = "All viewers", the
 // original single-flag behavior every other feature -- filters, Continue
 // Watching, CSV export -- still reads). When a viewer is active,
@@ -145,6 +162,68 @@ export async function toggleWatched(itemId, watched) {
     method: "POST",
     body: JSON.stringify({ watched }),
   });
+}
+
+// ---- Pinning ----
+// Reuses the existing user-tags column (no schema/API change) -- a plain
+// tag named PIN_TAG, added/removed via the same single-item tags endpoint
+// the detail pane's tag editor already uses. A movie is one media_items
+// row (one id); a TV show card represents many episode rows, so pinning a
+// show loops the same per-item call across every episode id.
+export const PIN_TAG = "★ Pinned";
+
+export function isPinned(item) {
+  return (item.tags || []).includes(PIN_TAG);
+}
+
+async function setTagsForId(id, tags) {
+  return api(`/api/library/${id}/tags`, { method: "POST", body: JSON.stringify({ tags }) });
+}
+
+export async function togglePin(item, ids) {
+  const pinning = !isPinned(item);
+  await Promise.all(ids.map((id) => {
+    const owner = item.episodes ? item.episodes.find((e) => e.id === id) : item;
+    const current = (owner?.tags || []).slice();
+    const next = pinning ? Array.from(new Set([...current, PIN_TAG])) : current.filter((t) => t !== PIN_TAG);
+    return setTagsForId(id, next);
+  }));
+  const targets = item.episodes ? item.episodes : [item];
+  targets.forEach((t) => {
+    t.tags = pinning ? Array.from(new Set([...(t.tags || []), PIN_TAG])) : (t.tags || []).filter((tg) => tg !== PIN_TAG);
+  });
+}
+
+function pinButtonMarkup(pinned, index) {
+  return `<button class="pin-toggle-btn${pinned ? " pinned" : ""}" data-pin-index="${index}" title="${pinned ? "Unpin" : "Pin to top"}">${pinned ? "★" : "☆"}</button>`;
+}
+
+// Indexed by data-pin-index rather than DOM position -- some cards (orphan
+// TV shows with no episode rows left to tag) render no pin button at all,
+// which would desync a plain positional NodeList-to-items mapping.
+function wirePinToggles(container, items, idsForItem, rerender) {
+  container.querySelectorAll(".pin-toggle-btn").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const item = items[Number(btn.dataset.pinIndex)];
+      btn.disabled = true;
+      try {
+        await togglePin(item, idsForItem(item));
+        rerender();
+      } catch (err) {
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+// Stable secondary sort: pinned items float to the top of whatever the
+// active sort/filter produced, without disturbing relative order within
+// each group (pinned vs. not) -- Array.prototype.sort is stable in every
+// engine this app targets, so a single comparator on the pinned flag is
+// enough on top of the already-sorted array from filterAndSort.
+function floatPinnedToTop(items) {
+  return items.slice().sort((a, b) => (isPinned(b) ? 1 : 0) - (isPinned(a) ? 1 : 0));
 }
 
 function wireWatchedToggles(container, items) {
@@ -461,7 +540,7 @@ export function renderMoviesGallery() {
   const yearFilter = $("#movies-year").value;
   const ratingFilter = $("#movies-rating").value;
   const addedFilter = $("#movies-added").value;
-  const items = filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter });
+  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
   const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
@@ -480,12 +559,13 @@ export function renderMoviesGallery() {
     <div class="gallery-card" data-item-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
       <span class="gallery-index" title="Position ${i + 1} of ${total} in the current sort/filter">${i + 1}</span>
+      ${pinButtonMarkup(isPinned(item), i)}
       <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
         ${(item.tmdb_id == null && !item.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${effectiveWatched(item) ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
         ${mediaBadges(item)}
       </div>
-      ${posterMarkup(item.title, item.poster_path)}
+      ${posterWithOverlayMarkup(item.title, item.poster_path, item.overview, item.vote_average, item.genres)}
       <div class="gallery-info">
         <div class="gallery-title" title="${item.title}">${item.title}</div>
         <div class="gallery-meta">
@@ -499,6 +579,7 @@ export function renderMoviesGallery() {
     </div>
   `).join("") + galleryLoadMoreMarkup(visible.length, total);
   wireWatchedToggles(gallery, visible);
+  wirePinToggles(gallery, visible, (item) => [item.id], renderMoviesGallery);
   gallery.querySelectorAll(".gallery-select").forEach((cb) => {
     cb.addEventListener("click", (e) => e.stopPropagation());
   });
@@ -692,6 +773,18 @@ function readCachedGalleryResponse(key) {
   }
 }
 
+function skeletonGalleryMarkup(count = 12) {
+  return Array.from({ length: count }, () => `
+    <div class="gallery-skeleton-card">
+      <div class="gallery-skeleton-poster"></div>
+      <div class="gallery-skeleton-info">
+        <div class="gallery-skeleton-line"></div>
+        <div class="gallery-skeleton-line short"></div>
+      </div>
+    </div>
+  `).join("");
+}
+
 function offlineBannerMarkup(cachedAt) {
   const when = new Date(cachedAt).toLocaleString();
   return `<p class="gallery-offline-banner">⚠ Showing cached data from ${when} — couldn't reach the server (offline, or it's down). Reload once you're back online.</p>`;
@@ -699,7 +792,7 @@ function offlineBannerMarkup(cachedAt) {
 
 export async function loadMoviesGallery() {
   const gallery = $("#movies-gallery");
-  gallery.innerHTML = "Loading...";
+  gallery.innerHTML = skeletonGalleryMarkup();
   const viewerId = getActiveViewerId();
   const cacheKey = `movies${viewerId != null ? `:${viewerId}` : ""}`;
   try {
@@ -773,7 +866,7 @@ export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || 
       shows.set(key, {
         title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview,
         manual_override: item.manual_override, vote_average: item.vote_average, genres: item.genres, tags: item.tags, year: item.year, episodes: [],
-        show_status: item.show_status,
+        show_status: item.show_status, personal_rating: item.personal_rating, personal_note: item.personal_note,
       });
     }
     shows.get(key).episodes.push(item);
@@ -789,6 +882,7 @@ export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || 
       title: orphan.title, poster_path: orphan.poster_path, tmdb_id: orphan.tmdb_id, overview: orphan.overview,
       manual_override: false, vote_average: null, genres: orphan.genres, tags: [], year: null, episodes: [],
       show_status: orphan.status, watched: false, archived_at: null, noFilesOnDisk: true,
+      personal_rating: orphan.personal_rating, personal_note: orphan.personal_note,
     });
   }
   return Array.from(shows.values());
@@ -921,7 +1015,7 @@ export function renderTvGallery() {
   const addedFilter = $("#tv-added").value;
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
-  const shows = filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter });
+  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
   const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 
@@ -940,12 +1034,13 @@ export function renderTvGallery() {
     <div class="gallery-card" data-show-index="${i}">
       <input type="checkbox" class="gallery-select" data-select-title="${show.title}">
       <span class="gallery-index" title="Position ${i + 1} of ${total} in the current sort/filter">${i + 1}</span>
+      ${show.episodes.length > 0 ? pinButtonMarkup(isPinned(show), i) : ""}
       <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">
         ${(show.tmdb_id == null && !show.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
         ${show.watched ? `<span class="badge badge-ok" title="All episodes watched">✓</span>` : ""}
         ${mediaBadges(show)}
       </div>
-      ${posterMarkup(show.title, show.poster_path)}
+      ${posterWithOverlayMarkup(show.title, show.poster_path, show.overview, show.vote_average, show.genres)}
       <div class="gallery-info">
         <div class="gallery-title" title="${show.title}">${show.title}</div>
         <div class="gallery-meta">
@@ -956,6 +1051,7 @@ export function renderTvGallery() {
       </div>
     </div>
   `).join("") + galleryLoadMoreMarkup(visible.length, total);
+  wirePinToggles(gallery, visible, (show) => show.episodes.map((e) => e.id), renderTvGallery);
   gallery.querySelectorAll(".gallery-select").forEach((cb) => {
     cb.addEventListener("click", (e) => e.stopPropagation());
   });
@@ -984,7 +1080,7 @@ function loadTvGalleryBadges(shows) {
 
 export async function loadTvGallery() {
   const gallery = $("#tv-gallery");
-  gallery.innerHTML = "Loading...";
+  gallery.innerHTML = skeletonGalleryMarkup();
   const viewerId = getActiveViewerId();
   const cacheKey = `tv${viewerId != null ? `:${viewerId}` : ""}`;
   try {

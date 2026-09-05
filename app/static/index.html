@@ -254,6 +254,7 @@
       </label>
       <button id="approve-btn" class="primary">Approve &amp; Archive</button>
       <span id="scan-status"></span>
+      <div id="scan-progress-bar" class="progress-bar-indeterminate hidden"><div class="progress-bar-fill"></div></div>
     </div>
     <table id="archive-table">
       <thead>
@@ -706,6 +707,27 @@
   <button id="detail-close-btn" class="detail-close-btn" title="Close">×</button>
   <div id="detail-pane-content"></div>
 </aside>
+
+<div id="toast-container" class="toast-container"></div>
+
+<div id="shortcuts-modal" class="modal hidden">
+  <div class="modal-content shortcuts-modal-content">
+    <h4>Keyboard Shortcuts</h4>
+    <table class="shortcuts-table">
+      <tbody>
+        <tr><td><kbd>/</kbd></td><td>Open command palette</td></tr>
+        <tr><td><kbd>S</kbd></td><td>Focus library search</td></tr>
+        <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Jump to tab</td></tr>
+        <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td><td>Move gallery focus (Movies/TV tabs)</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>Open focused gallery card / run selected command</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Approve selected (archive/organize)</td></tr>
+        <tr><td><kbd>Esc</kbd></td><td>Close modal / detail pane / palette</td></tr>
+        <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>
+      </tbody>
+    </table>
+    <button id="shortcuts-close-btn">Close</button>
+  </div>
+</div>
 
 <script type="module" src="app.js"></script>
 </body>

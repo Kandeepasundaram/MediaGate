@@ -437,10 +437,17 @@ class LibraryItemOut(BaseModel):
     tags: list[str] = Field(default_factory=list)
     viewer_watched: bool | None = None  # only set when a ?viewer_id= is passed; reflects that viewer's own state
     show_status: TvShowStatus | None = None  # tv rows only -- see TvShowStatus
+    personal_rating: int | None = None  # 1-5 stars, user-entered -- distinct from TMDB's vote_average
+    personal_note: str | None = None  # freeform user note -- distinct from the AI-generated movie/show note file
 
 
 class TagsUpdateRequest(BaseModel):
     tags: list[str]
+
+
+class PersonalRatingUpdateRequest(BaseModel):
+    rating: int | None = None
+    note: str | None = None
 
 
 class TagsListResponse(BaseModel):
@@ -532,6 +539,8 @@ class TvShowSummaryOut(BaseModel):
     overview: str = ""
     genres: list[str] = Field(default_factory=list)
     status: TvShowStatus
+    personal_rating: int | None = None
+    personal_note: str | None = None
 
 
 class TvLibraryResponse(BaseModel):

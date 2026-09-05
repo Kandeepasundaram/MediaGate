@@ -6,6 +6,7 @@ import { closeMatchPicker, escapeAttr, openMatchModal, showConfirm } from "./arc
 import { $, $all, api, state } from "./core.js";
 import { openDetailPane, renderDetailPane } from "./detail-pane.js";
 import { posterMarkup } from "./gallery.js";
+import { switchToTab } from "../app.js";
 
 // ---- Notifications tab ----
 export async function loadNotifications() {
@@ -426,7 +427,12 @@ function firePendingBrowserNotifications(notifications, notifiedIds) {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   for (const n of notifications) {
     if (notifiedIds.has(n.id)) continue;
-    new Notification("New Media Available", { body: notificationBody(n) });
+    const notif = new Notification("New Media Available", { body: notificationBody(n) });
+    notif.onclick = () => {
+      window.focus();
+      switchToTab("notifications");
+      notif.close();
+    };
     notifiedIds.add(n.id);
   }
   saveNotifiedIds(notifiedIds);

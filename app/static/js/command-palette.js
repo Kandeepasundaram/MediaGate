@@ -28,6 +28,7 @@ const COMMANDS = [
   { category: "View", label: "Switch to Neumorphism Theme", run: () => setTheme("neumorphism") },
   { category: "View", label: "Switch to Claymorphism Theme", run: () => setTheme("claymorphism") },
   { category: "View", label: "Switch to Glassmorphism Theme", run: () => setTheme("glassmorphism") },
+  { category: "View", label: "Show Keyboard Shortcuts", run: () => $("#shortcuts-modal").classList.remove("hidden") },
 ];
 const PALETTE_CATEGORY_ORDER = ["Navigate", "Library", "Titles", "View"];
 const TITLE_MATCH_LIMIT = 6;
