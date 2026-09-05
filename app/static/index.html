@@ -473,7 +473,23 @@
     <div id="background-tasks-card" class="card"></div>
     <div id="storage-card" class="card"></div>
 
-    <h3>Accessibility</h3>
+    <nav class="settings-nav">
+      <a href="#settings-accessibility">Accessibility</a>
+      <a href="#settings-paths">Paths &amp; TMDB</a>
+      <a href="#settings-api-tokens">API Tokens</a>
+      <a href="#settings-viewers">Viewers</a>
+      <a href="#settings-tags">Tags</a>
+      <a href="#settings-naming">Naming</a>
+      <a href="#settings-media-server">Media Server</a>
+      <a href="#settings-watch-sync">Watch Sync</a>
+      <a href="#settings-permissions">Permissions</a>
+      <a href="#settings-config-history">Config History</a>
+      <a href="#settings-backup">Backup</a>
+      <a href="#settings-watch-import">Watch Import</a>
+      <a href="#settings-webdav">WebDAV</a>
+    </nav>
+
+    <h3 id="settings-accessibility">Accessibility</h3>
     <div class="card">
       <p class="hint">Per-browser display preferences (like the theme picker up top) -- stored locally, not in config.yaml.</p>
       <label>Text size
@@ -490,8 +506,9 @@
       </label>
     </div>
 
-    <h3>Media Paths &amp; TMDB Key</h3>
-    <form id="settings-form" class="card">
+    <h3 id="settings-paths">Media Paths &amp; TMDB Key</h3>
+    <form id="settings-form" class="card settings-form">
+      <h5>Paths</h5>
       <label>Movies incoming directory
         <input type="text" id="setting-incoming-movies" placeholder="/media/movies">
       </label>
@@ -505,12 +522,14 @@
         <input type="text" id="setting-archive-tv" placeholder="/media/tv">
       </label>
       <p class="hint">Incoming and archive can be the same folder per type if your library is organized in place (no separate staging step).</p>
+      <h5>TMDB</h5>
       <label>TMDB API key
         <input type="password" id="setting-tmdb-key" placeholder="leave blank to keep current">
       </label>
       <button type="button" id="test-tmdb-key-btn">Test Key</button>
       <span id="tmdb-key-test-status" class="hint"></span>
       <p id="tmdb-key-note" class="hint"></p>
+      <h5>Notification channels</h5>
       <label>Notification webhook URL (optional)
         <input type="text" id="setting-webhook-url" placeholder="https://example.com/hook">
       </label>
@@ -534,6 +553,7 @@
       </label>
       <p id="pushover-user-note" class="hint"></p>
       <p class="hint">Any combination of the above can be set together -- each fires independently when a tracked title newly has a season/sequel available.</p>
+      <h5>Low disk alert</h5>
       <label class="checkbox-label">
         <input type="checkbox" id="setting-low-disk-alert-enabled">
         Alert (via the channels above) when a media path's free space drops below a threshold
@@ -541,6 +561,7 @@
       <label>Low disk threshold (GB)
         <input type="number" id="setting-low-disk-threshold-gb" min="0.1" step="0.5" placeholder="10">
       </label>
+      <h5>Periodic reports</h5>
       <label class="checkbox-label">
         <input type="checkbox" id="setting-reports-enabled">
         Push a periodic library/watch-activity report (via the channels above)
@@ -556,10 +577,12 @@
         <input type="text" id="setting-reports-cron-time" placeholder="08:00">
       </label>
       <p class="hint">Sent once per completed period (e.g. the whole previous month) -- covers the same data as the Reports tab.</p>
+      <h5>Ratings &amp; metadata</h5>
       <label>OMDb API key (optional)
         <input type="password" id="setting-omdb-key" placeholder="leave blank to keep current">
       </label>
       <p id="omdb-key-note" class="hint">Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.</p>
+      <h5>Automation</h5>
       <label class="checkbox-label">
         <input type="checkbox" id="setting-auto-track-new">
         Automatically track newly-archived titles for season/sequel alerts
@@ -579,6 +602,7 @@
         Watch incoming/archive folders for new files (requires a restart to take effect)
       </label>
       <p class="hint">Prompts "N new file(s) -- Scan Library" as soon as a file is dropped in, instead of only after a manual scan. Never archives anything on its own. Off by default -- native filesystem watches can behave oddly on some network-mounted (NFS/SMB) volumes.</p>
+      <h5>Subtitles</h5>
       <label>Subtitle languages to keep (comma-separated)
         <input type="text" id="setting-subtitle-languages" placeholder="en, eng, english">
       </label>
@@ -601,17 +625,18 @@
         <input type="checkbox" id="setting-tvmaze-enabled">
         Enrich TV episodes with air dates, network, and show status from TVmaze (free, no key required)
       </label>
+      <h5>API access</h5>
       <label>API token (optional, for exposing this dashboard past your LAN)
         <input type="password" id="setting-api-token" placeholder="leave blank to keep current">
       </label>
       <p id="api-token-note" class="hint"></p>
-      <button type="button" id="disable-api-token-btn" class="hidden">Disable API Token</button>
+      <button type="button" id="disable-api-token-btn" class="hidden danger">Disable API Token</button>
       <button type="submit" class="primary">Save Settings</button>
       <span id="settings-status"></span>
       <p class="hint">A backup of the previous config.yaml is kept as config.yaml.bak on every save.</p>
     </form>
 
-    <h3>API Tokens (per-device, individually revocable)</h3>
+    <h3 id="settings-api-tokens">API Tokens (per-device, individually revocable)</h3>
     <div class="card">
       <p class="hint">An alternative to the single shared token above: create a named token per device/client and revoke just that one later, without breaking the others. Either kind of token is enough on its own to satisfy the API token check.</p>
       <div class="toolbar">
@@ -626,7 +651,7 @@
       <div id="api-tokens-list"></div>
     </div>
 
-    <h3>Viewers (per-viewer watch state)</h3>
+    <h3 id="settings-viewers">Viewers (per-viewer watch state)</h3>
     <div class="card">
       <p class="hint">No password -- named profiles for a household sharing this dashboard, so "has Alex watched this" can differ from "has Sam watched this". Pick a viewer from the top-right selector to make the Watched checkboxes reflect their own state instead of the shared one.</p>
       <div class="toolbar">
@@ -636,8 +661,8 @@
       <div id="viewers-list"></div>
     </div>
 
-    <h3>Manage Tags</h3>
-    <div class="card">
+    <h3 id="settings-tags">Manage Tags</h3>
+    <div class="card danger-zone">
       <p class="hint">Renaming or deleting a tag applies to every movie/TV episode that has it -- unlike the per-item tag editor in the detail pane, or the gallery's "Tag Selected" toolbar (which only adds a tag to what's checked).</p>
       <div class="toolbar">
         <select id="manage-tags-select"><option value="">Select a tag…</option></select>
@@ -648,8 +673,8 @@
       </div>
     </div>
 
-    <h3>Naming Templates</h3>
-    <form id="naming-templates-form" class="card">
+    <h3 id="settings-naming">Naming Templates</h3>
+    <form id="naming-templates-form" class="card settings-form">
       <p class="hint">Blank resets to the default. A bad template (unknown token, bad format spec) silently falls back to the default for that file rather than failing the archive.</p>
       <label>Movie folder &amp; file name
         <input type="text" id="setting-movie-folder-template" placeholder="{title}{year_suffix}">
@@ -673,8 +698,8 @@
       <span id="naming-templates-status"></span>
     </form>
 
-    <h3>Media Server Refresh (optional)</h3>
-    <form id="media-server-form" class="card">
+    <h3 id="settings-media-server">Media Server Refresh (optional)</h3>
+    <form id="media-server-form" class="card settings-form">
       <p class="hint">Best-effort "rescan library" ping after archiving or organizing a file. Leave a section blank to skip it.</p>
       <label>Plex URL
         <input type="text" id="setting-plex-url" placeholder="http://plex.local:32400">
@@ -698,26 +723,26 @@
       <span id="media-server-status"></span>
     </form>
 
-    <h3>Watch Status Sync</h3>
+    <h3 id="settings-watch-sync">Watch Status Sync</h3>
     <div class="card">
       <p class="hint">Pulls "watched" status back from Plex/Jellyfin for movies (matched by IMDb id). One-directional — only ever marks something watched, never unwatched, so a manual unwatch here is never overwritten.</p>
       <button id="sync-watched-btn">Sync Watch Status Now</button>
       <span id="sync-watched-status" class="hint"></span>
     </div>
 
-    <h3>Storage Permissions</h3>
+    <h3 id="settings-permissions">Storage Permissions</h3>
     <div class="card">
       <button id="check-permissions-btn">Test Permissions</button>
       <div id="permissions-result"></div>
     </div>
 
-    <h3>Config Version History</h3>
+    <h3 id="settings-config-history">Config Version History</h3>
     <div class="card">
       <p class="hint">Every settings save keeps a copy of the previous config.yaml -- pick a version to view what changed or roll back to it.</p>
       <div id="config-history-list"></div>
     </div>
 
-    <h3>Backup &amp; Restore</h3>
+    <h3 id="settings-backup">Backup &amp; Restore</h3>
     <div class="card">
       <p class="hint">Exports/imports the library database (titles, watch state, matches) as JSON -- not the media files themselves.</p>
       <button id="export-library-btn">Export Library (JSON)</button>
@@ -727,7 +752,7 @@
       <span id="backup-status" class="hint"></span>
     </div>
 
-    <h3>Import Watched History (Letterboxd)</h3>
+    <h3 id="settings-watch-import">Import Watched History (Letterboxd)</h3>
     <div class="card">
       <p class="hint">Marks movies watched (with the date and star rating) from a Letterboxd diary export -- Profile &gt; Export Data &gt; diary.csv. Movies only, matched by title + year against what's already in your library; anything unmatched is listed so you can fix it up manually.</p>
       <label>diary.csv
@@ -736,8 +761,8 @@
       <span id="watch-history-import-status" class="hint"></span>
     </div>
 
-    <h3>Scheduled Backup &amp; Remote Backup (WebDAV)</h3>
-    <form id="webdav-backup-form" class="card">
+    <h3 id="settings-webdav">Scheduled Backup &amp; Remote Backup (WebDAV)</h3>
+    <form id="webdav-backup-form" class="card settings-form">
       <p class="hint">A daily backup of config.yaml + the database always runs locally on this schedule; setting a WebDAV URL below also pushes each one to a remote (Nextcloud, NAS, etc). Leave URL blank to keep local-only.</p>
       <label class="checkbox-label">
         <input type="checkbox" id="setting-backup-enabled">
@@ -752,10 +777,12 @@
       <label>Username
         <input type="text" id="setting-webdav-username" placeholder="username">
       </label>
-      <label>Password
-        <input type="password" id="setting-webdav-password" placeholder="leave blank to keep current">
-      </label>
-      <p id="webdav-password-note" class="hint"></p>
+      <div class="danger-zone">
+        <label>Password
+          <input type="password" id="setting-webdav-password" placeholder="leave blank to keep current">
+        </label>
+        <p id="webdav-password-note" class="hint"></p>
+      </div>
       <label>Remote folder name
         <input type="text" id="setting-webdav-remote-path" placeholder="media-manager-backups">
       </label>
