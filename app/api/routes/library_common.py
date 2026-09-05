@@ -59,6 +59,7 @@ def _to_out(
         poster_path=meta.get("poster_path"),
         overview=meta.get("overview", ""),
         watched=bool(row["watched"]),
+        watched_at=row["watched_at"],
         final_path=row["final_path"],
         archived_at=row["archived_at"],
         file_name=file_name,

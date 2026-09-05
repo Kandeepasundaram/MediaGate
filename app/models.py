@@ -422,6 +422,7 @@ class LibraryItemOut(BaseModel):
     poster_path: str | None = None
     overview: str = ""
     watched: bool
+    watched_at: str | None = None  # when marked watched, cleared to None on unwatch -- see _watched_at_for
     final_path: str | None = None
     archived_at: str | None = None
     file_name: str | None = None

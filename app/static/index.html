@@ -361,18 +361,28 @@
 
   <section id="tab-reports" class="tab-panel">
     <div class="toolbar">
-      <select id="report-period">
-        <option value="this-quarter">This Quarter</option>
-        <option value="last-quarter">Last Quarter</option>
-        <option value="this-half">This Half-Year</option>
-        <option value="last-half">Last Half-Year</option>
-        <option value="this-year">This Year</option>
-        <option value="last-year">Last Year</option>
-        <option value="custom">Custom Range</option>
+      <select id="report-view-select">
+        <option value="summary">Period Summary</option>
+        <option value="catalog">Catalog</option>
+        <option value="watched-list">Watched List</option>
+        <option value="watch-history">Watch History</option>
+        <option value="tracking">Tracking List</option>
       </select>
-      <span id="report-custom-range" class="hidden">
-        <label>From <input type="date" id="report-start-date"></label>
-        <label>To <input type="date" id="report-end-date"></label>
+      <span id="report-period-group">
+        <select id="report-period">
+          <option value="this-quarter">This Quarter</option>
+          <option value="last-quarter">Last Quarter</option>
+          <option value="this-half">This Half-Year</option>
+          <option value="last-half">Last Half-Year</option>
+          <option value="this-year">This Year</option>
+          <option value="last-year">Last Year</option>
+          <option value="all-time">All Time</option>
+          <option value="custom">Custom Range</option>
+        </select>
+        <span id="report-custom-range" class="hidden">
+          <label>From <input type="date" id="report-start-date"></label>
+          <label>To <input type="date" id="report-end-date"></label>
+        </span>
       </span>
       <button id="report-generate-btn" class="primary">Generate Report</button>
       <button id="report-export-csv-btn" class="hidden">Export CSV</button>
