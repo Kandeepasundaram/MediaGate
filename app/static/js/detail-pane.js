@@ -2,7 +2,7 @@
  * The full-screen detail pane opened from a gallery card: metadata, tags, ratings/trailer/cast, TV season/movie-collection status, and the manual-match/override flow entry points.
  */
 
-import { closeMatchPicker, escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
+import { escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
 import { $, api, formatBytes, showToast, state } from "./core.js";
 import { TV_SHOW_STATUSES, downloadCsv, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, rowsToCsv, saveMovieNote, saveTvNote, setTvShowStatus, toggleWatched } from "./gallery.js";
 import { loadNotifications, loadTrackerTab, TRACKER_CATEGORIES } from "./notifications-tab.js";
@@ -1316,7 +1316,6 @@ async function openPaneMatchPicker() {
 
 async function applyPaneMatchOverride(candidate) {
   const pane = state.detailPane;
-  closeMatchPicker();
   if (!pane || candidate.tmdb_id == null) return;
 
   const ids = pane.kind === "movie" ? [pane.data.id] : pane.data.episodes.map((e) => e.id);
@@ -1331,6 +1330,7 @@ async function applyPaneMatchOverride(candidate) {
     await reopenDetailPaneAfterRematch(pane, ids);
   } catch (e) {
     $("#detail-fetch-status").textContent = `Error: ${e.message}`;
+    throw e; // keeps the match popup open on this error instead of closing -- see archive-tab.js's applyPickerChoice
   }
 }
 
@@ -1474,5 +1474,13 @@ window.addEventListener("beforeunload", (e) => {
 document.addEventListener("click", (e) => {
   if (!state.detailPane || justOpened) return;
   const pane = $("#detail-pane");
-  if (pane && !pane.classList.contains("hidden") && !pane.contains(e.target)) closeDetailPane();
+  if (!pane || pane.classList.contains("hidden") || pane.contains(e.target)) return;
+  // A modal (match-modal from "Change Match", the confirm dialog, ...) renders
+  // as its own full-screen overlay on top of the pane -- a click inside one
+  // isn't "away from the pane", it's using a popup layered above it. Without
+  // this, e.g. clicking "Use ID" in the match-modal closed the pane out from
+  // under it (candidate.tmdb_id's owner pane going null mid-request) while
+  // that modal was still open.
+  if (e.target.closest(".modal")) return;
+  closeDetailPane();
 });

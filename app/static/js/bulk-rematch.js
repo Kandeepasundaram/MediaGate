@@ -8,7 +8,7 @@
  * one-tmdb-id-for-all call.
  */
 
-import { closeMatchPicker, escapeAttr, openMatchModal } from "./archive-tab.js";
+import { escapeAttr, openMatchModal } from "./archive-tab.js";
 import { $, api } from "./core.js";
 import { loadMoviesGallery, loadTvGallery } from "./gallery.js";
 
@@ -50,25 +50,18 @@ function renderBulkRematchModal() {
   });
 }
 
-// Stays open on failure (showing the error right where the user is looking,
-// with their search/candidate list still intact to just try again) instead
-// of closing immediately and reporting the error via a toast elsewhere --
-// closing unconditionally before knowing the result is what made a bad ID
-// look like it "disappeared" with no explanation.
+// Left to throw on failure -- archive-tab.js's applyPickerChoice (every
+// openMatchModal onApply goes through it) is what keeps the match popup
+// open with the error shown inline instead of closing it first and
+// reporting the failure elsewhere. On success it closes the popup once
+// this returns, which is what the MutationObserver above is watching for.
 async function applyRowMatch(row, candidate) {
-  const results = $("#match-results");
-  results.innerHTML = "<p>Applying match…</p>";
-  try {
-    await api("/api/library/rematch-tmdb", {
-      method: "POST",
-      body: JSON.stringify({ ids: row.ids, tmdb_id: candidate.tmdb_id, media_type: row.mediaType }),
-    });
-    row.matched = true;
-    closeMatchPicker();
-    renderBulkRematchModal();
-  } catch (e) {
-    results.innerHTML = `<p>Error: ${e.message}</p><p class="hint">Pick a different candidate, or enter a different TMDB ID above.</p>`;
-  }
+  await api("/api/library/rematch-tmdb", {
+    method: "POST",
+    body: JSON.stringify({ ids: row.ids, tmdb_id: candidate.tmdb_id, media_type: row.mediaType }),
+  });
+  row.matched = true;
+  renderBulkRematchModal();
 }
 
 export function closeBulkRematchModal() {

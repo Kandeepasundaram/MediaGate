@@ -283,14 +283,14 @@ export async function runMatchSearch(query) {
       </div>
     `).join("");
     results.querySelectorAll(".use-match-btn").forEach((btn) => {
-      btn.addEventListener("click", () => picker.onApply(data.results[Number(btn.dataset.resultIndex)]));
+      btn.addEventListener("click", () => applyPickerChoice(data.results[Number(btn.dataset.resultIndex)]));
     });
   } catch (e) {
     results.innerHTML = `<p>Error: ${e.message}</p>`;
   }
 }
 
-export function useMatchById() {
+export async function useMatchById() {
   const picker = state.matchPicker;
   if (!picker) return;
   const raw = $("#match-id-input").value.trim();
@@ -299,12 +299,30 @@ export function useMatchById() {
     $("#match-results").innerHTML = "<p>Enter a valid numeric TMDB ID.</p>";
     return;
   }
-  picker.onApply({ tmdb_id: id });
+  await applyPickerChoice({ tmdb_id: id });
+}
+
+// The single choke point every "Use"/"Use ID" click goes through: keeps the
+// popup open (with the error shown right here, candidate list and typed ID
+// still intact) until onApply actually succeeds, instead of each onApply
+// closing the popup unconditionally before knowing whether its own API call
+// even worked -- that's what made a bad match/ID look like it "vanished"
+// with the real error reported somewhere else on the page.
+async function applyPickerChoice(candidate) {
+  const picker = state.matchPicker;
+  if (!picker) return;
+  const results = $("#match-results");
+  results.innerHTML = "<p>Applying match…</p>";
+  try {
+    await picker.onApply(candidate);
+    closeMatchPicker();
+  } catch (e) {
+    results.innerHTML = `<p>Error: ${e.message}</p><p class="hint">Pick a different candidate, or try a different TMDB ID.</p>`;
+  }
 }
 
 async function applyMatchOverride(index, candidate) {
   const item = state.previewItems[index];
-  closeMatchPicker();
   $("#scan-status").textContent = "Applying match...";
   try {
     const preview = await api("/api/archive/preview", {
@@ -318,6 +336,7 @@ async function applyMatchOverride(index, candidate) {
     $("#scan-status").textContent = `${state.previewItems.length} file(s) ready`;
   } catch (e) {
     $("#scan-status").textContent = `Error: ${e.message}`;
+    throw e; // keeps the match popup open on this error instead of closing -- see applyPickerChoice
   }
 }
 
@@ -336,7 +355,6 @@ export function openBulkMatchPicker() {
 }
 
 async function applyBulkMatchOverride(items, candidate) {
-  closeMatchPicker();
   $("#scan-status").textContent = `Applying match to ${items.length} file(s)...`;
   try {
     const overrides = Object.fromEntries(items.map((i) => [i.source_path, candidate.tmdb_id]));
@@ -350,6 +368,7 @@ async function applyBulkMatchOverride(items, candidate) {
     $("#scan-status").textContent = `${state.previewItems.length} file(s) ready`;
   } catch (e) {
     $("#scan-status").textContent = `Error: ${e.message}`;
+    throw e; // keeps the match popup open on this error instead of closing -- see applyPickerChoice
   }
 }
 
@@ -368,7 +387,6 @@ export function openTrackAddModal(mediaType, category = "watching") {
 }
 
 async function addTrackedTitle(mediaType, candidate, category = "watching") {
-  closeMatchPicker();
   $("#track-add-status").textContent = `${category === "interested" ? "Adding" : "Tracking"} "${candidate.title}"...`;
   try {
     await api("/api/tracker/add", {
@@ -383,6 +401,7 @@ async function addTrackedTitle(mediaType, candidate, category = "watching") {
     loadTrackedList();
   } catch (e) {
     $("#track-add-status").textContent = `Error: ${e.message}`;
+    throw e; // keeps the match popup open on this error instead of closing -- see applyPickerChoice
   }
 }
 
@@ -448,8 +467,7 @@ function renderBulkTrackTable() {
           ...item, matched: true, tmdb_id: candidate.tmdb_id, title: candidate.title,
           year: candidate.year, poster_path: candidate.poster_path, overview: candidate.overview,
         };
-        closeMatchPicker();
-        renderBulkTrackTable();
+        renderBulkTrackTable(); // applyPickerChoice closes the popup once this returns
       }, { hideIdEntry: true });
     });
   });

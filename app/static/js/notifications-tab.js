@@ -2,7 +2,7 @@
  * Notifications tab, the Tracker tab's universes (franchise groupings), and browser-notification permission/polling -- grouped together since they reference each other heavily.
  */
 
-import { closeMatchPicker, escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
+import { escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
 import { $, $all, api, state } from "./core.js";
 import { openDetailPane, renderDetailPane } from "./detail-pane.js";
 import { posterMarkup } from "./gallery.js";
@@ -422,7 +422,6 @@ export async function createUniverseAction() {
 }
 
 async function addUniverseMember(universeId, candidate) {
-  closeMatchPicker();
   $("#universe-status").textContent = `Adding "${candidate.title}"...`;
   try {
     await api(`/api/universes/${universeId}/members`, {
@@ -433,6 +432,7 @@ async function addUniverseMember(universeId, candidate) {
     loadTrackerTab();
   } catch (e) {
     $("#universe-status").textContent = `Error: ${e.message}`;
+    throw e; // keeps the match popup open on this error instead of closing -- see archive-tab.js's applyPickerChoice
   }
 }
 
