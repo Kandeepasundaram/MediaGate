@@ -228,7 +228,7 @@ function jumpToGlobalSearchResult(mediaType, title) {
 
 // ---- Theme ----
 const THEME_KEY = "media-manager:theme";
-const THEMES = ["auto", "dark", "light", "neumorphism", "claymorphism", "glassmorphism"];
+const THEMES = ["auto", "dark", "light", "neumorphism", "claymorphism", "glassmorphism", "high-contrast"];
 const DARK_MEDIA_QUERY = "(prefers-color-scheme: dark)";
 
 // "auto" resolves to the OS's light/dark preference at apply time -- the
@@ -267,6 +267,52 @@ export function setupTheme() {
       if ($("#theme-select").value === "auto") applyTheme("auto");
     });
   }
+}
+
+// ---- Font size (per-browser, like theme) ----
+const FONT_SIZE_KEY = "media-manager:font-size";
+const FONT_SIZE_SCALES = { small: "87.5%", medium: "100%", large: "112.5%", "x-large": "125%" };
+
+export function setFontSize(size) {
+  document.documentElement.style.fontSize = FONT_SIZE_SCALES[size] || FONT_SIZE_SCALES.medium;
+  const select = $("#font-size-select");
+  if (select) select.value = size;
+  try { localStorage.setItem(FONT_SIZE_KEY, size); } catch (e) { /* private browsing / storage disabled */ }
+}
+
+export function setupFontSize() {
+  let saved = "medium";
+  try {
+    const stored = localStorage.getItem(FONT_SIZE_KEY);
+    if (FONT_SIZE_SCALES[stored]) saved = stored;
+  } catch (e) { /* private browsing / storage disabled */ }
+  setFontSize(saved);
+  const select = $("#font-size-select");
+  if (select) select.addEventListener("change", (e) => setFontSize(e.target.value));
+}
+
+// ---- Reduced motion ----
+// Unlike theme's tri-state auto/dark/light, this is a plain on/off the user
+// can override -- OS preference only supplies the *first-run* default, same
+// spirit as setupTheme() defaulting to dark before any explicit choice.
+const REDUCED_MOTION_KEY = "media-manager:reduced-motion";
+
+export function setReducedMotion(enabled) {
+  document.body.dataset.reducedMotion = enabled ? "true" : "false";
+  const toggle = $("#reduced-motion-toggle");
+  if (toggle) toggle.checked = enabled;
+  try { localStorage.setItem(REDUCED_MOTION_KEY, enabled ? "1" : "0"); } catch (e) { /* private browsing / storage disabled */ }
+}
+
+export function setupReducedMotion() {
+  let stored = null;
+  try { stored = localStorage.getItem(REDUCED_MOTION_KEY); } catch (e) { /* private browsing / storage disabled */ }
+  const enabled = stored != null
+    ? stored === "1"
+    : !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  setReducedMotion(enabled);
+  const toggle = $("#reduced-motion-toggle");
+  if (toggle) toggle.addEventListener("change", (e) => setReducedMotion(e.target.checked));
 }
 
 // ---- Status badge ----

@@ -29,6 +29,7 @@
       <option value="neumorphism">Neumorphism</option>
       <option value="claymorphism">Claymorphism</option>
       <option value="glassmorphism">Glassmorphism</option>
+      <option value="high-contrast">High Contrast</option>
     </select>
   </div>
 </header>
@@ -440,6 +441,23 @@
     <div id="background-tasks-card" class="card"></div>
     <div id="storage-card" class="card"></div>
 
+    <h3>Accessibility</h3>
+    <div class="card">
+      <p class="hint">Per-browser display preferences (like the theme picker up top) -- stored locally, not in config.yaml.</p>
+      <label>Text size
+        <select id="font-size-select">
+          <option value="small">Small</option>
+          <option value="medium">Medium (default)</option>
+          <option value="large">Large</option>
+          <option value="x-large">Extra Large</option>
+        </select>
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" id="reduced-motion-toggle">
+        Reduce motion (disables toasts/progress-bar/skeleton animations and transitions)
+      </label>
+    </div>
+
     <h3>Media Paths &amp; TMDB Key</h3>
     <form id="settings-form" class="card">
       <label>Movies incoming directory
@@ -812,6 +830,14 @@
 </aside>
 
 <div id="toast-container" class="toast-container"></div>
+
+<div id="install-banner" class="install-banner hidden">
+  <span>📲 Install MediAerie for quicker access and offline support.</span>
+  <div class="install-banner-actions">
+    <button id="install-banner-install-btn" class="primary">Install</button>
+    <button id="install-banner-dismiss-btn">Not now</button>
+  </div>
+</div>
 
 <div id="shortcuts-modal" class="modal hidden">
   <div class="modal-content shortcuts-modal-content">

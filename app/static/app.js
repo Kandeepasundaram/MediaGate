@@ -4,7 +4,7 @@
 
 import { approveSelected, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
 import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable } from "./js/browse-tab.js";
-import { loadStatus, restoreLastTab, restoreScrollPosition, setupGlobalSearch, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
+import { loadStatus, restoreLastTab, restoreScrollPosition, setupFontSize, setupGlobalSearch, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
 import { $, $all, api, showToast, state } from "./js/core.js";
@@ -123,14 +123,73 @@ function setupKeyboardShortcuts() {
   });
 }
 
+// ---- Swipe between tabs (touch only -- no-op on desktop, which never
+// fires touchstart/touchend) ----
+function setupSwipeNavigation() {
+  const main = document.querySelector("main");
+  if (!main) return;
+  let startX = 0;
+  let startY = 0;
+  let startTime = 0;
+
+  main.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    startTime = Date.now();
+  }, { passive: true });
+
+  main.addEventListener("touchend", (e) => {
+    if (!startTime) return;
+    const dt = Date.now() - startTime;
+    startTime = 0;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    // A fast, mostly-horizontal drag -- otherwise this is a scroll (tall
+    // page, or a horizontally-scrollable table/cast-row/season-tabs strip),
+    // not a tab-switch gesture.
+    if (dt > 600 || Math.abs(dx) < 70 || Math.abs(dy) > 60) return;
+    if (e.target.closest("input, select, textarea, button, table, .modal, .cast-row, .season-tabs")) return;
+    const current = $(".tab-btn.active");
+    if (!current) return;
+    const idx = TAB_KEYS.indexOf(current.dataset.tab);
+    const nextIdx = dx < 0 ? idx + 1 : idx - 1;
+    if (idx === -1 || nextIdx < 0 || nextIdx >= TAB_KEYS.length) return;
+    switchToTab(TAB_KEYS[nextIdx]);
+  }, { passive: true });
+}
+
 if ("serviceWorker" in navigator) {
   window.addEventListener("load", () => {
     navigator.serviceWorker.register("/sw.js").catch(() => { /* PWA install just won't be offered; app still works */ });
   });
 }
 
+// ---- PWA install banner ----
+const INSTALL_DISMISS_KEY = "media-manager:install-dismissed-at";
+const INSTALL_DISMISS_DAYS = 14;
+let deferredInstallPrompt = null;
+
+// Chrome/Edge fire this unprompted once installability criteria are met
+// (manifest + service worker + not already installed) -- capturing it lets
+// us show our own banner instead of relying on the browser's own UI, and
+// re-trigger install later via .prompt().
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  let dismissedAt = null;
+  try { dismissedAt = Number(localStorage.getItem(INSTALL_DISMISS_KEY)) || null; } catch (err) { /* private browsing / storage disabled */ }
+  if (dismissedAt && Date.now() - dismissedAt < INSTALL_DISMISS_DAYS * 86400000) return;
+  $("#install-banner")?.classList.remove("hidden");
+});
+
+window.addEventListener("appinstalled", () => {
+  $("#install-banner")?.classList.add("hidden");
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
+  setupSwipeNavigation();
   setupScrollPersistence();
   enableGalleryDragSelect($("#movies-gallery"));
   enableGalleryDragSelect($("#tv-gallery"));
@@ -140,6 +199,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupCompareModal();
   wireUpcomingViewToggles();
   setupTheme();
+  setupFontSize();
+  setupReducedMotion();
   setupKeyboardShortcuts();
   setupFilterPersistence();
   setupReportsTab();
@@ -470,6 +531,17 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#shortcuts-close-btn").addEventListener("click", () => $("#shortcuts-modal").classList.add("hidden"));
   $("#shortcuts-modal").addEventListener("click", (e) => {
     if (e.target.id === "shortcuts-modal") $("#shortcuts-modal").classList.add("hidden");
+  });
+  $("#install-banner-install-btn").addEventListener("click", async () => {
+    $("#install-banner").classList.add("hidden");
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+  });
+  $("#install-banner-dismiss-btn").addEventListener("click", () => {
+    $("#install-banner").classList.add("hidden");
+    try { localStorage.setItem(INSTALL_DISMISS_KEY, String(Date.now())); } catch (e) { /* private browsing / storage disabled */ }
   });
   $("#compare-btn").addEventListener("click", openCompareModal);
   $("#compare-close-btn").addEventListener("click", closeCompareModal);
