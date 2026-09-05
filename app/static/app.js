@@ -7,13 +7,14 @@ import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, load
 import { loadStatus, restoreLastTab, restoreScrollPosition, setupFontSize, setupGlobalSearch, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
-import { $, $all, api, showToast, state } from "./js/core.js";
+import { $, $all, api, formatBytes, showToast, state } from "./js/core.js";
 import { closeDetailPaneWithConfirm, closePersonModal, exportPersonCredits } from "./js/detail-pane.js";
-import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, surpriseMeMovie, surpriseMeTv, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
+import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, removeFromCollection, removeTagBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, surpriseMeMovie, surpriseMeTv, toggleFocusedCardWatched, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
 import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackerCategoryTabs, setupUniverseTypeTabs, wireUpcomingViewToggles } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
 import { exportWatchlistCsv, renderWatchlist } from "./js/watchlist-tab.js";
+import { closeWhatsNew, maybeShowWhatsNew } from "./js/whats-new.js";
 import { checkPermissions, createApiToken, createViewerAction, deleteTagAction, disableApiToken, exportLibrary, importLibrary, importWatchHistory, loadViewers, previewDigest, renameTagAction, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, syncWatchedFromMediaServers, testTmdbKey } from "./js/settings-tab.js";
 
 // ---- Wiring ----
@@ -80,6 +81,7 @@ function setupKeyboardShortcuts() {
       closeMatchPicker();
       closePersonModal();
       closeCompareModal();
+      closeWhatsNew();
       closeDetailPaneWithConfirm();
       return;
     }
@@ -109,6 +111,12 @@ function setupKeyboardShortcuts() {
     if (e.key === "Enter") {
       const ctx = activeGalleryContext();
       if (ctx && activateGalleryFocus()) return;
+    }
+    if (e.key === "w" || e.key === "W") {
+      if (toggleFocusedCardWatched()) {
+        e.preventDefault();
+        return;
+      }
     }
 
     const digit = Number(e.key);
@@ -212,6 +220,7 @@ document.addEventListener("DOMContentLoaded", () => {
   requestNotificationPermission();
   pollNotifications();
   pollNewFiles();
+  maybeShowWhatsNew();
 
   $("#scan-btn").addEventListener("click", scanAndPreview);
   $("#select-all-btn").addEventListener("click", () => {
@@ -306,6 +315,15 @@ document.addEventListener("DOMContentLoaded", () => {
     showToast(`Added ${ids.length} movie(s) to "${name.trim()}".`, "success");
     loadMoviesGallery();
   });
+  $("#movies-collection-remove-btn").addEventListener("click", async () => {
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    if (ids.length === 0) return;
+    const name = window.prompt("Remove from collection (name):");
+    if (!name || !name.trim()) return;
+    await removeFromCollection(ids, name, state.movieItems);
+    showToast(`Removed ${ids.length} movie(s) from "${name.trim()}".`, "success");
+    loadMoviesGallery();
+  });
   $("#movies-resolution").addEventListener("change", renderMoviesGallery);
   $("#movies-watch").addEventListener("change", renderMoviesGallery);
   $("#movies-year").addEventListener("change", renderMoviesGallery);
@@ -341,7 +359,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
     const items = state.movieItems.filter((i) => ids.includes(i.id) && i.final_path);
     if (items.length === 0) return;
-    const ok = await showConfirm(`Permanently delete ${items.length} movie file(s) from disk? This cannot be undone.`);
+    const totalBytes = items.reduce((sum, i) => sum + (i.size_bytes || 0), 0);
+    const ok = await showConfirm(`Permanently delete ${items.length} movie file(s) (${formatBytes(totalBytes)}) from disk? This cannot be undone.`);
     if (!ok) return;
     try {
       const data = await api("/api/library/delete-batch", {
@@ -371,6 +390,15 @@ document.addEventListener("DOMContentLoaded", () => {
     if (ids.length === 0 || !tagInput.value.trim()) return;
     await applyTagBatch(ids, tagInput.value);
     showToast(`Tagged ${ids.length} movie(s) "${tagInput.value.trim()}".`, "success");
+    tagInput.value = "";
+    loadMoviesGallery();
+  });
+  $("#movies-tag-remove-btn").addEventListener("click", async () => {
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    const tagInput = $("#movies-tag-input");
+    if (ids.length === 0 || !tagInput.value.trim()) return;
+    await removeTagBatch(ids, tagInput.value, state.movieItems);
+    showToast(`Removed tag "${tagInput.value.trim()}" from ${ids.length} movie(s).`, "success");
     tagInput.value = "";
     loadMoviesGallery();
   });
@@ -411,6 +439,16 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!name || !name.trim()) return;
     await addToCollection(ids, name);
     showToast(`Added ${titles.size} show(s) to "${name.trim()}".`, "success");
+    loadTvGallery();
+  });
+  $("#tv-collection-remove-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    if (titles.size === 0) return;
+    const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
+    const name = window.prompt("Remove from collection (name):");
+    if (!name || !name.trim()) return;
+    await removeFromCollection(ids, name, state.tvItems);
+    showToast(`Removed ${titles.size} show(s) from "${name.trim()}".`, "success");
     loadTvGallery();
   });
   $("#tv-resolution").addEventListener("change", renderTvGallery);
@@ -466,7 +504,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
     const items = state.tvItems.filter((i) => titles.has(i.title) && i.final_path);
     if (items.length === 0) return;
-    const ok = await showConfirm(`Permanently delete ${items.length} episode file(s) from disk? This cannot be undone.`);
+    const totalBytes = items.reduce((sum, i) => sum + (i.size_bytes || 0), 0);
+    const ok = await showConfirm(`Permanently delete ${items.length} episode file(s) (${formatBytes(totalBytes)}) from disk? This cannot be undone.`);
     if (!ok) return;
     try {
       const data = await api("/api/library/delete-batch", {
@@ -484,6 +523,16 @@ document.addEventListener("DOMContentLoaded", () => {
       $("#tv-count").textContent = `Error: ${e.message}`;
       showToast(`Delete failed: ${e.message}`, "error");
     }
+  });
+  $("#tv-tag-remove-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
+    const tagInput = $("#tv-tag-input");
+    if (ids.length === 0 || !tagInput.value.trim()) return;
+    await removeTagBatch(ids, tagInput.value, state.tvItems);
+    showToast(`Removed tag "${tagInput.value.trim()}" from ${titles.size} show(s).`, "success");
+    tagInput.value = "";
+    loadTvGallery();
   });
   $("#tv-preset-select").addEventListener("change", (e) => {
     if (!e.target.value) return;
@@ -542,6 +591,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#install-banner-dismiss-btn").addEventListener("click", () => {
     $("#install-banner").classList.add("hidden");
     try { localStorage.setItem(INSTALL_DISMISS_KEY, String(Date.now())); } catch (e) { /* private browsing / storage disabled */ }
+  });
+  $("#whats-new-close-btn").addEventListener("click", closeWhatsNew);
+  $("#whats-new-modal").addEventListener("click", (e) => {
+    if (e.target.id === "whats-new-modal") closeWhatsNew();
   });
   $("#compare-btn").addEventListener("click", openCompareModal);
   $("#compare-close-btn").addEventListener("click", closeCompareModal);

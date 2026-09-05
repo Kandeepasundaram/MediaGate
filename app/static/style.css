@@ -1756,6 +1756,30 @@ textarea:focus-visible,
   .cal-cell { min-height: 40px; font-size: 0.6rem; }
 }
 
+/* ---- A-Z jump rail ---- */
+.az-rail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+  margin: 0.5rem 0;
+}
+
+.az-rail-btn {
+  min-width: 1.6rem;
+  padding: 0.15rem 0.3rem;
+  font-size: 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--surface-border);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.az-rail-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
 /* ---- PWA install banner ---- */
 .install-banner {
   position: fixed;

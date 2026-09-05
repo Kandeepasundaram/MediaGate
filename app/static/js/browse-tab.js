@@ -280,7 +280,8 @@ export async function deleteSelectedBrowseItems() {
   if (selected.length === 0) return;
   const dryRun = isBrowseDryRun();
   if (!dryRun) {
-    const ok = await showConfirm(`Permanently delete ${selected.length} file(s)? This cannot be undone.`);
+    const totalBytes = selected.reduce((sum, item) => sum + (item.size_bytes || 0), 0);
+    const ok = await showConfirm(`Permanently delete ${selected.length} file(s) (${formatBytes(totalBytes)})? This cannot be undone.`);
     if (!ok) return;
   }
 

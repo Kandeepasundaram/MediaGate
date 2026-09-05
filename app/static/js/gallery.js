@@ -217,6 +217,10 @@ export async function addToCollection(ids, name) {
   return applyTagBatch(ids, tag);
 }
 
+export async function removeFromCollection(ids, name, allItems) {
+  return removeTagBatch(ids, COLLECTION_PREFIX + name.trim(), allItems);
+}
+
 async function setTagsForId(id, tags) {
   return api(`/api/library/${id}/tags`, { method: "POST", body: JSON.stringify({ tags }) });
 }
@@ -545,6 +549,59 @@ function populateCollectionOptions(selectEl, items, previousValue) {
   if (previousValue && names.includes(previousValue)) selectEl.value = previousValue;
 }
 
+// ---- A-Z jump rail ----
+const AZ_LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
+
+function azLetterOf(title) {
+  const c = (title || "").trim().toUpperCase()[0];
+  return c && /[A-Z]/.test(c) ? c : "#";
+}
+
+// Only enables letters the current filtered set actually has -- an A-Z
+// rail where most letters 404 is worse than no rail.
+function populateAzRail(prefix, items) {
+  const rail = $(`#${prefix}-az-rail`);
+  if (!rail) return;
+  const available = new Set(items.map((i) => azLetterOf(i.title)));
+  rail.innerHTML = AZ_LETTERS.map((l) =>
+    `<button class="az-rail-btn" data-letter="${l}" ${available.has(l) ? "" : "disabled"}>${l}</button>`
+  ).join("");
+  rail.querySelectorAll(".az-rail-btn:not(:disabled)").forEach((btn) => {
+    btn.addEventListener("click", () => jumpToLetter(prefix, btn.dataset.letter));
+  });
+}
+
+// Forces title sort (the only order an A-Z jump means anything in), then
+// bumps this gallery's page-size render limit just enough to include the
+// target card -- paginateGallery only resets that limit when the filter
+// *signature* changes, and a second render() call under the same
+// (now title-sorted) filters is the same signature, so the bump sticks.
+function jumpToLetter(prefix, letter) {
+  const isTv = prefix === "tv";
+  const sortSelect = $(`#${prefix}-sort`);
+  sortSelect.value = "title";
+  const render = isTv ? renderTvGallery : renderMoviesGallery;
+  render();
+
+  const filtered = floatPinnedToTop(filterAndSort(
+    isTv ? groupEpisodesByShow(state.tvItems) : state.movieItems,
+    isTv ? currentTvFilters() : currentMovieFilters(),
+  ));
+  const idx = filtered.findIndex((i) => azLetterOf(i.title) === letter);
+  if (idx === -1) return;
+
+  const limitKey = `${prefix}RenderLimit`;
+  const needed = Math.ceil((idx + 1) / GALLERY_PAGE_SIZE) * GALLERY_PAGE_SIZE;
+  if (state[limitKey] < needed) {
+    state[limitKey] = needed;
+    render();
+  }
+  requestAnimationFrame(() => {
+    const cards = $(`#${prefix}-gallery`).querySelectorAll(".gallery-card");
+    cards[idx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
 function distinctYears(items) {
   return Array.from(new Set(items.map((i) => i.year).filter((y) => y != null))).sort((a, b) => b - a);
 }
@@ -580,6 +637,19 @@ export async function applyTagBatch(ids, tag) {
   await api("/api/library/tags-batch", { method: "POST", body: JSON.stringify({ ids, tag: tag.trim() }) });
 }
 
+// No batch "remove" endpoint exists (tags-batch is add-only, by design --
+// see its docstring) -- this is the same per-item full-list-replace
+// togglePin already uses for multiple ids, just subtracting instead of
+// adding. allItems is state.movieItems or state.tvItems, whichever the
+// ids came from, so each item's other tags survive untouched.
+export async function removeTagBatch(ids, tag, allItems) {
+  tag = tag.trim();
+  if (ids.length === 0 || !tag) return;
+  const targets = allItems.filter((i) => ids.includes(i.id));
+  await Promise.all(targets.map((i) => setTagsForId(i.id, (i.tags || []).filter((t) => t !== tag))));
+  targets.forEach((i) => { i.tags = (i.tags || []).filter((t) => t !== tag); });
+}
+
 export function renderMoviesGallery() {
   const gallery = $("#movies-gallery");
   const query = $("#movies-search").value.trim();
@@ -594,6 +664,7 @@ export function renderMoviesGallery() {
   const ratingFilter = $("#movies-rating").value;
   const addedFilter = $("#movies-added").value;
   const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
+  populateAzRail("movies", items);
   const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
@@ -810,6 +881,21 @@ export function activateGalleryFocus() {
   const focused = ctx.container.querySelector(".gallery-focused");
   if (!focused) return false;
   focused.click();
+  return true;
+}
+
+// "W" shortcut -- only movie cards render a watched checkbox directly on
+// the card (a TV card represents a whole show, with no single watched
+// state to flip from the grid); a TV card focused here is a silent no-op.
+// checkbox.click() both flips it and fires the "change" event, so this
+// reuses wireWatchedToggles' own listener instead of duplicating it.
+export function toggleFocusedCardWatched() {
+  const ctx = activeGalleryContext();
+  if (!ctx) return false;
+  const focused = ctx.container.querySelector(".gallery-focused");
+  const checkbox = focused?.querySelector(".watched-toggle input");
+  if (!checkbox) return false;
+  checkbox.click();
   return true;
 }
 
@@ -1118,6 +1204,7 @@ export function renderTvGallery() {
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
   const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
+  populateAzRail("tv", shows);
   const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 

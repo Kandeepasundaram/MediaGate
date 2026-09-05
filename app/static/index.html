@@ -75,6 +75,7 @@
         <option value="">All collections</option>
       </select>
       <button id="movies-collection-add-btn" title="Add every selected movie to a collection (type a new name to create one)">📁 Add to Collection</button>
+      <button id="movies-collection-remove-btn" title="Remove every selected movie from a collection">📁 Remove from Collection</button>
       <select id="movies-resolution">
         <option value="">All resolutions</option>
         <option value="4K">4K</option>
@@ -117,10 +118,12 @@
       <button id="movies-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
       <input type="text" id="movies-tag-input" placeholder="Tag name…" class="tag-input">
       <button id="movies-tag-apply-btn" title="Add this tag to every selected movie">Tag Selected</button>
+      <button id="movies-tag-remove-btn" title="Remove this tag from every selected movie">Untag Selected</button>
       <button id="movies-delete-selected-btn" class="danger">Delete Selected</button>
       <button id="movies-export-btn" title="Export the currently filtered/sorted list, not the full library">Export View (CSV)</button>
       <span id="movies-count" class="hint"></span>
     </div>
+    <div class="az-rail" id="movies-az-rail"></div>
     <div id="movies-gallery" class="gallery"></div>
   </section>
 
@@ -154,6 +157,7 @@
         <option value="">All collections</option>
       </select>
       <button id="tv-collection-add-btn" title="Add every selected show to a collection (type a new name to create one)">📁 Add to Collection</button>
+      <button id="tv-collection-remove-btn" title="Remove every selected show from a collection">📁 Remove from Collection</button>
       <select id="tv-resolution">
         <option value="">All resolutions</option>
         <option value="4K">4K</option>
@@ -196,10 +200,12 @@
       <button id="tv-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
       <input type="text" id="tv-tag-input" placeholder="Tag name…" class="tag-input">
       <button id="tv-tag-apply-btn" title="Add this tag to every selected show's episodes">Tag Selected</button>
+      <button id="tv-tag-remove-btn" title="Remove this tag from every selected show's episodes">Untag Selected</button>
       <button id="tv-delete-selected-btn" class="danger">Delete Selected</button>
       <button id="tv-export-btn" title="Export the currently filtered/sorted list, not the full library">Export View (CSV)</button>
       <span id="tv-count" class="hint"></span>
     </div>
+    <div class="az-rail" id="tv-az-rail"></div>
     <div id="tv-gallery" class="gallery"></div>
   </section>
 
@@ -799,6 +805,14 @@
   </div>
 </div>
 
+<div id="whats-new-modal" class="modal hidden">
+  <div class="modal-content">
+    <h4>What's New in <span id="whats-new-version"></span></h4>
+    <ul id="whats-new-list"></ul>
+    <button id="whats-new-close-btn" class="primary">Got it</button>
+  </div>
+</div>
+
 <div id="compare-modal" class="modal hidden">
   <div class="modal-content compare-modal-content">
     <h4>Compare Titles</h4>
@@ -849,6 +863,7 @@
         <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Jump to tab</td></tr>
         <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td><td>Move gallery focus (Movies/TV tabs)</td></tr>
         <tr><td><kbd>Enter</kbd></td><td>Open focused gallery card / run selected command</td></tr>
+        <tr><td><kbd>W</kbd></td><td>Toggle watched on the focused gallery card (Movies tab)</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Approve selected (archive/organize)</td></tr>
         <tr><td><kbd>Esc</kbd></td><td>Close modal / detail pane / palette</td></tr>
         <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>
