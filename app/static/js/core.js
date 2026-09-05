@@ -14,6 +14,7 @@ export const state = {
   pendingGenreRestore: { movies: null, tv: null }, // saved genre filter value applied on the first gallery load only
   pendingYearRestore: { movies: null, tv: null }, // saved year filter value applied on the first gallery load only
   pendingTagRestore: { movies: null, tv: null }, // saved tag filter value applied on the first gallery load only
+  pendingCollectionRestore: { movies: null, tv: null }, // saved collection filter value applied on the first gallery load only
   moviesRenderLimit: 60,
   moviesFilterSignature: "",
   tvRenderLimit: 60,

@@ -17,6 +17,7 @@
     <div id="global-search-results" class="global-search-results hidden"></div>
   </div>
   <div class="topbar-right">
+    <button id="compare-btn" title="Compare two titles side by side">⚖ Compare</button>
     <select id="viewer-select" title="Viewer -- watched checkboxes reflect this viewer's own state">
       <option value="">All viewers</option>
     </select>
@@ -69,6 +70,10 @@
       <select id="movies-tag">
         <option value="">All tags</option>
       </select>
+      <select id="movies-collection" title="Filter to a collection">
+        <option value="">All collections</option>
+      </select>
+      <button id="movies-collection-add-btn" title="Add every selected movie to a collection (type a new name to create one)">📁 Add to Collection</button>
       <select id="movies-resolution">
         <option value="">All resolutions</option>
         <option value="4K">4K</option>
@@ -144,6 +149,10 @@
       <select id="tv-tag">
         <option value="">All tags</option>
       </select>
+      <select id="tv-collection" title="Filter to a collection">
+        <option value="">All collections</option>
+      </select>
+      <button id="tv-collection-add-btn" title="Add every selected show to a collection (type a new name to create one)">📁 Add to Collection</button>
       <select id="tv-resolution">
         <option value="">All resolutions</option>
         <option value="4K">4K</option>
@@ -281,7 +290,14 @@
     <div id="notifications-list"></div>
     <h3>Upcoming Releases</h3>
     <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
-    <div id="upcoming-releases-list"></div>
+    <div class="upcoming-widget" data-upcoming-base="upcoming-releases">
+      <div class="season-tabs">
+        <button class="season-tab-btn active" data-upcoming-view="list">📋 List</button>
+        <button class="season-tab-btn" data-upcoming-view="calendar">🗓 Calendar</button>
+      </div>
+      <div id="upcoming-releases-list"></div>
+      <div id="upcoming-releases-calendar" class="hidden"></div>
+    </div>
     <h3>Recent Notification History</h3>
     <p class="hint">RSS feed: <a href="/api/tracker/feed.rss" target="_blank">/api/tracker/feed.rss</a></p>
     <div id="notification-history-list"></div>
@@ -314,7 +330,14 @@
 
     <h3>Upcoming</h3>
     <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
-    <div id="tracker-upcoming-list"></div>
+    <div class="upcoming-widget" data-upcoming-base="tracker-upcoming">
+      <div class="season-tabs">
+        <button class="season-tab-btn active" data-upcoming-view="list">📋 List</button>
+        <button class="season-tab-btn" data-upcoming-view="calendar">🗓 Calendar</button>
+      </div>
+      <div id="tracker-upcoming-list"></div>
+      <div id="tracker-upcoming-calendar" class="hidden"></div>
+    </div>
 
     <h3>Universes</h3>
     <p class="hint">Group related titles (a franchise, a shared universe) so a new season, sequel, or spinoff in any of them is flagged together.</p>
@@ -755,6 +778,24 @@
       <button id="person-modal-export-btn" class="hidden">Export CSV</button>
       <button id="person-modal-close-btn">Close</button>
     </div>
+  </div>
+</div>
+
+<div id="compare-modal" class="modal hidden">
+  <div class="modal-content compare-modal-content">
+    <h4>Compare Titles</h4>
+    <div class="compare-pickers">
+      <div class="compare-picker">
+        <input type="text" id="compare-search-a" placeholder="Search a title…" class="search-input" autocomplete="off">
+        <div id="compare-results-a" class="global-search-results hidden"></div>
+      </div>
+      <div class="compare-picker">
+        <input type="text" id="compare-search-b" placeholder="Search a title…" class="search-input" autocomplete="off">
+        <div id="compare-results-b" class="global-search-results hidden"></div>
+      </div>
+    </div>
+    <div id="compare-output"></div>
+    <button id="compare-close-btn">Close</button>
   </div>
 </div>
 

@@ -54,9 +54,110 @@ export async function loadNotifications() {
   }
 }
 
+// "Today"/"Tomorrow"/"in Nd" -- gives the list and calendar views an
+// at-a-glance urgency signal beyond the raw ISO date.
+function formatCountdown(dateStr) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(`${dateStr}T00:00:00`);
+  const days = Math.round((target - today) / 86400000);
+  if (days < 0) return { label: "Past due", urgent: false };
+  if (days === 0) return { label: "Today", urgent: true };
+  if (days === 1) return { label: "Tomorrow", urgent: true };
+  return { label: `in ${days}d`, urgent: false };
+}
+
+function countdownBadge(dateStr) {
+  const { label, urgent } = formatCountdown(dateStr);
+  return `<span class="badge${urgent ? " delta-up" : ""}">${label}</span>`;
+}
+
+function jumpToUpcomingItem(mediaType, title) {
+  const tab = mediaType === "movie" ? "movies" : "tv";
+  switchToTab(tab);
+  const searchInput = $(`#${tab}-search`);
+  if (searchInput) {
+    searchInput.value = title;
+    searchInput.dispatchEvent(new Event("input"));
+  }
+}
+
+function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate();
+}
+
+function renderMonthGrid(year, monthIndex, itemsByDay) {
+  const first = new Date(year, monthIndex, 1);
+  const monthName = first.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  let cells = "";
+  for (let i = 0; i < first.getDay(); i++) cells += `<div class="cal-cell cal-cell-empty"></div>`;
+  for (let d = 1; d <= daysInMonth(year, monthIndex); d++) {
+    const dayItems = itemsByDay[d] || [];
+    cells += `
+      <div class="cal-cell${dayItems.length ? " cal-cell-has-items" : ""}">
+        <div class="cal-day-num">${d}</div>
+        ${dayItems.map((i) => `<div class="cal-chip" data-jump-type="${i.media_type}" data-jump-title="${escapeAttr(i.title)}" title="${escapeAttr(i.title)} — ${i.label}">${escapeAttr(i.title)}</div>`).join("")}
+      </div>`;
+  }
+  return `
+    <div class="cal-month">
+      <h4>${monthName}</h4>
+      <div class="cal-grid">
+        <div class="cal-weekday">Sun</div><div class="cal-weekday">Mon</div><div class="cal-weekday">Tue</div><div class="cal-weekday">Wed</div><div class="cal-weekday">Thu</div><div class="cal-weekday">Fri</div><div class="cal-weekday">Sat</div>
+        ${cells}
+      </div>
+    </div>`;
+}
+
+// One grid per month that actually has a release in it (usually 2-4 for the
+// upcoming endpoint's 90-day window), rather than always rendering the
+// current month -- an empty "this month" grid when everything due is next
+// month would just be confusing.
+function renderUpcomingCalendar(containerId, items) {
+  const el = $(`#${containerId}`);
+  if (!el) return;
+  if (items.length === 0) {
+    el.innerHTML = "<p>Nothing due in the next 90 days.</p>";
+    return;
+  }
+  const byMonth = new Map();
+  items.forEach((i) => {
+    const d = new Date(`${i.release_date}T00:00:00`);
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    if (!byMonth.has(key)) byMonth.set(key, { year: d.getFullYear(), month: d.getMonth(), byDay: {} });
+    const bucket = byMonth.get(key).byDay;
+    (bucket[d.getDate()] ||= []).push(i);
+  });
+  const months = Array.from(byMonth.values()).sort((a, b) => (a.year - b.year) || (a.month - b.month));
+  el.innerHTML = months.map((m) => renderMonthGrid(m.year, m.month, m.byDay)).join("");
+  el.querySelectorAll(".cal-chip").forEach((chip) => {
+    chip.addEventListener("click", () => jumpToUpcomingItem(chip.dataset.jumpType, chip.dataset.jumpTitle));
+  });
+}
+
+// Wires the shared List/Calendar toggle for every ".upcoming-widget" on the
+// page (Notifications tab's own widget and the Tracker tab's copy) -- run
+// once at startup since the buttons never get re-rendered.
+export function wireUpcomingViewToggles() {
+  $all(".upcoming-widget").forEach((widget) => {
+    const base = widget.dataset.upcomingBase;
+    widget.querySelectorAll("[data-upcoming-view]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        widget.querySelectorAll("[data-upcoming-view]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        const view = btn.dataset.upcomingView;
+        $(`#${base}-list`).classList.toggle("hidden", view !== "list");
+        $(`#${base}-calendar`).classList.toggle("hidden", view !== "calendar");
+      });
+    });
+  });
+}
+
 // Renders into every matching container passed (both the Notifications
 // tab's own widget and the Tracker tab's copy render the same data -- the
-// endpoint is cheap and re-fetching per container keeps this simple).
+// endpoint is cheap and re-fetching per container keeps this simple). Each
+// list container has a same-named "...-calendar" sibling (see
+// wireUpcomingViewToggles) that gets the same items as a month grid.
 export async function loadUpcomingReleases(selectors = ["#upcoming-releases-list"]) {
   const containers = selectors.map((sel) => $(sel)).filter(Boolean);
   if (containers.length === 0) return;
@@ -69,11 +170,15 @@ export async function loadUpcomingReleases(selectors = ["#upcoming-releases-list
         <div class="notification-item">
           <div>
             <strong>${i.title}</strong>
-            <div>${i.label} — ${i.release_date}</div>
+            <div>${i.label} — ${i.release_date} ${countdownBadge(i.release_date)}</div>
           </div>
         </div>
       `).join("");
-    containers.forEach((c) => { c.innerHTML = html; });
+    containers.forEach((c) => {
+      c.innerHTML = html;
+      const calId = c.id.replace(/-list$/, "-calendar");
+      if (calId !== c.id) renderUpcomingCalendar(calId, data.items);
+    });
   } catch (e) {
     containers.forEach((c) => { c.innerHTML = `<p>Error loading upcoming releases: ${e.message}</p>`; });
   }

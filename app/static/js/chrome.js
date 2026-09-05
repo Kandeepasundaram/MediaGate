@@ -93,6 +93,46 @@ export function restoreLastTab() {
 // ---- Global search ----
 let globalSearchDebounce = null;
 
+// Recent search *queries* (raw typed text), distinct from "recently
+// viewed" titles in detail-pane.js -- shown when the search box is
+// focused/empty so a repeat lookup doesn't need retyping.
+const RECENT_SEARCHES_KEY = "media-manager:recent-searches";
+const RECENT_SEARCHES_MAX = 8;
+
+function loadRecentSearches() {
+  try { return JSON.parse(localStorage.getItem(RECENT_SEARCHES_KEY) || "[]"); } catch (e) { return []; }
+}
+
+function pushRecentSearch(query) {
+  const list = loadRecentSearches().filter((q) => q.toLowerCase() !== query.toLowerCase());
+  list.unshift(query);
+  try { localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(list.slice(0, RECENT_SEARCHES_MAX))); } catch (e) { /* private browsing / storage disabled */ }
+}
+
+function renderRecentSearches() {
+  const results = $("#global-search-results");
+  const recents = loadRecentSearches();
+  if (recents.length === 0) {
+    results.classList.add("hidden");
+    results.innerHTML = "";
+    return;
+  }
+  results.innerHTML = `<div class="global-search-empty">Recent searches</div>` +
+    recents.map((q, i) => `
+      <div class="global-search-result recent-search-result" data-index="${i}">
+        <span class="gsr-type">🕓</span>
+        <span class="gsr-title">${escapeAttr(q)}</span>
+      </div>`).join("");
+  results.classList.remove("hidden");
+  results.querySelectorAll(".recent-search-result").forEach((row) => {
+    row.addEventListener("click", () => {
+      const q = recents[Number(row.dataset.index)];
+      $("#global-search").value = q;
+      runGlobalSearch(q);
+    });
+  });
+}
+
 export function setupGlobalSearch() {
   const input = $("#global-search");
   const results = $("#global-search-results");
@@ -101,12 +141,20 @@ export function setupGlobalSearch() {
   input.addEventListener("input", () => {
     const query = input.value.trim();
     clearTimeout(globalSearchDebounce);
+    if (query.length === 0) {
+      renderRecentSearches();
+      return;
+    }
     if (query.length < 2) {
       results.classList.add("hidden");
       results.innerHTML = "";
       return;
     }
     globalSearchDebounce = setTimeout(() => runGlobalSearch(query), 250);
+  });
+
+  input.addEventListener("focus", () => {
+    if (input.value.trim().length === 0) renderRecentSearches();
   });
 
   document.addEventListener("click", (e) => {
@@ -122,6 +170,7 @@ async function runGlobalSearch(query) {
   const results = $("#global-search-results");
   try {
     const data = await api(`/api/library/search?q=${encodeURIComponent(query)}`);
+    pushRecentSearch(query);
     renderGlobalSearchResults(data.items || []);
   } catch (e) {
     results.innerHTML = `<div class="global-search-empty">Search failed: ${e.message}</div>`;

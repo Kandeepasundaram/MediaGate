@@ -6,11 +6,12 @@ import { approveSelected, closeBulkTrackModal, closeMatchPicker, confirmBulkTrac
 import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable } from "./js/browse-tab.js";
 import { loadStatus, restoreLastTab, restoreScrollPosition, setupGlobalSearch, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
+import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
 import { $, $all, api, showToast, state } from "./js/core.js";
 import { closeDetailPaneWithConfirm, closePersonModal, exportPersonCredits } from "./js/detail-pane.js";
-import { activateGalleryFocus, activeGalleryContext, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, surpriseMeMovie, surpriseMeTv, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
+import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, surpriseMeMovie, surpriseMeTv, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
-import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackerCategoryTabs, setupUniverseTypeTabs } from "./js/notifications-tab.js";
+import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackerCategoryTabs, setupUniverseTypeTabs, wireUpcomingViewToggles } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
 import { exportWatchlistCsv, renderWatchlist } from "./js/watchlist-tab.js";
 import { checkPermissions, createApiToken, createViewerAction, deleteTagAction, disableApiToken, exportLibrary, importLibrary, importWatchHistory, loadViewers, previewDigest, renameTagAction, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, syncWatchedFromMediaServers, testTmdbKey } from "./js/settings-tab.js";
@@ -78,6 +79,7 @@ function setupKeyboardShortcuts() {
       $("#shortcuts-modal").classList.add("hidden");
       closeMatchPicker();
       closePersonModal();
+      closeCompareModal();
       closeDetailPaneWithConfirm();
       return;
     }
@@ -135,6 +137,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupUniverseTypeTabs();
   setupTrackerCategoryTabs();
   setupGlobalSearch();
+  setupCompareModal();
+  wireUpcomingViewToggles();
   setupTheme();
   setupKeyboardShortcuts();
   setupFilterPersistence();
@@ -231,6 +235,16 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-filter").addEventListener("change", renderMoviesGallery);
   $("#movies-genre").addEventListener("change", renderMoviesGallery);
   $("#movies-tag").addEventListener("change", renderMoviesGallery);
+  $("#movies-collection").addEventListener("change", renderMoviesGallery);
+  $("#movies-collection-add-btn").addEventListener("click", async () => {
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    if (ids.length === 0) return;
+    const name = window.prompt("Add to collection (new or existing name):");
+    if (!name || !name.trim()) return;
+    await addToCollection(ids, name);
+    showToast(`Added ${ids.length} movie(s) to "${name.trim()}".`, "success");
+    loadMoviesGallery();
+  });
   $("#movies-resolution").addEventListener("change", renderMoviesGallery);
   $("#movies-watch").addEventListener("change", renderMoviesGallery);
   $("#movies-year").addEventListener("change", renderMoviesGallery);
@@ -327,6 +341,17 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#tv-filter").addEventListener("change", renderTvGallery);
   $("#tv-genre").addEventListener("change", renderTvGallery);
   $("#tv-tag").addEventListener("change", renderTvGallery);
+  $("#tv-collection").addEventListener("change", renderTvGallery);
+  $("#tv-collection-add-btn").addEventListener("click", async () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    if (titles.size === 0) return;
+    const ids = state.tvItems.filter((i) => titles.has(i.title)).map((i) => i.id);
+    const name = window.prompt("Add to collection (new or existing name):");
+    if (!name || !name.trim()) return;
+    await addToCollection(ids, name);
+    showToast(`Added ${titles.size} show(s) to "${name.trim()}".`, "success");
+    loadTvGallery();
+  });
   $("#tv-resolution").addEventListener("change", renderTvGallery);
   $("#tv-watch").addEventListener("change", renderTvGallery);
   $("#tv-year").addEventListener("change", renderTvGallery);
@@ -445,5 +470,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#shortcuts-close-btn").addEventListener("click", () => $("#shortcuts-modal").classList.add("hidden"));
   $("#shortcuts-modal").addEventListener("click", (e) => {
     if (e.target.id === "shortcuts-modal") $("#shortcuts-modal").classList.add("hidden");
+  });
+  $("#compare-btn").addEventListener("click", openCompareModal);
+  $("#compare-close-btn").addEventListener("click", closeCompareModal);
+  $("#compare-modal").addEventListener("click", (e) => {
+    if (e.target.id === "compare-modal") closeCompareModal();
   });
 });

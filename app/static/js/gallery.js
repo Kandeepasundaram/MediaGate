@@ -199,6 +199,24 @@ export function isPinned(item) {
   return (item.tags || []).includes(PIN_TAG);
 }
 
+// ---- Collections ----
+// A collection is a namespaced tag (same trick as PIN_TAG above) -- no new
+// column/table/route needed: creating one is tagging with this prefix,
+// filtering by one reuses the tag filter machinery, and renaming/deleting
+// one is already covered by the "Manage Tags" section in Settings.
+export const COLLECTION_PREFIX = "📁 "; // "📁 "
+
+export function collectionNamesOf(items) {
+  const names = new Set();
+  items.forEach((i) => (i.tags || []).forEach((t) => { if (t.startsWith(COLLECTION_PREFIX)) names.add(t.slice(COLLECTION_PREFIX.length)); }));
+  return Array.from(names).sort();
+}
+
+export async function addToCollection(ids, name) {
+  const tag = COLLECTION_PREFIX + name.trim();
+  return applyTagBatch(ids, tag);
+}
+
 async function setTagsForId(id, tags) {
   return api(`/api/library/${id}/tags`, { method: "POST", body: JSON.stringify({ tags }) });
 }
@@ -358,11 +376,12 @@ function matchesAddedWithin(item, addedFilter) {
 }
 
 function filterAndSort(items, opts) {
-  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter } = opts;
+  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter } = opts;
   let out = items;
   if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
   if (genreFilter) out = out.filter((i) => (i.genres || []).includes(genreFilter));
   if (tagFilter) out = out.filter((i) => (i.tags || []).includes(tagFilter));
+  if (collectionFilter) out = out.filter((i) => (i.tags || []).includes(COLLECTION_PREFIX + collectionFilter));
   if (resolutionFilter) out = out.filter((i) => matchesResolution(i, resolutionFilter));
   if (watchFilter) out = out.filter((i) => matchesWatch(i, watchFilter));
   if (yearFilter) out = out.filter((i) => String(i.year) === yearFilter);
@@ -407,8 +426,8 @@ function restoreFilterState(prefix, controlIds) {
 
 const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution", "movies-watch", "movies-rating", "movies-added"];
 const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution", "tv-watch", "tv-rating", "tv-added"];
-export const MOVIE_PRESET_IDS = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year", "movies-tag"];
-export const TV_PRESET_IDS = [...TV_FILTER_IDS, "tv-genre", "tv-year", "tv-tag"];
+export const MOVIE_PRESET_IDS = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year", "movies-tag", "movies-collection"];
+export const TV_PRESET_IDS = [...TV_FILTER_IDS, "tv-genre", "tv-year", "tv-tag", "tv-collection"];
 
 // ---- Named saved filter presets (per-tab, localStorage) ----
 // Distinct from the auto-persisted "last used filters" above (which always
@@ -477,17 +496,19 @@ export function setupFilterPersistence() {
   state.pendingGenreRestore.movies = savedMovies["movies-genre"] || null;
   state.pendingYearRestore.movies = savedMovies["movies-year"] || null;
   state.pendingTagRestore.movies = savedMovies["movies-tag"] || null;
+  state.pendingCollectionRestore.movies = savedMovies["movies-collection"] || null;
   const savedTv = restoreFilterState("tv", TV_FILTER_IDS);
   state.pendingGenreRestore.tv = savedTv["tv-genre"] || null;
   state.pendingYearRestore.tv = savedTv["tv-year"] || null;
   state.pendingTagRestore.tv = savedTv["tv-tag"] || null;
+  state.pendingCollectionRestore.tv = savedTv["tv-collection"] || null;
 
-  const movieIds = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year", "movies-tag"];
+  const movieIds = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year", "movies-tag", "movies-collection"];
   movieIds.forEach((id) => {
     const el = document.getElementById(id);
     el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("movies", movieIds));
   });
-  const tvIds = [...TV_FILTER_IDS, "tv-genre", "tv-year", "tv-tag"];
+  const tvIds = [...TV_FILTER_IDS, "tv-genre", "tv-year", "tv-tag", "tv-collection"];
   tvIds.forEach((id) => {
     const el = document.getElementById(id);
     el.addEventListener(id.endsWith("-search") ? "input" : "change", () => saveFilterState("tv", tvIds));
@@ -515,6 +536,13 @@ function populateTagOptions(selectEl, items, previousValue) {
   const tags = distinctTags(items);
   selectEl.innerHTML = `<option value="">All tags</option>` + tags.map((t) => `<option value="${escapeAttr(t)}">${escapeAttr(t)}</option>`).join("");
   if (previousValue && tags.includes(previousValue)) selectEl.value = previousValue;
+}
+
+function populateCollectionOptions(selectEl, items, previousValue) {
+  if (!selectEl) return;
+  const names = collectionNamesOf(items);
+  selectEl.innerHTML = `<option value="">All collections</option>` + names.map((n) => `<option value="${escapeAttr(n)}">${escapeAttr(n)}</option>`).join("");
+  if (previousValue && names.includes(previousValue)) selectEl.value = previousValue;
 }
 
 function distinctYears(items) {
@@ -559,13 +587,14 @@ export function renderMoviesGallery() {
   const filterMode = $("#movies-filter").value;
   const genreFilter = $("#movies-genre").value;
   const tagFilter = $("#movies-tag").value;
+  const collectionFilter = $("#movies-collection").value;
   const resolutionFilter = $("#movies-resolution").value;
   const watchFilter = $("#movies-watch").value;
   const yearFilter = $("#movies-year").value;
   const ratingFilter = $("#movies-rating").value;
   const addedFilter = $("#movies-added").value;
-  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
+  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
@@ -664,6 +693,7 @@ function currentMovieFilters() {
     filterMode: $("#movies-filter").value,
     genreFilter: $("#movies-genre").value,
     tagFilter: $("#movies-tag").value,
+    collectionFilter: $("#movies-collection").value,
     resolutionFilter: $("#movies-resolution").value,
     watchFilter: $("#movies-watch").value,
     yearFilter: $("#movies-year").value,
@@ -680,6 +710,7 @@ function currentTvFilters() {
     filterMode: $("#tv-filter").value,
     genreFilter: $("#tv-genre").value,
     tagFilter: $("#tv-tag").value,
+    collectionFilter: $("#tv-collection").value,
     resolutionFilter: $("#tv-resolution").value,
     watchFilter: $("#tv-watch").value,
     yearFilter: $("#tv-year").value,
@@ -872,6 +903,9 @@ export async function loadMoviesGallery() {
     const previousTag = state.pendingTagRestore.movies ?? $("#movies-tag").value;
     state.pendingTagRestore.movies = null;
     populateTagOptions($("#movies-tag"), state.movieItems, previousTag);
+    const previousCollection = state.pendingCollectionRestore.movies ?? $("#movies-collection").value;
+    state.pendingCollectionRestore.movies = null;
+    populateCollectionOptions($("#movies-collection"), state.movieItems, previousCollection);
     const previousYear = state.pendingYearRestore.movies ?? $("#movies-year").value;
     state.pendingYearRestore.movies = null;
     populateYearOptions($("#movies-year"), state.movieItems, previousYear);
@@ -1075,6 +1109,7 @@ export function renderTvGallery() {
   const filterMode = $("#tv-filter").value;
   const genreFilter = $("#tv-genre").value;
   const tagFilter = $("#tv-tag").value;
+  const collectionFilter = $("#tv-collection").value;
   const resolutionFilter = $("#tv-resolution").value;
   const watchFilter = $("#tv-watch").value;
   const yearFilter = $("#tv-year").value;
@@ -1082,8 +1117,8 @@ export function renderTvGallery() {
   const addedFilter = $("#tv-added").value;
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
-  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
+  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
   const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
@@ -1161,6 +1196,9 @@ export async function loadTvGallery() {
     const previousTag = state.pendingTagRestore.tv ?? $("#tv-tag").value;
     state.pendingTagRestore.tv = null;
     populateTagOptions($("#tv-tag"), state.tvItems, previousTag);
+    const previousCollection = state.pendingCollectionRestore.tv ?? $("#tv-collection").value;
+    state.pendingCollectionRestore.tv = null;
+    populateCollectionOptions($("#tv-collection"), state.tvItems, previousCollection);
     const previousYear = state.pendingYearRestore.tv ?? $("#tv-year").value;
     state.pendingYearRestore.tv = null;
     populateYearOptions($("#tv-year"), state.tvItems, previousYear);

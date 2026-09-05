@@ -1649,3 +1649,68 @@ textarea:focus-visible,
   font-size: 0.45rem;
   padding: 0.1rem;
 }
+
+/* ---- Compare Titles modal ---- */
+.compare-modal-content { max-width: min(760px, 95vw); }
+
+.compare-pickers {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.compare-picker { position: relative; flex: 1 1 50%; }
+
+.compare-table th, .compare-table td { white-space: normal; }
+.compare-table thead th { text-align: center; }
+.compare-table thead .gallery-poster,
+.compare-table thead .gallery-poster-placeholder { width: 80px; margin: 0 auto 0.3rem; }
+.compare-table tbody th { width: 30%; }
+
+/* ---- Upcoming Releases calendar view ---- */
+.cal-month { margin-bottom: 1.2rem; }
+.cal-month h4 { margin: 0 0 0.4rem; }
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.cal-weekday {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 0.2rem 0;
+  text-transform: uppercase;
+}
+
+.cal-cell {
+  min-height: 60px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.2rem;
+  font-size: 0.7rem;
+  overflow: hidden;
+}
+
+.cal-cell-empty { border: none; }
+.cal-cell-has-items { background: var(--bg-elevated); }
+.cal-day-num { color: var(--text-dim); margin-bottom: 0.15rem; }
+
+.cal-chip {
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.3rem;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .compare-pickers { flex-direction: column; }
+  .cal-cell { min-height: 40px; font-size: 0.6rem; }
+}
