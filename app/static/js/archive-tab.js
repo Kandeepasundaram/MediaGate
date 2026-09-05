@@ -95,7 +95,7 @@ function renderArchiveTable(items) {
   const checkedBefore = $all(".row-check").map((cb) => cb.checked);
   const rowHtml = (item, i) => `
     <tr>
-      <td><input type="checkbox" class="row-check" data-index="${i}" ${checkedBefore[i] === false ? "" : "checked"}></td>
+      <td><input type="checkbox" class="row-check" data-index="${i}" aria-label="Select ${escapeAttr(item.source_path.split(/[\\/]/).pop())}" ${checkedBefore[i] === false ? "" : "checked"}></td>
       <td>${item.duplicate ? `<span class="duplicate-badge" title="A matching title already exists in the library">⚠</span>` : ""}</td>
       <td title="${item.source_path}">${item.source_path.split(/[\\/]/).pop()}</td>
       <td>${item.media_type === "movie" ? renderMovieNameCell(item, i) : renderTvNameCell(item, i)}</td>
@@ -111,7 +111,7 @@ function renderArchiveTable(items) {
     const first = items[group.indices[0]];
     return `
       <tr class="season-pack-header-row">
-        <td><input type="checkbox" class="season-pack-select" data-indices="${group.indices.join(",")}" checked></td>
+        <td><input type="checkbox" class="season-pack-select" data-indices="${group.indices.join(",")}" aria-label="Select season pack: ${escapeAttr(first.title)} Season ${first.season}" checked></td>
         <td colspan="7">Season Pack: ${escapeAttr(first.title)} — Season ${first.season} (${group.indices.length} episodes)</td>
       </tr>
     ` + rows;

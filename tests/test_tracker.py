@@ -115,7 +115,7 @@ def test_check_for_updates_fires_discord_on_newly_pending(db):
 
     mock_post.assert_called_once()
     assert mock_post.call_args.args[0] == "https://discord.com/api/webhooks/x"
-    assert "Show" in mock_post.call_args.kwargs["json"]["content"]
+    assert "Show" in mock_post.call_args.kwargs["json"]["embeds"][0]["title"]
 
 
 def test_check_for_updates_fires_telegram_on_newly_pending(db):

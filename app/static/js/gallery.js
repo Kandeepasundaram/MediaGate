@@ -3,7 +3,7 @@
  */
 
 import { escapeAttr } from "./archive-tab.js";
-import { $, api, getStoredApiToken, state } from "./core.js";
+import { $, api, getStoredApiToken, showToast, state } from "./core.js";
 import { computeMovieStatusInfo, computeTvStatusInfo, getMovieStatus, getTvStatus, openDetailPane, renderTvBody } from "./detail-pane.js";
 
 const GALLERY_PAGE_SIZE = 60;
@@ -90,6 +90,29 @@ export function setActiveViewerId(id) {
 // (see renderTvBody/groupEpisodesByShow), not recomputed per viewer.
 export function effectiveWatched(item) {
   return getActiveViewerId() != null ? !!item.viewer_watched : !!item.watched;
+}
+
+// "Surprise Me" -- picks a random unwatched movie/show from whatever's
+// already loaded in state (the gallery must have been viewed at least
+// once this session, same as every other feature reading state.movieItems/
+// tvItems) and opens its detail pane directly, skipping the "browse and
+// decide" step for the common "just pick something for me" moment.
+export function surpriseMeMovie() {
+  const unwatched = state.movieItems.filter((i) => !effectiveWatched(i));
+  if (unwatched.length === 0) {
+    showToast("Nothing unwatched -- you're all caught up.", "info");
+    return;
+  }
+  openDetailPane("movie", unwatched[Math.floor(Math.random() * unwatched.length)]);
+}
+
+export function surpriseMeTv() {
+  const shows = groupEpisodesByShow(state.tvItems).filter((s) => s.episodes.length > 0 && !s.watched);
+  if (shows.length === 0) {
+    showToast("Nothing unwatched -- you're all caught up.", "info");
+    return;
+  }
+  openDetailPane("tv", shows[Math.floor(Math.random() * shows.length)]);
 }
 
 export async function downloadMovieNote(itemId) {
@@ -195,7 +218,8 @@ export async function togglePin(item, ids) {
 }
 
 function pinButtonMarkup(pinned, index) {
-  return `<button class="pin-toggle-btn${pinned ? " pinned" : ""}" data-pin-index="${index}" title="${pinned ? "Unpin" : "Pin to top"}">${pinned ? "★" : "☆"}</button>`;
+  const label = pinned ? "Unpin" : "Pin to top";
+  return `<button class="pin-toggle-btn${pinned ? " pinned" : ""}" data-pin-index="${index}" title="${label}" aria-label="${label}">${pinned ? "★" : "☆"}</button>`;
 }
 
 // Indexed by data-pin-index rather than DOM position -- some cards (orphan
@@ -557,7 +581,7 @@ export function renderMoviesGallery() {
   }
   gallery.innerHTML = visible.map((item, i) => `
     <div class="gallery-card" data-item-index="${i}">
-      <input type="checkbox" class="gallery-select" data-select-id="${item.id}">
+      <input type="checkbox" class="gallery-select" data-select-id="${item.id}" aria-label="Select ${escapeAttr(item.title)}">
       <span class="gallery-index" title="Position ${i + 1} of ${total} in the current sort/filter">${i + 1}</span>
       ${pinButtonMarkup(isPinned(item), i)}
       <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
@@ -689,6 +713,49 @@ export function activeGalleryContext() {
   if ($("#tab-movies").classList.contains("active")) return { container: $("#movies-gallery") };
   if ($("#tab-tv").classList.contains("active")) return { container: $("#tv-gallery") };
   return null;
+}
+
+// Drag-rectangle multi-select -- an alternative to clicking each checkbox
+// one at a time. Only starts when the mousedown lands on the gallery
+// container itself (the grid gaps), not on a card or the "Load More"
+// button, so it never fights a normal click. Wired once per gallery
+// container at startup; the container element itself survives every
+// re-render (only its innerHTML is replaced), so the listener stays live.
+export function enableGalleryDragSelect(container) {
+  container.addEventListener("mousedown", (e) => {
+    if (e.target !== container || e.button !== 0) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const rectEl = document.createElement("div");
+    rectEl.className = "gallery-drag-rect";
+    document.body.appendChild(rectEl);
+
+    const onMove = (ev) => {
+      const x = Math.min(startX, ev.clientX);
+      const y = Math.min(startY, ev.clientY);
+      Object.assign(rectEl.style, {
+        left: `${x}px`, top: `${y}px`,
+        width: `${Math.abs(ev.clientX - startX)}px`, height: `${Math.abs(ev.clientY - startY)}px`,
+      });
+    };
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      const rect = rectEl.getBoundingClientRect();
+      rectEl.remove();
+      container.querySelectorAll(".gallery-card").forEach((card) => {
+        const r = card.getBoundingClientRect();
+        const intersects = !(r.right < rect.left || r.left > rect.right || r.bottom < rect.top || r.top > rect.bottom);
+        if (intersects) {
+          const cb = card.querySelector(".gallery-select");
+          if (cb) cb.checked = true;
+        }
+      });
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
 }
 
 // Linear (not row/column-aware) card-to-card nav -- simple, and the number
@@ -1032,7 +1099,7 @@ export function renderTvGallery() {
   }
   gallery.innerHTML = visible.map((show, i) => `
     <div class="gallery-card" data-show-index="${i}">
-      <input type="checkbox" class="gallery-select" data-select-title="${show.title}">
+      <input type="checkbox" class="gallery-select" data-select-title="${show.title}" aria-label="Select ${escapeAttr(show.title)}">
       <span class="gallery-index" title="Position ${i + 1} of ${total} in the current sort/filter">${i + 1}</span>
       ${show.episodes.length > 0 ? pinButtonMarkup(isPinned(show), i) : ""}
       <div class="gallery-badges" data-tv-badges="${show.tmdb_id ?? ""}">

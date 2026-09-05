@@ -25,14 +25,16 @@ from app.config_loader import AppConfig
 from app.core import media_probe
 from app.core.library_adopt import adopt_new_files
 from app.core.omdb_client import OMDbClient
-from app.core.media_server import sync_watched_from_media_servers
+from app.core.media_server import get_plex_deep_link, sync_watched_from_media_servers
 from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, season_episode_counts, vote_average_for
 from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
 from app.dependencies import get_config, get_database, get_omdb_client, get_tmdb_client, get_tvmaze_client
 from app.models import (
+    BackdropOut,
     CastMemberOut,
     FileInfoOut,
+    PlayLinkOut,
     LibraryItemOut,
     LibraryResponse,
     ManualOverrideRequest,
@@ -52,6 +54,10 @@ from app.models import (
     RematchTmdbRequest,
     SimilarTitleOut,
     SyncWatchedResponse,
+    TagDeleteRequest,
+    TagRenameRequest,
+    WatchHistoryImportRequest,
+    WatchHistoryImportResponse,
     TagsBatchRequest,
     TagsBatchResponse,
     TagsListResponse,
@@ -564,6 +570,21 @@ def get_trailer_by_tmdb(
     return TrailerOut(youtube_key=key, tmdb_configured=tmdb.mode == "api")
 
 
+def _backdrop_for(tmdb_id: int, media_type: str, tmdb: TMDBClient) -> str | None:
+    media = tmdb.get_movie_details(tmdb_id) if media_type == "movie" else tmdb.get_tv_details(tmdb_id)
+    return media.backdrop_path if media else None
+
+
+@router.get("/backdrop", response_model=BackdropOut)
+def get_backdrop_by_tmdb(
+    tmdb_id: int, media_type: MediaType, tmdb: TMDBClient = Depends(get_tmdb_client)
+) -> BackdropOut:
+    """tmdb_id-keyed sibling of /{item_id}/backdrop -- see get_ratings_by_tmdb.
+    API-key-only, same as get_trailer_key -- the scraper path never
+    populates MediaResult.backdrop_path."""
+    return BackdropOut(backdrop_path=_backdrop_for(tmdb_id, media_type, tmdb), tmdb_configured=tmdb.mode == "api")
+
+
 @router.get("/more-info", response_model=MoreInfoOut)
 def get_more_info_by_tmdb(
     tmdb_id: int, media_type: MediaType, tmdb: TMDBClient = Depends(get_tmdb_client)
@@ -628,6 +649,48 @@ def set_tags_batch(payload: TagsBatchRequest, db: Database = Depends(get_databas
         db.update_media_item(item_id, tags=sorted(tags))
         updated += 1
     return TagsBatchResponse(updated=updated)
+
+
+@router.post("/tags/rename", response_model=TagsBatchResponse)
+def rename_tag(payload: TagRenameRequest, db: Database = Depends(get_database)) -> TagsBatchResponse:
+    """Renames a tag everywhere it's used across the whole library, e.g.
+    "Kids" -> "Kids' Shows" -- unlike /tags-batch and /{item_id}/tags (both
+    scoped to items the caller already picked), this scans every row."""
+    old, new = payload.old.strip(), payload.new.strip()
+    if not old or not new or old == new:
+        return TagsBatchResponse(updated=0)
+    return TagsBatchResponse(updated=db.rename_tag_everywhere(old, new))
+
+
+@router.post("/tags/delete", response_model=TagsBatchResponse)
+def delete_tag(payload: TagDeleteRequest, db: Database = Depends(get_database)) -> TagsBatchResponse:
+    """Removes a tag everywhere it's used across the whole library."""
+    tag = payload.tag.strip()
+    if not tag:
+        return TagsBatchResponse(updated=0)
+    return TagsBatchResponse(updated=db.delete_tag_everywhere(tag))
+
+
+@router.post("/import-watch-history", response_model=WatchHistoryImportResponse)
+def import_watch_history(payload: WatchHistoryImportRequest, db: Database = Depends(get_database)) -> WatchHistoryImportResponse:
+    """Bulk-marks movies watched (with date/rating) from an external
+    service's export -- movies only, matched by title+year (see
+    match_movie_by_title_year). Built against Letterboxd's diary.csv shape
+    (Date, Name, Year, Letterboxd URI, Rating), parsed client-side; the
+    frontend maps those columns into this request's rows."""
+    updated = 0
+    unmatched: list[str] = []
+    for row in payload.rows:
+        match = db.match_movie_by_title_year(row.title, row.year)
+        if match is None:
+            unmatched.append(row.title)
+            continue
+        fields: dict = {"watched": 1, "watched_at": row.watched_date}
+        if row.rating:
+            fields["personal_rating"] = max(1, min(5, round(row.rating)))
+        db.update_media_item(match["id"], **fields)
+        updated += 1
+    return WatchHistoryImportResponse(updated=updated, unmatched=unmatched)
 
 
 @router.post("/{item_id}/watched", response_model=LibraryItemOut)
@@ -821,6 +884,34 @@ def get_trailer(
 
     key = tmdb.get_trailer_key(item["tmdb_id"], item["media_type"])
     return TrailerOut(youtube_key=key, tmdb_configured=tmdb.mode == "api")
+
+
+@router.get("/{item_id}/backdrop", response_model=BackdropOut)
+def get_backdrop(
+    item_id: int, db: Database = Depends(get_database), tmdb: TMDBClient = Depends(get_tmdb_client)
+) -> BackdropOut:
+    """Backdrop image for the detail pane's banner -- see get_trailer."""
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if item["tmdb_id"] is None:
+        return BackdropOut(backdrop_path=None, tmdb_configured=tmdb.mode == "api")
+    return BackdropOut(backdrop_path=_backdrop_for(item["tmdb_id"], item["media_type"], tmdb), tmdb_configured=tmdb.mode == "api")
+
+
+@router.get("/{item_id}/play-link", response_model=PlayLinkOut)
+def get_play_link(
+    item_id: int, db: Database = Depends(get_database), config: AppConfig = Depends(get_config)
+) -> PlayLinkOut:
+    """Deep link to open this title directly in Plex -- movies only (see
+    get_plex_deep_link), None if Plex isn't configured, the title has no
+    imdb_id, or Plex doesn't have it. Jellyfin isn't supported yet."""
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if item["media_type"] != "movie" or not item["imdb_id"] or not (config.media_server.plex_url and config.media_server.plex_token):
+        return PlayLinkOut(plex_url=None)
+    return PlayLinkOut(plex_url=get_plex_deep_link(config.media_server.plex_url, config.media_server.plex_token, item["imdb_id"]))
 
 
 @router.get("/{item_id}/more-info", response_model=MoreInfoOut)

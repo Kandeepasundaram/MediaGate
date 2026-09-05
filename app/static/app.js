@@ -7,12 +7,13 @@ import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, load
 import { loadStatus, restoreLastTab, restoreScrollPosition, setupGlobalSearch, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { $, $all, api, showToast, state } from "./js/core.js";
-import { closeDetailPane, closePersonModal } from "./js/detail-pane.js";
-import { activateGalleryFocus, activeGalleryContext, applyFilterPreset, applyTagBatch, deleteFilterPreset, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
+import { closeDetailPaneWithConfirm, closePersonModal, exportPersonCredits } from "./js/detail-pane.js";
+import { activateGalleryFocus, activeGalleryContext, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, surpriseMeMovie, surpriseMeTv, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
 import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackerCategoryTabs, setupUniverseTypeTabs } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
-import { checkPermissions, createApiToken, createViewerAction, disableApiToken, exportLibrary, importLibrary, loadViewers, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, syncWatchedFromMediaServers } from "./js/settings-tab.js";
+import { exportWatchlistCsv, renderWatchlist } from "./js/watchlist-tab.js";
+import { checkPermissions, createApiToken, createViewerAction, deleteTagAction, disableApiToken, exportLibrary, importLibrary, importWatchHistory, loadViewers, previewDigest, renameTagAction, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, syncWatchedFromMediaServers, testTmdbKey } from "./js/settings-tab.js";
 
 // ---- Wiring ----
 const TAB_KEYS = ["movies", "tv", "browse", "archive", "notifications", "watchlist", "tracker", "history", "reports", "settings"];
@@ -20,6 +21,29 @@ const TAB_KEYS = ["movies", "tv", "browse", "archive", "notifications", "watchli
 export function switchToTab(tabName) {
   const btn = $(`.tab-btn[data-tab="${tabName}"]`);
   if (btn) btn.click();
+}
+
+// ---- Modal focus trap ----
+// At most one .modal is ever visible at a time in this app (they all
+// toggle the same "hidden" class independently), so the first non-hidden
+// one found is unambiguously "the" open modal.
+function getOpenModal() {
+  return $all(".modal").find((m) => !m.classList.contains("hidden")) || null;
+}
+
+function trapTabKey(e, modal) {
+  const focusable = Array.from(modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
+    .filter((el) => !el.disabled && el.offsetParent !== null);
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
 }
 
 function movePaletteSelection(delta) {
@@ -30,6 +54,11 @@ function movePaletteSelection(delta) {
 
 function setupKeyboardShortcuts() {
   document.addEventListener("keydown", (e) => {
+    if (e.key === "Tab") {
+      const modal = getOpenModal();
+      if (modal) trapTabKey(e, modal);
+    }
+
     const paletteOpen = !$("#command-palette").classList.contains("hidden");
     if (paletteOpen) {
       if (e.key === "Escape") { e.preventDefault(); closeCommandPalette(); return; }
@@ -49,7 +78,7 @@ function setupKeyboardShortcuts() {
       $("#shortcuts-modal").classList.add("hidden");
       closeMatchPicker();
       closePersonModal();
-      closeDetailPane();
+      closeDetailPaneWithConfirm();
       return;
     }
 
@@ -101,6 +130,8 @@ if ("serviceWorker" in navigator) {
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
   setupScrollPersistence();
+  enableGalleryDragSelect($("#movies-gallery"));
+  enableGalleryDragSelect($("#tv-gallery"));
   setupUniverseTypeTabs();
   setupTrackerCategoryTabs();
   setupGlobalSearch();
@@ -148,6 +179,8 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   $("#settings-form").addEventListener("submit", saveSettings);
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
+  $("#test-tmdb-key-btn").addEventListener("click", testTmdbKey);
+  $("#digest-preview-btn").addEventListener("click", previewDigest);
   $("#disable-api-token-btn").addEventListener("click", disableApiToken);
   $("#create-api-token-btn").addEventListener("click", createApiToken);
   $("#naming-templates-form").addEventListener("submit", saveNamingTemplates);
@@ -155,6 +188,12 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#sync-watched-btn").addEventListener("click", syncWatchedFromMediaServers);
   $("#webdav-backup-form").addEventListener("submit", saveWebdavBackupSettings);
   $("#create-viewer-btn").addEventListener("click", createViewerAction);
+  $("#manage-tags-rename-btn").addEventListener("click", renameTagAction);
+  $("#manage-tags-delete-btn").addEventListener("click", deleteTagAction);
+  $("#watchlist-export-btn").addEventListener("click", exportWatchlistCsv);
+  $("#watchlist-watching-sort").addEventListener("change", renderWatchlist);
+  $("#movies-surprise-me-btn").addEventListener("click", surpriseMeMovie);
+  $("#tv-surprise-me-btn").addEventListener("click", surpriseMeTv);
   $("#viewer-select").addEventListener("change", (e) => {
     setActiveViewerId(e.target.value ? Number(e.target.value) : null);
     loadMoviesGallery();
@@ -163,6 +202,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#export-library-btn").addEventListener("click", exportLibrary);
   $("#import-library-input").addEventListener("change", (e) => {
     importLibrary(e.target.files[0]);
+    e.target.value = "";
+  });
+  $("#import-watch-history-input").addEventListener("change", (e) => {
+    importWatchHistory(e.target.files[0]);
     e.target.value = "";
   });
   $("#browse-refresh-btn").addEventListener("click", loadBrowse);
@@ -385,7 +428,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#history-until-filter").addEventListener("change", loadHistory);
   $("#history-export-btn").addEventListener("click", exportHistoryView);
 
-  $("#detail-close-btn").addEventListener("click", closeDetailPane);
+  $("#detail-close-btn").addEventListener("click", closeDetailPaneWithConfirm);
   $("#palette-input").addEventListener("input", () => {
     state.paletteVisible = filterCommands($("#palette-input").value);
     state.paletteIndex = 0;
@@ -395,6 +438,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.target.id === "command-palette") closeCommandPalette();
   });
   $("#person-modal-close-btn").addEventListener("click", closePersonModal);
+  $("#person-modal-export-btn").addEventListener("click", exportPersonCredits);
   $("#person-modal").addEventListener("click", (e) => {
     if (e.target.id === "person-modal") closePersonModal();
   });

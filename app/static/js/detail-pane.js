@@ -2,14 +2,56 @@
  * The full-screen detail pane opened from a gallery card: metadata, tags, ratings/trailer/cast, TV season/movie-collection status, and the manual-match/override flow entry points.
  */
 
-import { closeMatchPicker, escapeAttr, openMatchModal } from "./archive-tab.js";
+import { closeMatchPicker, escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
 import { $, api, formatBytes, state } from "./core.js";
-import { TV_SHOW_STATUSES, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, saveMovieNote, saveTvNote, setTvShowStatus, toggleWatched } from "./gallery.js";
+import { TV_SHOW_STATUSES, downloadCsv, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, rowsToCsv, saveMovieNote, saveTvNote, setTvShowStatus, toggleWatched } from "./gallery.js";
 import { loadNotifications, loadTrackerTab, TRACKER_CATEGORIES } from "./notifications-tab.js";
 import { formatDuration } from "./stats-tab.js";
 
 // ---- Detail pane ----
 state.detailPane = null; // { kind: "movie"|"tv", data }
+
+// ---- Recently viewed (movie/TV only -- tracker-pane views aren't tracked,
+// matching the command palette's own Titles search which only ever jumps
+// to a movie/show, not a tracker row) -- persisted so it survives a
+// reload, capped small since this is a quick-jump list, not a real history.
+const RECENTLY_VIEWED_KEY = "media-manager:recently-viewed";
+const RECENTLY_VIEWED_MAX = 5;
+
+function loadRecentlyViewed() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENTLY_VIEWED_KEY) || "[]");
+  } catch (e) {
+    return [];
+  }
+}
+
+function pushRecentlyViewed(kind, data) {
+  if (kind !== "movie" && kind !== "tv") return;
+  const key = kind === "movie" ? data.id : data.tmdb_id;
+  if (key == null) return; // no stable id to reopen by later (e.g. an unmatched show)
+  const entry = { kind, key, title: data.title };
+  const list = loadRecentlyViewed().filter((e) => !(e.kind === kind && e.key === key));
+  list.unshift(entry);
+  try { localStorage.setItem(RECENTLY_VIEWED_KEY, JSON.stringify(list.slice(0, RECENTLY_VIEWED_MAX))); } catch (e) { /* private browsing / storage disabled */ }
+}
+
+export function getRecentlyViewed() {
+  return loadRecentlyViewed();
+}
+
+// Looks the entry back up in whatever's currently loaded (state.movieItems/
+// tvItems) rather than storing the full item, so it never opens with stale
+// data -- same reasoning as every other feature that reads state.*Items.
+export function openRecentlyViewedItem(entry) {
+  if (entry.kind === "movie") {
+    const item = state.movieItems.find((i) => i.id === entry.key);
+    if (item) openDetailPane("movie", item);
+  } else {
+    const show = groupEpisodesByShow(state.tvItems).find((s) => s.tmdb_id === entry.key);
+    if (show) openDetailPane("tv", show);
+  }
+}
 
 export function renderDetailPane() {
   const pane = state.detailPane;
@@ -19,6 +61,7 @@ export function renderDetailPane() {
   if (pane.kind === "movie") {
     const item = pane.data;
     content.innerHTML = `
+      <div id="detail-backdrop-banner" class="detail-backdrop-banner hidden"></div>
       <div id="detail-movie-status"></div>
       ${(item.tmdb_id == null && !item.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
       ${posterMarkupLarge(item.title, item.poster_path)}
@@ -32,6 +75,7 @@ export function renderDetailPane() {
       ${detailTagsMarkup(item.tags)}
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
+      <div id="detail-play-link" class="detail-trailer hidden"></div>
       <p class="detail-overview">${item.overview || "No overview available."}</p>
       <div id="detail-more-info"></div>
       <div class="detail-file-info">
@@ -61,6 +105,8 @@ export function renderDetailPane() {
     });
     loadRatings(item.id);
     loadTrailer(item.id);
+    loadBackdrop(item.id);
+    loadPlayLink(item.id);
     loadMoreInfo(item.id);
     loadFileInfo(item.id, "#detail-file-extra");
     if (item.tmdb_id != null) loadMovieStatus(item.tmdb_id);
@@ -78,6 +124,7 @@ export function renderDetailPane() {
           : (item.latest_known_season != null ? `Up to date through season ${item.latest_known_season}` : "Not checked yet"))
       : (item.pending_notification ? `⚡ ${item.movie_release_status || "New release detected"}` : (item.movie_release_status || "Watching for a new release"));
     content.innerHTML = `
+      <div id="detail-backdrop-banner" class="detail-backdrop-banner hidden"></div>
       ${posterMarkupLarge(item.title, item.poster_path)}
       <div class="detail-title">${escapeAttr(item.title)}</div>
       <div class="detail-year">${item.media_type === "tv" ? "TV Show" : "Movie"}${item.muted ? " · Muted" : ""}</div>
@@ -118,6 +165,7 @@ export function renderDetailPane() {
       else loadMovieStatus(item.tmdb_id);
       loadRatingsByTmdb(item.tmdb_id, item.media_type);
       loadTrailerByTmdb(item.tmdb_id, item.media_type);
+      loadBackdropByTmdb(item.tmdb_id, item.media_type);
       loadMoreInfoByTmdb(item.tmdb_id, item.media_type);
     }
     $("#detail-tracker-mute-toggle").addEventListener("change", async (e) => {
@@ -174,6 +222,7 @@ export function renderDetailPane() {
     const show = pane.data;
     const hasEpisodes = show.episodes.length > 0;
     content.innerHTML = `
+      <div id="detail-backdrop-banner" class="detail-backdrop-banner hidden"></div>
       <div id="detail-watched-summary"></div>
       <div id="detail-tv-status"></div>
       ${(show.tmdb_id == null && !show.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
@@ -233,6 +282,7 @@ export function renderDetailPane() {
     if (hasEpisodes) {
       loadRatings(show.episodes[0].id); // ratings are show-level; episodes are pre-sorted, so [0] is stable
       loadTrailer(show.episodes[0].id);
+      loadBackdrop(show.episodes[0].id);
       loadMoreInfo(show.episodes[0].id);
       wireDetailTags(show.episodes.map((e) => e.id), (tags) => {
         show.tags = tags;
@@ -666,6 +716,52 @@ function renderTrailer(t) {
   }
 }
 
+// Backdrop banner behind the poster -- API-key-only (see BackdropOut),
+// so this silently renders nothing rather than an error/placeholder when
+// no TMDB key is configured or the title genuinely has no backdrop.
+function renderBackdrop(b) {
+  const el = $("#detail-backdrop-banner");
+  if (!el) return;
+  if (b.backdrop_path) {
+    el.style.backgroundImage = `url(https://image.tmdb.org/t/p/w1280${b.backdrop_path})`;
+    el.classList.remove("hidden");
+  } else {
+    el.classList.add("hidden");
+  }
+}
+
+// "Open in Plex" deep link -- movies only, hidden entirely unless Plex is
+// configured, reachable, and actually has this title (see get_play_link).
+async function loadPlayLink(itemId) {
+  const el = $("#detail-play-link");
+  if (!el) return;
+  try {
+    const data = await api(`/api/library/${itemId}/play-link`);
+    if (data.plex_url) {
+      el.innerHTML = `<a href="${data.plex_url}" target="_blank" rel="noopener">▶ Open in Plex</a>`;
+      el.classList.remove("hidden");
+    } else {
+      el.classList.add("hidden");
+    }
+  } catch (e) {
+    el.classList.add("hidden");
+  }
+}
+
+async function loadBackdrop(itemId) {
+  if (!$("#detail-backdrop-banner")) return;
+  try {
+    renderBackdrop(await api(`/api/library/${itemId}/backdrop`));
+  } catch (e) { /* leave the banner hidden */ }
+}
+
+async function loadBackdropByTmdb(tmdbId, mediaType) {
+  if (!$("#detail-backdrop-banner")) return;
+  try {
+    renderBackdrop(await api(`/api/library/backdrop?tmdb_id=${tmdbId}&media_type=${mediaType}`));
+  } catch (e) { /* leave the banner hidden */ }
+}
+
 async function loadTrailer(itemId) {
   if (!$("#detail-trailer")) return;
   try {
@@ -727,11 +823,17 @@ function renderMoreInfo(info) {
 }
 
 // ---- Cast-card filmography click-through ----
+let lastPersonName = "";
+let lastPersonCredits = null;
+
 export async function openPersonModal(personId, name) {
   const modal = $("#person-modal");
   if (!modal) return;
-  $("#person-modal-title").textContent = name || "Filmography";
+  lastPersonName = name || "Filmography";
+  lastPersonCredits = null;
+  $("#person-modal-title").textContent = lastPersonName;
   $("#person-modal-results").innerHTML = `<p class="hint">Loading…</p>`;
+  $("#person-modal-export-btn").classList.add("hidden");
   modal.classList.remove("hidden");
   try {
     const data = await api(`/api/library/person/${personId}/credits`);
@@ -745,6 +847,13 @@ export function closePersonModal() {
   $("#person-modal")?.classList.add("hidden");
 }
 
+export function exportPersonCredits() {
+  if (!lastPersonCredits || lastPersonCredits.length === 0) return;
+  const header = ["Title", "Type", "Year", "In Your Library"];
+  const rows = lastPersonCredits.map((c) => [c.title, c.media_type === "movie" ? "Movie" : "TV", c.year ?? "", c.owned ? "yes" : "no"]);
+  downloadCsv(`${lastPersonName.replace(/[^\w -]/g, "").trim() || "filmography"}.csv`, rowsToCsv(header, rows));
+}
+
 function renderPersonCredits(data) {
   const el = $("#person-modal-results");
   if (!data.tmdb_configured) {
@@ -755,6 +864,8 @@ function renderPersonCredits(data) {
     el.innerHTML = `<p class="hint">No credits found.</p>`;
     return;
   }
+  lastPersonCredits = data.items;
+  $("#person-modal-export-btn").classList.remove("hidden");
   el.innerHTML = `<div class="cast-row">${data.items.map((c) => `
     <div class="cast-card" title="${escapeAttr(c.title)}${c.year ? ` (${c.year})` : ""}">
       ${posterMarkup(c.title, c.poster_path)}
@@ -980,8 +1091,15 @@ function escapeHtml(str) {
   return (str || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function starButtonsMarkup(rating) {
+  return [1, 2, 3, 4, 5].map((n) => {
+    const label = `Rate ${n} star${n > 1 ? "s" : ""}`;
+    return `<button class="personal-star-btn${n <= (rating || 0) ? " filled" : ""}" data-star="${n}" title="${label}" aria-label="${label}">★</button>`;
+  }).join("");
+}
+
 function personalRatingMarkup(rating, note) {
-  const stars = [1, 2, 3, 4, 5].map((n) => `<button class="personal-star-btn${n <= (rating || 0) ? " filled" : ""}" data-star="${n}" title="${n} star${n > 1 ? "s" : ""}">★</button>`).join("");
+  const stars = starButtonsMarkup(rating);
   return `
     <div class="detail-personal">
       <div class="detail-personal-stars" id="detail-personal-stars">
@@ -1000,7 +1118,7 @@ function personalRatingMarkup(rating, note) {
 function renderPersonalStars(rating, saveRating) {
   const starsEl = $("#detail-personal-stars");
   if (!starsEl) return;
-  const stars = [1, 2, 3, 4, 5].map((n) => `<button class="personal-star-btn${n <= (rating || 0) ? " filled" : ""}" data-star="${n}" title="${n} star${n > 1 ? "s" : ""}">★</button>`).join("");
+  const stars = starButtonsMarkup(rating);
   starsEl.innerHTML = `${stars}${rating ? `<button class="personal-star-clear-btn" id="detail-personal-clear-btn" title="Clear rating">Clear</button>` : ""}`;
   starsEl.querySelectorAll(".personal-star-btn").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -1028,11 +1146,13 @@ function renderPersonalStars(rating, saveRating) {
 
 function wirePersonalRating(rating, saveRating, saveNote) {
   renderPersonalStars(rating, saveRating);
+  $("#detail-personal-note").addEventListener("input", () => { personalNoteDirty = true; });
   $("#detail-personal-note-save-btn").addEventListener("click", async () => {
     const status = $("#detail-personal-status");
     status.textContent = "Saving…";
     try {
       await saveNote($("#detail-personal-note").value);
+      personalNoteDirty = false;
       status.textContent = "Saved.";
     } catch (e) {
       status.textContent = `Error: ${e.message}`;
@@ -1190,8 +1310,15 @@ function wireDetailFix() {
 // also bubbling to the document listener below and immediately closing it.
 let justOpened = false;
 
+// Set true on any edit to the personal-note textarea, cleared on a
+// successful save or whenever a (new or the same) pane opens/closes --
+// see closeDetailPaneWithConfirm and the beforeunload guard below.
+let personalNoteDirty = false;
+
 export function openDetailPane(kind, data) {
   state.detailPane = { kind, data };
+  personalNoteDirty = false;
+  pushRecentlyViewed(kind, data);
   renderDetailPane();
   $("#detail-pane").classList.remove("hidden");
   justOpened = true;
@@ -1200,8 +1327,25 @@ export function openDetailPane(kind, data) {
 
 export function closeDetailPane() {
   state.detailPane = null;
+  personalNoteDirty = false;
   $("#detail-pane").classList.add("hidden");
 }
+
+// Guards the two deliberate close actions (the × button, Escape) against
+// losing an unsaved personal note -- click-outside-to-close stays instant
+// (unchanged below), since gating a listener that also has to let the
+// click's own action through (e.g. a tab switch) gets complicated fast for
+// what's often just an accidental click, not a real "I'm done" gesture.
+export async function closeDetailPaneWithConfirm() {
+  if (personalNoteDirty && !(await showConfirm("Discard your unsaved note?"))) return;
+  closeDetailPane();
+}
+
+window.addEventListener("beforeunload", (e) => {
+  if (!personalNoteDirty) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 
 document.addEventListener("click", (e) => {
   if (!state.detailPane || justOpened) return;

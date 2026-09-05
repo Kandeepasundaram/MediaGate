@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
 from app.core.tmdb_client import TMDBClient
-from app.core.tracker import check_movie_collection, check_tv_show
+from app.core.tracker import build_digest_preview, check_movie_collection, check_tv_show
 from app.database import Database
 from app.dependencies import get_database, get_tmdb_client
 from app.models import (
+    DigestPreviewOut,
     NotificationHistoryEntryOut,
     NotificationHistoryResponse,
     TrackedListResponse,
@@ -35,6 +36,14 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/api/tracker", tags=["tracker"])
+
+
+@router.get("/digest-preview", response_model=DigestPreviewOut)
+def digest_preview(db: Database = Depends(get_database)) -> DigestPreviewOut:
+    """What the next digest send (webhook/Discord/Telegram/Pushover,
+    whichever's configured -- see tracker.send_digest) would currently
+    contain, without sending it."""
+    return DigestPreviewOut(**build_digest_preview(db))
 
 
 def _to_out(row: dict) -> TrackerNotificationOut:

@@ -68,6 +68,51 @@ def _plex_watched_imdb_ids(url: str, token: str) -> set[str]:
     return watched
 
 
+def _plex_machine_identifier(url: str) -> str | None:
+    """Server-identifying id needed to build a Plex web deep link --
+    unauthenticated endpoint, same server /identity every Plex exposes."""
+    try:
+        resp = requests.get(f"{url.rstrip('/')}/identity", headers={"Accept": "application/json"}, timeout=_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        return resp.json().get("MediaContainer", {}).get("machineIdentifier")
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("Plex identity fetch failed: %s", exc)
+        return None
+
+
+def _plex_rating_key_for_imdb(url: str, token: str, imdb_id: str) -> str | None:
+    """Same /library/all?type=1 + Guid-list scan as _plex_watched_imdb_ids,
+    just matching one imdb_id to its ratingKey instead of collecting every
+    watched one -- movies only, same scope that function already has."""
+    try:
+        resp = requests.get(
+            f"{url.rstrip('/')}/library/all",
+            params={"type": 1, "X-Plex-Token": token},
+            headers={"Accept": "application/json"},
+            timeout=_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        target = f"imdb://{imdb_id}"
+        for item in resp.json().get("MediaContainer", {}).get("Metadata", []):
+            if any(guid.get("id") == target for guid in item.get("Guid", [])):
+                return item.get("ratingKey")
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning("Plex rating-key lookup failed: %s", exc)
+    return None
+
+
+def get_plex_deep_link(url: str, token: str, imdb_id: str) -> str | None:
+    """Web link that opens a specific movie's details page in Plex --
+    movies only (Plex identifies items by imdb guid, matched the same way
+    the watched-state sync above already does). None if the server is
+    unreachable or the title isn't in Plex's own library."""
+    machine_id = _plex_machine_identifier(url)
+    rating_key = _plex_rating_key_for_imdb(url, token, imdb_id)
+    if not machine_id or not rating_key:
+        return None
+    return f"https://app.plex.tv/desktop/#!/server/{machine_id}/details?key=%2Flibrary%2Fmetadata%2F{rating_key}"
+
+
 def _jellyfin_watched_imdb_ids(url: str, api_key: str) -> set[str]:
     """IMDb ids of every movie Jellyfin's first user has marked played.
     Jellyfin's played state is per-user (unlike Plex's per-token view), and

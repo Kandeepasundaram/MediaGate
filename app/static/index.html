@@ -22,6 +22,7 @@
     </select>
     <span id="tmdb-mode" class="badge">…</span>
     <select id="theme-select" title="Theme">
+      <option value="auto">Auto (System)</option>
       <option value="dark">Dark</option>
       <option value="light">Light</option>
       <option value="neumorphism">Neumorphism</option>
@@ -102,6 +103,7 @@
       <select id="movies-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
       <button id="movies-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
       <button id="movies-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
+      <button id="movies-surprise-me-btn" title="Open a random unwatched movie">🎲 Surprise Me</button>
       <button id="movies-select-all-btn">Select All</button>
       <button id="movies-mark-watched-btn">Mark Watched</button>
       <button id="movies-mark-unwatched-btn">Mark Unwatched</button>
@@ -176,6 +178,7 @@
       <select id="tv-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
       <button id="tv-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
       <button id="tv-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
+      <button id="tv-surprise-me-btn" title="Open a random show with unwatched episodes">🎲 Surprise Me</button>
       <button id="tv-select-all-btn">Select All</button>
       <button id="tv-mark-watched-btn">Mark Watched</button>
       <button id="tv-mark-unwatched-btn">Mark Unwatched</button>
@@ -285,12 +288,21 @@
   </section>
 
   <section id="tab-watchlist" class="tab-panel">
+    <div class="toolbar">
+      <button id="watchlist-export-btn">Export CSV</button>
+    </div>
     <h3>New / Not Yet Archived</h3>
     <p class="hint">Tracked titles with a new season or sequel detected -- see the Tracker tab to mute, snooze, or check now.</p>
     <div id="watchlist-needs-download" class="gallery"></div>
 
     <h3>Owned, Unwatched</h3>
     <p class="hint">TV shows with archived episodes you haven't marked watched yet.</p>
+    <div class="toolbar">
+      <select id="watchlist-watching-sort">
+        <option value="unwatched">Most Unwatched</option>
+        <option value="title">Title (A-Z)</option>
+      </select>
+    </div>
     <div id="watchlist-needs-watching" class="gallery"></div>
   </section>
 
@@ -418,6 +430,8 @@
       <label>TMDB API key
         <input type="password" id="setting-tmdb-key" placeholder="leave blank to keep current">
       </label>
+      <button type="button" id="test-tmdb-key-btn">Test Key</button>
+      <span id="tmdb-key-test-status" class="hint"></span>
       <p id="tmdb-key-note" class="hint"></p>
       <label>Notification webhook URL (optional)
         <input type="text" id="setting-webhook-url" placeholder="https://example.com/hook">
@@ -480,6 +494,8 @@
         <input type="number" id="setting-digest-interval-days" min="1" step="1" placeholder="1">
       </label>
       <p class="hint">Only applies when digest mode is on: one batch notification covering every still-pending title, sent at most once per this many days.</p>
+      <button type="button" id="digest-preview-btn">Preview Digest</button>
+      <div id="digest-preview-output" class="hint"></div>
       <label class="checkbox-label">
         <input type="checkbox" id="setting-watcher-enabled">
         Watch incoming/archive folders for new files (requires a restart to take effect)
@@ -540,6 +556,18 @@
         <button id="create-viewer-btn">Add Viewer</button>
       </div>
       <div id="viewers-list"></div>
+    </div>
+
+    <h3>Manage Tags</h3>
+    <div class="card">
+      <p class="hint">Renaming or deleting a tag applies to every movie/TV episode that has it -- unlike the per-item tag editor in the detail pane, or the gallery's "Tag Selected" toolbar (which only adds a tag to what's checked).</p>
+      <div class="toolbar">
+        <select id="manage-tags-select"><option value="">Select a tag…</option></select>
+        <input type="text" id="manage-tags-rename-input" placeholder="Rename to…">
+        <button id="manage-tags-rename-btn">Rename</button>
+        <button id="manage-tags-delete-btn" class="danger">Delete Everywhere</button>
+        <span id="manage-tags-status" class="hint"></span>
+      </div>
     </div>
 
     <h3>Naming Templates</h3>
@@ -621,9 +649,25 @@
       <span id="backup-status" class="hint"></span>
     </div>
 
-    <h3>Remote Backup (WebDAV)</h3>
+    <h3>Import Watched History (Letterboxd)</h3>
+    <div class="card">
+      <p class="hint">Marks movies watched (with the date and star rating) from a Letterboxd diary export -- Profile &gt; Export Data &gt; diary.csv. Movies only, matched by title + year against what's already in your library; anything unmatched is listed so you can fix it up manually.</p>
+      <label>diary.csv
+        <input type="file" id="import-watch-history-input" accept=".csv,text/csv">
+      </label>
+      <span id="watch-history-import-status" class="hint"></span>
+    </div>
+
+    <h3>Scheduled Backup &amp; Remote Backup (WebDAV)</h3>
     <form id="webdav-backup-form" class="card">
-      <p class="hint">The scheduled daily backup of config.yaml + the database (Settings has no toggle for the schedule itself yet -- see config.yaml's backup.enabled/retention_days) also pushes here when a URL is set, e.g. a Nextcloud or NAS WebDAV endpoint. Leave URL blank to keep local-only.</p>
+      <p class="hint">A daily backup of config.yaml + the database always runs locally on this schedule; setting a WebDAV URL below also pushes each one to a remote (Nextcloud, NAS, etc). Leave URL blank to keep local-only.</p>
+      <label class="checkbox-label">
+        <input type="checkbox" id="setting-backup-enabled">
+        Run the daily backup
+      </label>
+      <label>Keep backups for (days)
+        <input type="number" id="setting-backup-retention-days" min="1" placeholder="14">
+      </label>
       <label>WebDAV URL
         <input type="text" id="setting-webdav-url" placeholder="https://cloud.example.com/remote.php/dav/files/user/backups">
       </label>
@@ -702,7 +746,10 @@
   <div class="modal-content">
     <h4 id="person-modal-title"></h4>
     <div id="person-modal-results"></div>
-    <button id="person-modal-close-btn">Close</button>
+    <div class="toolbar">
+      <button id="person-modal-export-btn" class="hidden">Export CSV</button>
+      <button id="person-modal-close-btn">Close</button>
+    </div>
   </div>
 </div>
 
@@ -714,7 +761,7 @@
 </div>
 
 <aside id="detail-pane" class="detail-pane hidden">
-  <button id="detail-close-btn" class="detail-close-btn" title="Close">×</button>
+  <button id="detail-close-btn" class="detail-close-btn" title="Close" aria-label="Close">×</button>
   <div id="detail-pane-content"></div>
 </aside>
 

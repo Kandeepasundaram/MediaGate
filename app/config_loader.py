@@ -349,7 +349,7 @@ _EDITABLE_KEYS = {
     },
     "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy"},
     "watcher": {"enabled"},
-    "backup": {"webdav_url", "webdav_username", "webdav_password", "webdav_remote_path"},
+    "backup": {"webdav_url", "webdav_username", "webdav_password", "webdav_remote_path", "enabled", "retention_days"},
     "reports": {"enabled", "frequency", "cron_time"},
 }
 

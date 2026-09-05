@@ -56,6 +56,8 @@ export async function loadSettings() {
     $("#setting-reports-enabled").checked = !!s.reports_enabled;
     $("#setting-reports-frequency").value = s.reports_frequency || "monthly";
     $("#setting-reports-cron-time").value = s.reports_cron_time || "08:00";
+    $("#setting-backup-enabled").checked = s.backup_enabled !== false;
+    $("#setting-backup-retention-days").value = s.backup_retention_days ?? 14;
     $("#setting-webdav-url").value = s.webdav_url || "";
     $("#setting-webdav-username").value = s.webdav_username || "";
     $("#webdav-password-note").textContent = s.webdav_password_set ? "A password is currently set. Leave blank to keep it." : "";
@@ -67,6 +69,35 @@ export async function loadSettings() {
     $("#setting-tvmaze-enabled").checked = !!s.tvmaze_enabled;
   } catch (e) {
     $("#settings-status").textContent = `Error loading settings: ${e.message}`;
+  }
+}
+
+export async function previewDigest() {
+  const output = $("#digest-preview-output");
+  output.textContent = "Loading…";
+  try {
+    const data = await api("/api/tracker/digest-preview");
+    output.textContent = data.count === 0
+      ? "Nothing pending right now -- the digest would send nothing."
+      : `Would send now: "${data.message}"`;
+  } catch (e) {
+    output.textContent = `Error: ${e.message}`;
+  }
+}
+
+export async function testTmdbKey() {
+  const status = $("#tmdb-key-test-status");
+  const key = $("#setting-tmdb-key").value.trim();
+  if (!key) {
+    status.textContent = "Type a key above to test it.";
+    return;
+  }
+  status.textContent = "Testing…";
+  try {
+    const data = await api("/api/settings/validate-tmdb-key", { method: "POST", body: JSON.stringify({ key }) });
+    status.textContent = data.valid ? "✓ Key works." : "✗ Key rejected by TMDB.";
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
   }
 }
 
@@ -182,6 +213,8 @@ export async function saveMediaServerSettings(e) {
 export async function saveWebdavBackupSettings(e) {
   e.preventDefault();
   const payload = {
+    backup_enabled: $("#setting-backup-enabled").checked,
+    backup_retention_days: Number($("#setting-backup-retention-days").value) || 14,
     webdav_url: $("#setting-webdav-url").value.trim(),
     webdav_username: $("#setting-webdav-username").value.trim(),
     webdav_remote_path: $("#setting-webdav-remote-path").value.trim() || "media-manager-backups",
@@ -325,6 +358,56 @@ async function deleteViewerAction(id) {
   }
 }
 
+// ---- Manage Tags (library-wide rename/delete, not per-item) ----
+export async function loadManageTagsSelect() {
+  const select = $("#manage-tags-select");
+  if (!select) return;
+  const previous = select.value;
+  try {
+    const data = await api("/api/library/tags");
+    select.innerHTML = `<option value="">Select a tag…</option>` + data.tags.map((t) => `<option value="${escapeAttr(t)}">${escapeAttr(t)}</option>`).join("");
+    if (data.tags.includes(previous)) select.value = previous;
+  } catch (e) { /* best-effort -- select just stays at whatever it had */ }
+}
+
+export async function renameTagAction() {
+  const oldTag = $("#manage-tags-select").value;
+  const newTag = $("#manage-tags-rename-input").value.trim();
+  const status = $("#manage-tags-status");
+  if (!oldTag || !newTag) return;
+  status.textContent = "Renaming…";
+  try {
+    const data = await api("/api/library/tags/rename", { method: "POST", body: JSON.stringify({ old: oldTag, new: newTag }) });
+    status.textContent = `Renamed on ${data.updated} item(s).`;
+    showToast(`Renamed tag "${oldTag}" to "${newTag}" on ${data.updated} item(s).`, "success");
+    $("#manage-tags-rename-input").value = "";
+    loadManageTagsSelect();
+    loadMoviesGallery();
+    loadTvGallery();
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
+export async function deleteTagAction() {
+  const tag = $("#manage-tags-select").value;
+  if (!tag) return;
+  const ok = await showConfirm(`Delete tag "${tag}" from every item that has it? This cannot be undone.`);
+  if (!ok) return;
+  const status = $("#manage-tags-status");
+  status.textContent = "Deleting…";
+  try {
+    const data = await api("/api/library/tags/delete", { method: "POST", body: JSON.stringify({ tag }) });
+    status.textContent = `Removed from ${data.updated} item(s).`;
+    showToast(`Deleted tag "${tag}" from ${data.updated} item(s).`, "success");
+    loadManageTagsSelect();
+    loadMoviesGallery();
+    loadTvGallery();
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
 export async function loadApiTokensList() {
   const el = $("#api-tokens-list");
   el.textContent = "Loading...";
@@ -429,6 +512,92 @@ export async function importLibrary(file) {
     const parsed = JSON.parse(text);
     const data = await api("/api/library/import", { method: "POST", body: JSON.stringify({ items: parsed.items || [] }) });
     status.textContent = `Imported ${data.imported} item(s), skipped ${data.skipped} already-tracked item(s).`;
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+  }
+}
+
+// Minimal RFC4180-ish CSV line splitter -- handles quoted fields (commas
+// and escaped "" inside them), which a plain String.split(",") can't;
+// good enough for a diary export, not a general CSV library.
+function parseCsv(text) {
+  const rows = [];
+  for (const line of text.split(/\r\n|\n/)) {
+    if (!line) continue;
+    const fields = [];
+    let cur = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inQuotes) {
+        if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+        else if (c === '"') { inQuotes = false; }
+        else { cur += c; }
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ",") {
+        fields.push(cur);
+        cur = "";
+      } else {
+        cur += c;
+      }
+    }
+    fields.push(cur);
+    rows.push(fields);
+  }
+  return rows;
+}
+
+// Column names tolerated per logical field -- Letterboxd's diary.csv shape
+// isn't pinned down precisely here, so this matches by name rather than
+// fixed position/exact spelling.
+const WATCH_HISTORY_COLUMN_ALIASES = {
+  title: ["name", "title"],
+  year: ["year"],
+  watchedDate: ["watched date", "date"],
+  rating: ["rating"],
+};
+
+function findColumnIndex(header, aliases) {
+  const lower = header.map((h) => h.trim().toLowerCase());
+  for (const alias of aliases) {
+    const idx = lower.indexOf(alias);
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+export async function importWatchHistory(file) {
+  const status = $("#watch-history-import-status");
+  if (!file) return;
+  status.textContent = "Parsing…";
+  try {
+    const text = await file.text();
+    const [header, ...dataRows] = parseCsv(text);
+    if (!header) throw new Error("Empty file");
+    const col = {
+      title: findColumnIndex(header, WATCH_HISTORY_COLUMN_ALIASES.title),
+      year: findColumnIndex(header, WATCH_HISTORY_COLUMN_ALIASES.year),
+      watchedDate: findColumnIndex(header, WATCH_HISTORY_COLUMN_ALIASES.watchedDate),
+      rating: findColumnIndex(header, WATCH_HISTORY_COLUMN_ALIASES.rating),
+    };
+    if (col.title === -1) throw new Error(`Couldn't find a title column (looked for: ${WATCH_HISTORY_COLUMN_ALIASES.title.join(", ")})`);
+
+    const rows = dataRows
+      .filter((r) => r.length > 1 && r[col.title]?.trim())
+      .map((r) => ({
+        title: r[col.title].trim(),
+        year: col.year !== -1 && r[col.year] ? Number(r[col.year]) : null,
+        watched_date: col.watchedDate !== -1 && r[col.watchedDate] ? new Date(r[col.watchedDate]).toISOString() : null,
+        rating: col.rating !== -1 && r[col.rating] ? Number(r[col.rating]) : null,
+      }));
+    if (rows.length === 0) throw new Error("No data rows found");
+
+    status.textContent = `Importing ${rows.length} row(s)…`;
+    const data = await api("/api/library/import-watch-history", { method: "POST", body: JSON.stringify({ rows }) });
+    status.textContent = `Marked ${data.updated} movie(s) watched.` +
+      (data.unmatched.length ? ` ${data.unmatched.length} not found in your library: ${data.unmatched.slice(0, 10).join(", ")}${data.unmatched.length > 10 ? "…" : ""}` : "");
+    if (data.updated > 0) loadMoviesGallery();
   } catch (e) {
     status.textContent = `Error: ${e.message}`;
   }

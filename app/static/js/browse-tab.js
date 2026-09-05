@@ -2,7 +2,7 @@
  * Browse & Clean Up tab: raw-filesystem table, library health (orphans/duplicates/orphaned artwork), and delete/organize actions.
  */
 
-import { previewPaths, setPreviewMode, showConfirm } from "./archive-tab.js";
+import { escapeAttr, previewPaths, setPreviewMode, showConfirm } from "./archive-tab.js";
 import { $, $all, api, formatBytes, state } from "./core.js";
 import { loadMoviesGallery, loadTvGallery } from "./gallery.js";
 
@@ -44,7 +44,7 @@ export function renderBrowseTable() {
   }
   tbody.innerHTML = items.map((item, i) => `
     <tr>
-      <td><input type="checkbox" class="browse-check" data-index="${i}"></td>
+      <td><input type="checkbox" class="browse-check" data-index="${i}" aria-label="Select ${escapeAttr(item.path.split(/[\\/]/).pop())}"></td>
       <td title="${item.path}">${item.path.split(/[\\/]/).pop()}</td>
       <td>${item.parsed_title}${item.year ? ` (${item.year})` : ""}${
         item.season != null ? ` S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}` : ""

@@ -8,7 +8,7 @@ import { $, $all, api } from "./core.js";
 import { loadMoviesGallery, loadTvGallery } from "./gallery.js";
 import { loadHistory } from "./history-tab.js";
 import { loadNotificationHistory, loadNotifications, loadTrackerTab, loadUpcomingReleases } from "./notifications-tab.js";
-import { loadApiTokensList, loadConfigHistory, loadSettings, loadViewers } from "./settings-tab.js";
+import { loadApiTokensList, loadConfigHistory, loadManageTagsSelect, loadSettings, loadViewers } from "./settings-tab.js";
 import { loadBackgroundTaskStatus, loadInsights, loadStats, loadStorageStatus } from "./stats-tab.js";
 import { loadWatchlist } from "./watchlist-tab.js";
 
@@ -67,7 +67,7 @@ function activateTab(tabName) {
   if (tabName === "watchlist") loadWatchlist();
   if (tabName === "tracker") loadTrackerTab();
   if (tabName === "history") loadHistory();
-  if (tabName === "settings") { loadStats(); loadInsights(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); loadApiTokensList(); loadConfigHistory(); loadViewers(); }
+  if (tabName === "settings") { loadStats(); loadInsights(); loadSettings(); loadBackgroundTaskStatus(); loadStorageStatus(); loadApiTokensList(); loadConfigHistory(); loadViewers(); loadManageTagsSelect(); }
 }
 
 export function setupTabs() {
@@ -179,10 +179,20 @@ function jumpToGlobalSearchResult(mediaType, title) {
 
 // ---- Theme ----
 const THEME_KEY = "media-manager:theme";
-const THEMES = ["dark", "light", "neumorphism", "claymorphism", "glassmorphism"];
+const THEMES = ["auto", "dark", "light", "neumorphism", "claymorphism", "glassmorphism"];
+const DARK_MEDIA_QUERY = "(prefers-color-scheme: dark)";
+
+// "auto" resolves to the OS's light/dark preference at apply time -- the
+// select itself keeps showing "auto" (so the choice sticks), only
+// document.body.dataset.theme (what every theme's CSS actually keys off)
+// gets the resolved dark/light value.
+function resolveTheme(theme) {
+  if (theme !== "auto") return theme;
+  return window.matchMedia && window.matchMedia(DARK_MEDIA_QUERY).matches ? "dark" : "light";
+}
 
 function applyTheme(theme) {
-  document.body.dataset.theme = theme;
+  document.body.dataset.theme = resolveTheme(theme);
   $("#theme-select").value = theme;
 }
 
@@ -200,6 +210,14 @@ export function setupTheme() {
   applyTheme(saved);
 
   $("#theme-select").addEventListener("change", (e) => setTheme(e.target.value));
+
+  // Live-update while "auto" is selected and the OS preference flips
+  // (e.g. a scheduled night mode) without needing a reload.
+  if (window.matchMedia) {
+    window.matchMedia(DARK_MEDIA_QUERY).addEventListener("change", () => {
+      if ($("#theme-select").value === "auto") applyTheme("auto");
+    });
+  }
 }
 
 // ---- Status badge ----

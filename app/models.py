@@ -601,6 +601,15 @@ class TrailerOut(BaseModel):
     tmdb_configured: bool = False
 
 
+class BackdropOut(BaseModel):
+    backdrop_path: str | None = None
+    tmdb_configured: bool = False
+
+
+class PlayLinkOut(BaseModel):
+    plex_url: str | None = None
+
+
 class CastMemberOut(BaseModel):
     id: int | None = None  # TMDB person id -- powers the cast-card filmography click-through
     name: str | None = None
@@ -642,6 +651,45 @@ class TagsBatchRequest(BaseModel):
 
 class TagsBatchResponse(BaseModel):
     updated: int
+
+
+class TagRenameRequest(BaseModel):
+    old: str
+    new: str
+
+
+class TmdbKeyValidateRequest(BaseModel):
+    key: str
+
+
+class TmdbKeyValidateResponse(BaseModel):
+    valid: bool
+
+
+class TagDeleteRequest(BaseModel):
+    tag: str
+
+
+class WatchHistoryImportRow(BaseModel):
+    title: str
+    year: int | None = None
+    watched_date: str | None = None  # ISO date, e.g. Letterboxd diary.csv's "Date" column
+    rating: float | None = None  # 0.5-5 stars (Letterboxd scale); rounded to our 1-5 int scale
+
+
+class WatchHistoryImportRequest(BaseModel):
+    rows: list[WatchHistoryImportRow]
+
+
+class WatchHistoryImportResponse(BaseModel):
+    updated: int
+    unmatched: list[str]
+
+
+class DigestPreviewOut(BaseModel):
+    count: int
+    message: str
+    titles: list[str]
 
 
 class BrowseItemOut(BaseModel):
@@ -794,6 +842,8 @@ class SettingsOut(BaseModel):
     collision_policy: str = "suffix"
     low_disk_alert_enabled: bool = False
     low_disk_threshold_gb: float = 10.0
+    backup_enabled: bool = True
+    backup_retention_days: int = 14
     webdav_url: str = ""
     webdav_username: str = ""
     webdav_password_set: bool = False
@@ -839,6 +889,8 @@ class SettingsUpdateRequest(BaseModel):
     collision_policy: str | None = None
     low_disk_alert_enabled: bool | None = None
     low_disk_threshold_gb: float | None = None
+    backup_enabled: bool | None = None
+    backup_retention_days: int | None = None
     webdav_url: str | None = None
     webdav_username: str | None = None
     webdav_password: str | None = None

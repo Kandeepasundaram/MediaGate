@@ -23,6 +23,7 @@ from app.config_loader import (
     rollback_config_version,
     update_settings,
 )
+from app.core.tmdb_client import TMDBClient
 from app.database import Database
 from app.dependencies import get_config, get_database, reset_singletons
 from app.models import (
@@ -37,6 +38,8 @@ from app.models import (
     PermissionsCheckResponse,
     SettingsOut,
     SettingsUpdateRequest,
+    TmdbKeyValidateRequest,
+    TmdbKeyValidateResponse,
 )
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -76,6 +79,8 @@ def _to_out(config: AppConfig) -> SettingsOut:
         collision_policy=config.renaming.collision_policy,
         low_disk_alert_enabled=config.notifications.low_disk_alert_enabled,
         low_disk_threshold_gb=config.notifications.low_disk_threshold_gb,
+        backup_enabled=config.backup.enabled,
+        backup_retention_days=config.backup.retention_days,
         webdav_url=config.backup.webdav_url,
         webdav_username=config.backup.webdav_username,
         webdav_password_set=bool(config.backup.webdav_password),
@@ -130,6 +135,10 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["notifications"]["low_disk_alert_enabled"] = payload.low_disk_alert_enabled
     if payload.low_disk_threshold_gb is not None:
         updates["notifications"]["low_disk_threshold_gb"] = max(0.1, payload.low_disk_threshold_gb)
+    if payload.backup_enabled is not None:
+        updates["backup"]["enabled"] = payload.backup_enabled
+    if payload.backup_retention_days is not None:
+        updates["backup"]["retention_days"] = max(1, payload.backup_retention_days)
     if payload.webdav_url is not None:
         updates["backup"]["webdav_url"] = payload.webdav_url
     if payload.webdav_username is not None:
@@ -274,6 +283,14 @@ def delete_api_token(token_id: int, db: Database = Depends(get_database)) -> dic
 
 
 LOW_SPACE_THRESHOLD_BYTES = 5 * 1024 * 1024 * 1024  # 5 GiB
+
+
+@router.post("/validate-tmdb-key", response_model=TmdbKeyValidateResponse)
+def validate_tmdb_key(payload: TmdbKeyValidateRequest) -> TmdbKeyValidateResponse:
+    """Checks a candidate key before it's saved -- a throwaway client, not
+    the cached get_tmdb_client() singleton, since the key being tested may
+    differ from (or not yet be) the one actually saved in config.yaml."""
+    return TmdbKeyValidateResponse(valid=TMDBClient(api_key=payload.key).validate_key())
 
 
 @router.get("/permissions-check", response_model=PermissionsCheckResponse)

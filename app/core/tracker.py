@@ -177,6 +177,24 @@ def post_discord(discord_webhook_url: str, content: str) -> None:
         logger.warning("Discord webhook POST failed: %s", exc)
 
 
+def _discord_embed_for(row: dict) -> dict:
+    embed = {"title": row["title"], "description": _message_for(row)}
+    if row.get("poster_path"):
+        embed["thumbnail"] = {"url": f"https://image.tmdb.org/t/p/w185{row['poster_path']}"}
+    return embed
+
+
+def post_discord_embeds(discord_webhook_url: str, rows: list[dict]) -> None:
+    """Richer tracker notification -- one embed per title with its poster
+    thumbnail, instead of post_discord's single flattened text line.
+    Discord allows up to 10 embeds per message; _fire_all_channels/
+    send_digest never hand this more than a handful of rows at once."""
+    try:
+        requests.post(discord_webhook_url, json={"embeds": [_discord_embed_for(row) for row in rows[:10]]}, timeout=10)
+    except requests.RequestException as exc:
+        logger.warning("Discord webhook POST failed: %s", exc)
+
+
 def post_telegram(bot_token: str, chat_id: str, text: str) -> None:
     try:
         requests.post(
@@ -200,7 +218,7 @@ def post_pushover(api_token: str, user_key: str, message: str, title: str = "Med
 
 
 def _send_discord(discord_webhook_url: str, rows: list[dict]) -> None:
-    post_discord(discord_webhook_url, _digest_message(rows))
+    post_discord_embeds(discord_webhook_url, rows)
 
 
 def _send_telegram(bot_token: str, chat_id: str, rows: list[dict]) -> None:
@@ -288,6 +306,18 @@ def _fire_all_channels(
         _send_telegram(telegram_bot_token, telegram_chat_id, rows)
     if pushover_api_token and pushover_user_key:
         _send_pushover(pushover_api_token, pushover_user_key, rows)
+
+
+def build_digest_preview(db: Database) -> dict:
+    """What send_digest() would push right now, without actually sending
+    it -- lets the Settings tab show "here's what the digest looks like"
+    instead of waiting for the next scheduled send to find out."""
+    pending = db.list_pending_notifications()
+    return {
+        "count": len(pending),
+        "message": _digest_message(pending) if pending else "",
+        "titles": [row["title"] for row in pending],
+    }
 
 
 def send_digest(

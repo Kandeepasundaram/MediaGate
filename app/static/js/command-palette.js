@@ -5,7 +5,7 @@
 import { scanAndPreview } from "./archive-tab.js";
 import { loadBrowse } from "./browse-tab.js";
 import { $, state } from "./core.js";
-import { openDetailPane } from "./detail-pane.js";
+import { getRecentlyViewed, openDetailPane, openRecentlyViewedItem } from "./detail-pane.js";
 import { groupEpisodesByShow } from "./gallery.js";
 import { switchToTab } from "../app.js";
 import { checkPermissions } from "./settings-tab.js";
@@ -23,6 +23,7 @@ const COMMANDS = [
   { category: "Library", label: "Scan Library", run: () => { switchToTab("archive"); scanAndPreview(); } },
   { category: "Library", label: "Refresh Browse & Clean Up", run: () => { switchToTab("browse"); loadBrowse(); } },
   { category: "Library", label: "Check Storage Permissions", run: () => { switchToTab("settings"); checkPermissions(); } },
+  { category: "View", label: "Switch to Auto (System) Theme", run: () => setTheme("auto") },
   { category: "View", label: "Switch to Dark Theme", run: () => setTheme("dark") },
   { category: "View", label: "Switch to Light Theme", run: () => setTheme("light") },
   { category: "View", label: "Switch to Neumorphism Theme", run: () => setTheme("neumorphism") },
@@ -30,8 +31,18 @@ const COMMANDS = [
   { category: "View", label: "Switch to Glassmorphism Theme", run: () => setTheme("glassmorphism") },
   { category: "View", label: "Show Keyboard Shortcuts", run: () => $("#shortcuts-modal").classList.remove("hidden") },
 ];
-const PALETTE_CATEGORY_ORDER = ["Navigate", "Library", "Titles", "View"];
+const PALETTE_CATEGORY_ORDER = ["Recently Viewed", "Navigate", "Library", "Titles", "View"];
 const TITLE_MATCH_LIMIT = 6;
+
+// Only shown on the empty (just-opened) palette -- once the user starts
+// typing, the fuzzy Titles search below already covers "jump to a title".
+function recentlyViewedCommands() {
+  return getRecentlyViewed().map((entry) => ({
+    category: "Recently Viewed",
+    label: `${entry.kind === "movie" ? "🎬" : "📺"} ${entry.title}`,
+    run: () => { switchToTab(entry.kind === "movie" ? "movies" : "tv"); openRecentlyViewedItem(entry); },
+  }));
+}
 
 state.paletteVisible = [];
 state.paletteIndex = 0;
@@ -60,7 +71,8 @@ export function filterCommands(query) {
   const q = query.trim().toLowerCase();
   const matches = q ? COMMANDS.filter((c) => c.label.toLowerCase().includes(q)) : COMMANDS.slice();
   const titleMatches = q ? matchingTitleCommands(q) : [];
-  return [...matches, ...titleMatches].sort(
+  const recentMatches = q ? [] : recentlyViewedCommands();
+  return [...recentMatches, ...matches, ...titleMatches].sort(
     (a, b) => PALETTE_CATEGORY_ORDER.indexOf(a.category) - PALETTE_CATEGORY_ORDER.indexOf(b.category)
   );
 }

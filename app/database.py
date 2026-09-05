@@ -233,6 +233,23 @@ class Database:
     def get_media_item(self, item_id: int) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM media_items WHERE id = ?", (item_id,))
 
+    def match_movie_by_title_year(self, title: str, year: int | None) -> dict[str, Any] | None:
+        """Best-effort title match for importing watched-history from an
+        external service (see /api/library/import-watch-history) -- movies
+        only, matching that import's own scope. Case-insensitive exact
+        title match; prefers the row whose year matches when more than one
+        movie shares the title (a remake, say), otherwise the first hit."""
+        rows = self.fetch_all(
+            "SELECT * FROM media_items WHERE media_type = 'movie' AND lower(title) = lower(?)", (title,)
+        )
+        if not rows:
+            return None
+        if year is not None:
+            for row in rows:
+                if row["year"] == year:
+                    return row
+        return rows[0]
+
     def list_known_paths(self) -> set[str]:
         """Every path already tracked as a media item's source or archived
         copy, used to keep a rescan from re-surfacing already-handled files."""
@@ -295,6 +312,43 @@ class Database:
             if isinstance(values, list):
                 tags.update(str(v) for v in values)
         return sorted(tags)
+
+    def rename_tag_everywhere(self, old: str, new: str) -> int:
+        """Renames a tag across every media_items row that has it -- the
+        gallery's per-item tag editor only ever replaces one item's whole
+        list (see set_tags in library.py), there was no library-wide rename
+        until this. Same JSON-column-scanned-in-Python approach as
+        list_all_tags, for the same reason (no normalized tags table).
+        Merges into an existing `new` tag on a row rather than duplicating
+        it if that row already has both."""
+        updated = 0
+        for row in self.fetch_all("SELECT id, tags FROM media_items WHERE tags IS NOT NULL"):
+            try:
+                values = json.loads(row["tags"])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(values, list) or old not in values:
+                continue
+            next_values = sorted({new if v == old else v for v in values})
+            self.execute_query("UPDATE media_items SET tags = ? WHERE id = ?", (json.dumps(next_values), row["id"]))
+            updated += 1
+        return updated
+
+    def delete_tag_everywhere(self, tag: str) -> int:
+        """Removes one tag from every media_items row that has it, without
+        touching any other tag on those rows."""
+        updated = 0
+        for row in self.fetch_all("SELECT id, tags FROM media_items WHERE tags IS NOT NULL"):
+            try:
+                values = json.loads(row["tags"])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(values, list) or tag not in values:
+                continue
+            next_values = [v for v in values if v != tag]
+            self.execute_query("UPDATE media_items SET tags = ? WHERE id = ?", (json.dumps(next_values), row["id"]))
+            updated += 1
+        return updated
 
     def record_storage_snapshot(self, label: str, used_bytes: int, total_bytes: int) -> None:
         """At most one row per label per calendar day (UTC) -- the storage

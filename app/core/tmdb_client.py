@@ -38,6 +38,7 @@ class MediaResult:
     year: int | None = None
     overview: str = ""
     poster_path: str | None = None
+    backdrop_path: str | None = None
     source: str = "api"
     raw: dict = field(default_factory=dict)
 
@@ -225,6 +226,22 @@ class TMDBClient:
     def mode(self) -> str:
         return "api" if self._api else "scraper"
 
+    def validate_key(self) -> bool:
+        """Cheap TMDB auth check -- /authentication succeeds only for a
+        real, active key, independent of API/scraper mode. Used by the
+        Settings tab's "Test Key" button so a typo isn't discovered only
+        later when a lookup silently falls back to the scraper."""
+        if not self.api_key:
+            return False
+        try:
+            resp = requests.get(
+                "https://api.themoviedb.org/3/authentication",
+                params={"api_key": self.api_key}, timeout=10,
+            )
+            return resp.status_code == 200
+        except requests.RequestException:
+            return False
+
     def _tmdb_get(self, path: str, params: dict | None = None) -> dict | None:
         """GET https://api.themoviedb.org/3/{path} with api_key already
         applied, a fixed 10s timeout, and the same warn-and-return-None
@@ -335,6 +352,7 @@ class TMDBClient:
                     year=int(m.release_date[:4]) if getattr(m, "release_date", None) else None,
                     overview=getattr(m, "overview", ""),
                     poster_path=getattr(m, "poster_path", None),
+                    backdrop_path=getattr(m, "backdrop_path", None),
                     source="api",
                     raw=dict(m),
                 )
@@ -367,6 +385,7 @@ class TMDBClient:
                     year=int(t.first_air_date[:4]) if getattr(t, "first_air_date", None) else None,
                     overview=getattr(t, "overview", ""),
                     poster_path=getattr(t, "poster_path", None),
+                    backdrop_path=getattr(t, "backdrop_path", None),
                     source="api",
                     raw=dict(t),
                 )
