@@ -1400,14 +1400,53 @@ let justOpened = false;
 // see closeDetailPaneWithConfirm and the beforeunload guard below.
 let personalNoteDirty = false;
 
-export function openDetailPane(kind, data) {
-  state.detailPane = { kind, data };
+// navList: the gallery's current filtered/sorted array at the moment the
+// card was clicked (see renderMoviesGallery/renderTvGallery's card click
+// wiring) -- lets Prev/Next step through the same order the user was
+// browsing, filters and all, without needing to re-run them here. Omitted
+// (undefined) for entry points that aren't a gallery card (recently-viewed,
+// global search, Continue Watching, ...), which just hides the nav buttons.
+export function openDetailPane(kind, data, navList) {
+  state.detailPane = { kind, data, navList };
   personalNoteDirty = false;
   pushRecentlyViewed(kind, data);
   renderDetailPane();
   $("#detail-pane").classList.remove("hidden");
+  updateDetailNavButtons();
   justOpened = true;
   setTimeout(() => { justOpened = false; }, 0);
+}
+
+function detailNavKey(kind, item) {
+  return kind === "movie" ? item.id : item.title;
+}
+
+function updateDetailNavButtons() {
+  const pane = state.detailPane;
+  const prevBtn = $("#detail-prev-btn");
+  const nextBtn = $("#detail-next-btn");
+  if (!prevBtn || !nextBtn) return;
+  const list = pane?.navList;
+  if (!list) {
+    prevBtn.classList.add("hidden");
+    nextBtn.classList.add("hidden");
+    return;
+  }
+  const idx = list.findIndex((i) => detailNavKey(pane.kind, i) === detailNavKey(pane.kind, pane.data));
+  prevBtn.classList.remove("hidden");
+  nextBtn.classList.remove("hidden");
+  prevBtn.disabled = idx <= 0;
+  nextBtn.disabled = idx === -1 || idx >= list.length - 1;
+}
+
+export function navigateDetailPane(delta) {
+  const pane = state.detailPane;
+  if (!pane || !pane.navList) return;
+  const idx = pane.navList.findIndex((i) => detailNavKey(pane.kind, i) === detailNavKey(pane.kind, pane.data));
+  if (idx === -1) return;
+  const next = pane.navList[idx + delta];
+  if (!next) return;
+  openDetailPane(pane.kind, next, pane.navList);
 }
 
 export function closeDetailPane() {

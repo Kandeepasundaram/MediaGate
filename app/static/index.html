@@ -115,6 +115,10 @@
         <option value="90">Watched in last 90 days</option>
         <option value="365">Watched in last year</option>
       </select>
+      <label class="checkbox-label" title="Show only pinned/favorited movies">
+        <input type="checkbox" id="movies-pinned-only"> ★ Pinned Only
+      </label>
+      <button id="movies-view-toggle-btn" title="Toggle between grid and compact list view">☰ List View</button>
       <select id="movies-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
       <button id="movies-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
       <button id="movies-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
@@ -124,6 +128,7 @@
       <button id="movies-mark-unwatched-btn">Mark Unwatched</button>
       <button id="movies-rename-selected-btn">Rename Selected</button>
       <button id="movies-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
+      <button id="movies-bulk-rematch-btn" title="Search and fix the TMDB match for every selected movie, one at a time">🔍 Fix Match (Selected)</button>
       <input type="text" id="movies-tag-input" placeholder="Tag name…" class="tag-input">
       <button id="movies-tag-apply-btn" title="Add this tag to every selected movie">Tag Selected</button>
       <button id="movies-tag-remove-btn" title="Remove this tag from every selected movie">Untag Selected</button>
@@ -205,6 +210,10 @@
         <option value="90">Watched in last 90 days</option>
         <option value="365">Watched in last year</option>
       </select>
+      <label class="checkbox-label" title="Show only pinned/favorited shows">
+        <input type="checkbox" id="tv-pinned-only"> ★ Pinned Only
+      </label>
+      <button id="tv-view-toggle-btn" title="Toggle between grid and compact list view">☰ List View</button>
       <select id="tv-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
       <button id="tv-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
       <button id="tv-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
@@ -214,6 +223,7 @@
       <button id="tv-mark-unwatched-btn">Mark Unwatched</button>
       <button id="tv-rename-selected-btn">Rename Selected</button>
       <button id="tv-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
+      <button id="tv-bulk-rematch-btn" title="Search and fix the TMDB match for every selected show, one at a time">🔍 Fix Match (Selected)</button>
       <input type="text" id="tv-tag-input" placeholder="Tag name…" class="tag-input">
       <button id="tv-tag-apply-btn" title="Add this tag to every selected show's episodes">Tag Selected</button>
       <button id="tv-tag-remove-btn" title="Remove this tag from every selected show's episodes">Untag Selected</button>
@@ -821,6 +831,15 @@
   </div>
 </div>
 
+<div id="bulk-rematch-modal" class="modal hidden">
+  <div class="modal-content">
+    <h4>Fix Match</h4>
+    <p class="hint">Search and pick the correct TMDB match for each title below, one at a time.</p>
+    <div id="bulk-rematch-list"></div>
+    <button id="bulk-rematch-close-btn">Done</button>
+  </div>
+</div>
+
 <div id="whats-new-modal" class="modal hidden">
   <div class="modal-content">
     <h4>What's New in <span id="whats-new-version"></span></h4>
@@ -856,6 +875,8 @@
 
 <aside id="detail-pane" class="detail-pane hidden">
   <button id="detail-close-btn" class="detail-close-btn" title="Close" aria-label="Close">×</button>
+  <button id="detail-prev-btn" class="detail-nav-btn detail-prev-btn hidden" title="Previous (←)" aria-label="Previous title">‹</button>
+  <button id="detail-next-btn" class="detail-nav-btn detail-next-btn hidden" title="Next (→)" aria-label="Next title">›</button>
   <div id="detail-pane-content"></div>
 </aside>
 
@@ -877,7 +898,7 @@
         <tr><td><kbd>/</kbd></td><td>Open command palette</td></tr>
         <tr><td><kbd>S</kbd></td><td>Focus library search</td></tr>
         <tr><td><kbd>1</kbd>–<kbd>9</kbd></td><td>Jump to tab</td></tr>
-        <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td><td>Move gallery focus (Movies/TV tabs)</td></tr>
+        <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td><td>Move gallery focus (Movies/TV tabs) -- or step to the previous/next title while the detail pane is open</td></tr>
         <tr><td><kbd>Enter</kbd></td><td>Open focused gallery card / run selected command</td></tr>
         <tr><td><kbd>W</kbd></td><td>Toggle watched on the focused gallery card (Movies tab)</td></tr>
         <tr><td><kbd>F</kbd></td><td>Pin/unpin the focused gallery card</td></tr>

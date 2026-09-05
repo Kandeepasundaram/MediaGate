@@ -387,8 +387,9 @@ function matchesWatchedWithin(item, watchedFilter) {
 }
 
 function filterAndSort(items, opts) {
-  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter } = opts;
+  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly } = opts;
   let out = items;
+  if (pinnedOnly) out = out.filter(isPinned);
   if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
   if (genreFilter) out = out.filter((i) => (i.genres || []).includes(genreFilter));
   if (tagFilter) out = out.filter((i) => (i.tags || []).includes(tagFilter));
@@ -558,6 +559,56 @@ function populateCollectionOptions(selectEl, items, previousValue) {
   if (previousValue && names.includes(previousValue)) selectEl.value = previousValue;
 }
 
+// A stale poster_path (TMDB removed/renamed an image) or an offline load
+// shows a broken-image icon instead of the placeholder posterMarkup/
+// posterMarkupLarge already fall back to when there's no poster_path at
+// all -- one delegated listener (capture:true, since "error" doesn't
+// bubble) swaps any failed .gallery-poster <img> for that same placeholder
+// look, wherever it appears (gallery cards, detail pane, compare modal, ...).
+export function wirePosterFallback() {
+  document.addEventListener("error", (e) => {
+    const img = e.target;
+    if (img.tagName !== "IMG" || !img.classList.contains("gallery-poster")) return;
+    const placeholder = document.createElement("div");
+    placeholder.className = "gallery-poster-placeholder";
+    placeholder.textContent = img.alt || "";
+    img.replaceWith(placeholder);
+  }, true);
+}
+
+// ---- Grid/List view toggle ----
+// Pure presentation: the same card markup renders in both modes, so this
+// only ever toggles a class -- no changes needed to render/select/pin/
+// watched-toggle/keyboard-nav/drag-select/swipe wiring, all of which key
+// off .gallery-card and its children regardless of layout.
+const VIEW_MODE_KEY_PREFIX = "media-manager:gallery-view:";
+
+function galleryViewMode(prefix) {
+  try { return localStorage.getItem(VIEW_MODE_KEY_PREFIX + prefix) || "grid"; } catch (e) { return "grid"; }
+}
+
+function applyGalleryViewMode(prefix) {
+  const mode = galleryViewMode(prefix);
+  const gallery = $(`#${prefix}-gallery`);
+  const btn = $(`#${prefix}-view-toggle-btn`);
+  if (!gallery || !btn) return;
+  gallery.classList.toggle("gallery-list-mode", mode === "list");
+  btn.textContent = mode === "list" ? "🔳 Grid View" : "☰ List View";
+}
+
+export function setupGalleryViewMode() {
+  ["movies", "tv"].forEach((prefix) => {
+    applyGalleryViewMode(prefix);
+    const btn = $(`#${prefix}-view-toggle-btn`);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const next = galleryViewMode(prefix) === "list" ? "grid" : "list";
+      try { localStorage.setItem(VIEW_MODE_KEY_PREFIX + prefix, next); } catch (e) { /* private browsing / storage disabled */ }
+      applyGalleryViewMode(prefix);
+    });
+  });
+}
+
 // ---- A-Z jump rail ----
 const AZ_LETTERS = ["#", ..."ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("")];
 
@@ -673,9 +724,10 @@ export function renderMoviesGallery() {
   const ratingFilter = $("#movies-rating").value;
   const addedFilter = $("#movies-added").value;
   const watchedFilter = $("#movies-watched-within").value;
-  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter }));
+  const pinnedOnly = $("#movies-pinned-only").checked;
+  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly }));
   populateAzRail("movies", items);
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter]);
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly]);
   const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
@@ -718,7 +770,7 @@ export function renderMoviesGallery() {
     cb.addEventListener("click", (e) => e.stopPropagation());
   });
   gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
-    card.addEventListener("click", () => openDetailPane("movie", visible[i]));
+    card.addEventListener("click", () => openDetailPane("movie", visible[i], visible));
   });
   wireGalleryLoadMore(gallery, limitKey, renderMoviesGallery);
   loadMovieGalleryBadges(visible);
@@ -781,6 +833,7 @@ function currentMovieFilters() {
     ratingFilter: $("#movies-rating").value,
     addedFilter: $("#movies-added").value,
     watchedFilter: $("#movies-watched-within").value,
+    pinnedOnly: $("#movies-pinned-only").checked,
   };
 }
 
@@ -799,6 +852,7 @@ function currentTvFilters() {
     ratingFilter: $("#tv-rating").value,
     addedFilter: $("#tv-added").value,
     watchedFilter: $("#tv-watched-within").value,
+    pinnedOnly: $("#tv-pinned-only").checked,
   };
 }
 
@@ -1305,11 +1359,12 @@ export function renderTvGallery() {
   const ratingFilter = $("#tv-rating").value;
   const addedFilter = $("#tv-added").value;
   const watchedFilter = $("#tv-watched-within").value;
+  const pinnedOnly = $("#tv-pinned-only").checked;
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
-  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter }));
+  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly }));
   populateAzRail("tv", shows);
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter]);
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly]);
   const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
@@ -1349,7 +1404,7 @@ export function renderTvGallery() {
     cb.addEventListener("click", (e) => e.stopPropagation());
   });
   gallery.querySelectorAll(".gallery-card").forEach((card, i) => {
-    card.addEventListener("click", () => openDetailPane("tv", visible[i]));
+    card.addEventListener("click", () => openDetailPane("tv", visible[i], visible));
   });
   wireGalleryLoadMore(gallery, limitKey, renderTvGallery);
   loadTvGalleryBadges(visible);

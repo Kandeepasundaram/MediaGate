@@ -3,13 +3,14 @@
  */
 
 import { approveSelected, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
+import { closeBulkRematchModal, openBulkRematchModal } from "./js/bulk-rematch.js";
 import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable } from "./js/browse-tab.js";
 import { loadStatus, restoreLastTab, restoreScrollPosition, setupFontSize, setupGlobalSearch, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
 import { $, $all, api, formatBytes, showToast, state } from "./js/core.js";
-import { closeDetailPaneWithConfirm, closePersonModal, exportPersonCredits } from "./js/detail-pane.js";
-import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, enableSwipeToToggleWatched, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, removeFromCollection, removeTagBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, surpriseMeMovie, surpriseMeTv, toggleFocusedCardWatched, togglePinOnFocusedCard, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
+import { closeDetailPaneWithConfirm, closePersonModal, exportPersonCredits, navigateDetailPane } from "./js/detail-pane.js";
+import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, enableSwipeToToggleWatched, exportMoviesView, exportTvView, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, removeFromCollection, removeTagBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, setupGalleryViewMode, surpriseMeMovie, surpriseMeTv, toggleFocusedCardWatched, togglePinOnFocusedCard, TV_PRESET_IDS, wirePosterFallback, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
 import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackerCategoryTabs, setupUniverseTypeTabs, wireUpcomingViewToggles } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
@@ -82,6 +83,7 @@ function setupKeyboardShortcuts() {
       closePersonModal();
       closeCompareModal();
       closeWhatsNew();
+      closeBulkRematchModal();
       closeDetailPaneWithConfirm();
       return;
     }
@@ -100,6 +102,11 @@ function setupKeyboardShortcuts() {
       return;
     }
 
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !$("#detail-pane").classList.contains("hidden")) {
+      e.preventDefault();
+      navigateDetailPane(e.key === "ArrowRight" ? 1 : -1);
+      return;
+    }
     if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(e.key)) {
       const ctx = activeGalleryContext();
       if (ctx) {
@@ -211,6 +218,8 @@ document.addEventListener("DOMContentLoaded", () => {
   enableSwipeToToggleWatched($("#tv-gallery"));
   setupUniverseTypeTabs();
   setupTrackerCategoryTabs();
+  setupGalleryViewMode();
+  wirePosterFallback();
   setupGlobalSearch();
   setupCompareModal();
   wireUpcomingViewToggles();
@@ -338,6 +347,13 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-rating").addEventListener("change", renderMoviesGallery);
   $("#movies-added").addEventListener("change", renderMoviesGallery);
   $("#movies-watched-within").addEventListener("change", renderMoviesGallery);
+  $("#movies-pinned-only").addEventListener("change", renderMoviesGallery);
+  $("#movies-bulk-rematch-btn").addEventListener("click", () => {
+    const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
+    const items = state.movieItems.filter((i) => ids.includes(i.id));
+    if (items.length === 0) return;
+    openBulkRematchModal(items.map((i) => ({ ids: [i.id], title: i.title, mediaType: "movie" })));
+  });
   $("#movies-select-all-btn").addEventListener("click", () => {
     const boxes = $all("#movies-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
@@ -466,6 +482,13 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#tv-rating").addEventListener("change", renderTvGallery);
   $("#tv-added").addEventListener("change", renderTvGallery);
   $("#tv-watched-within").addEventListener("change", renderTvGallery);
+  $("#tv-pinned-only").addEventListener("change", renderTvGallery);
+  $("#tv-bulk-rematch-btn").addEventListener("click", () => {
+    const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
+    const shows = groupEpisodesByShow(state.tvItems).filter((s) => titles.has(s.title));
+    if (shows.length === 0) return;
+    openBulkRematchModal(shows.map((s) => ({ ids: s.episodes.map((e) => e.id), title: s.title, mediaType: "tv" })));
+  });
   $("#tv-select-all-btn").addEventListener("click", () => {
     const boxes = $all("#tv-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
@@ -574,6 +597,8 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#history-export-btn").addEventListener("click", exportHistoryView);
 
   $("#detail-close-btn").addEventListener("click", closeDetailPaneWithConfirm);
+  $("#detail-prev-btn").addEventListener("click", () => navigateDetailPane(-1));
+  $("#detail-next-btn").addEventListener("click", () => navigateDetailPane(1));
   $("#palette-input").addEventListener("input", () => {
     state.paletteVisible = filterCommands($("#palette-input").value);
     state.paletteIndex = 0;
@@ -601,6 +626,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#install-banner-dismiss-btn").addEventListener("click", () => {
     $("#install-banner").classList.add("hidden");
     try { localStorage.setItem(INSTALL_DISMISS_KEY, String(Date.now())); } catch (e) { /* private browsing / storage disabled */ }
+  });
+  $("#bulk-rematch-close-btn").addEventListener("click", closeBulkRematchModal);
+  $("#bulk-rematch-modal").addEventListener("click", (e) => {
+    if (e.target.id === "bulk-rematch-modal") closeBulkRematchModal();
   });
   $("#whats-new-close-btn").addEventListener("click", closeWhatsNew);
   $("#whats-new-modal").addEventListener("click", (e) => {

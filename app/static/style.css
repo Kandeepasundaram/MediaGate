@@ -763,6 +763,22 @@ textarea {
   border-radius: var(--radius-pill);
 }
 
+.detail-nav-btn {
+  position: absolute;
+  top: 0.8rem;
+  z-index: 1;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  font-size: 1.2rem;
+  line-height: 1;
+  border-radius: var(--radius-pill);
+}
+
+.detail-prev-btn { left: 0.8rem; }
+.detail-next-btn { left: 2.9rem; }
+.detail-nav-btn:disabled { opacity: 0.3; cursor: default; }
+
 .detail-poster {
   width: 100%;
   max-width: 220px;
@@ -1757,6 +1773,56 @@ textarea:focus-visible,
   .compare-pickers { flex-direction: column; }
   .cal-cell { min-height: 40px; font-size: 0.6rem; }
 }
+
+/* ---- Gallery list view (alternative to the default poster grid) ---- */
+.gallery.gallery-list-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.gallery.gallery-list-mode .gallery-card {
+  flex-direction: row;
+  align-items: center;
+}
+
+.gallery.gallery-list-mode .gallery-poster-wrap,
+.gallery.gallery-list-mode .gallery-poster,
+.gallery.gallery-list-mode .gallery-poster-placeholder {
+  width: 42px;
+  min-width: 42px;
+  flex: 0 0 42px;
+}
+
+.gallery.gallery-list-mode .gallery-poster-placeholder { font-size: 0.5rem; padding: 0.1rem; }
+
+.gallery.gallery-list-mode .gallery-info {
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  flex: 1 1 auto;
+  padding: 0.4rem 0.7rem;
+  min-width: 0;
+}
+
+.gallery.gallery-list-mode .gallery-title {
+  min-width: 220px;
+  max-width: 320px;
+}
+
+.gallery.gallery-list-mode .gallery-meta { justify-content: flex-start; gap: 1rem; }
+.gallery.gallery-list-mode .hint { white-space: nowrap; }
+
+/* ---- Bulk "Fix Match" checklist ---- */
+.bulk-rematch-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.bulk-rematch-title { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---- A-Z jump rail ---- */
 .az-rail {
