@@ -25,7 +25,13 @@ from app.config_loader import AppConfig
 from app.core import media_probe
 from app.core.library_adopt import adopt_new_files
 from app.core.omdb_client import OMDbClient
-from app.core.media_server import get_plex_deep_link, sync_watched_from_media_servers
+from app.core.media_server import (
+    get_plex_deep_link,
+    jellyfin_item_id_for_imdb,
+    list_jellyfin_sessions,
+    play_on_jellyfin_session,
+    sync_watched_from_media_servers,
+)
 from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, season_episode_counts, vote_average_for
 from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
@@ -34,7 +40,10 @@ from app.models import (
     BackdropOut,
     CastMemberOut,
     FileInfoOut,
+    JellyfinSessionsResponse,
     PlayLinkOut,
+    PlayOnJellyfinRequest,
+    PlayOnJellyfinResponse,
     LibraryItemOut,
     LibraryResponse,
     ManualOverrideRequest,
@@ -905,13 +914,56 @@ def get_play_link(
 ) -> PlayLinkOut:
     """Deep link to open this title directly in Plex -- movies only (see
     get_plex_deep_link), None if Plex isn't configured, the title has no
-    imdb_id, or Plex doesn't have it. Jellyfin isn't supported yet."""
+    imdb_id, or Plex doesn't have it. See /jellyfin-sessions +
+    /play-on-jellyfin below for the Jellyfin/Kodi equivalent -- a command
+    rather than a link, since Jellyfin has no plain-URL deep link."""
     item = db.get_media_item(item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="Media item not found")
     if item["media_type"] != "movie" or not item["imdb_id"] or not (config.media_server.plex_url and config.media_server.plex_token):
         return PlayLinkOut(plex_url=None)
     return PlayLinkOut(plex_url=get_plex_deep_link(config.media_server.plex_url, config.media_server.plex_token, item["imdb_id"]))
+
+
+@router.get("/{item_id}/jellyfin-sessions", response_model=JellyfinSessionsResponse)
+def get_jellyfin_sessions(
+    item_id: int, db: Database = Depends(get_database), config: AppConfig = Depends(get_config)
+) -> JellyfinSessionsResponse:
+    """Currently-connected Jellyfin clients (e.g. Kodi via the
+    Jellyfin-for-Kodi addon) that can be told to play this title right now
+    -- movies only, same imdb_id-matched scope as the Plex link above.
+    Empty list (never an error) if Jellyfin isn't configured, this isn't a
+    movie, it has no imdb_id, or nothing's currently connected -- the
+    frontend just hides the control in every one of those cases."""
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if item["media_type"] != "movie" or not item["imdb_id"] or not (config.media_server.jellyfin_url and config.media_server.jellyfin_api_key):
+        return JellyfinSessionsResponse(sessions=[])
+    sessions = list_jellyfin_sessions(config.media_server.jellyfin_url, config.media_server.jellyfin_api_key)
+    return JellyfinSessionsResponse(sessions=sessions)
+
+
+@router.post("/{item_id}/play-on-jellyfin", response_model=PlayOnJellyfinResponse)
+def play_on_jellyfin(
+    item_id: int, payload: PlayOnJellyfinRequest, db: Database = Depends(get_database), config: AppConfig = Depends(get_config)
+) -> PlayOnJellyfinResponse:
+    """Commands the given already-connected Jellyfin session to start
+    playing this title -- see play_on_jellyfin_session. False (not an
+    error) if Jellyfin isn't configured, the title has no imdb_id, or
+    Jellyfin doesn't have a matching item."""
+    item = db.get_media_item(item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    if not item["imdb_id"] or not (config.media_server.jellyfin_url and config.media_server.jellyfin_api_key):
+        return PlayOnJellyfinResponse(success=False)
+    jellyfin_item_id = jellyfin_item_id_for_imdb(config.media_server.jellyfin_url, config.media_server.jellyfin_api_key, item["imdb_id"])
+    if jellyfin_item_id is None:
+        return PlayOnJellyfinResponse(success=False)
+    success = play_on_jellyfin_session(
+        config.media_server.jellyfin_url, config.media_server.jellyfin_api_key, payload.session_id, jellyfin_item_id
+    )
+    return PlayOnJellyfinResponse(success=success)
 
 
 @router.get("/{item_id}/more-info", response_model=MoreInfoOut)

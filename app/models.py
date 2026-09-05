@@ -610,6 +610,23 @@ class PlayLinkOut(BaseModel):
     plex_url: str | None = None
 
 
+class JellyfinSessionOut(BaseModel):
+    id: str
+    name: str
+
+
+class JellyfinSessionsResponse(BaseModel):
+    sessions: list[JellyfinSessionOut] = Field(default_factory=list)
+
+
+class PlayOnJellyfinRequest(BaseModel):
+    session_id: str
+
+
+class PlayOnJellyfinResponse(BaseModel):
+    success: bool
+
+
 class CastMemberOut(BaseModel):
     id: int | None = None  # TMDB person id -- powers the cast-card filmography click-through
     name: str | None = None

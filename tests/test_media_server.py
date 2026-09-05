@@ -3,7 +3,13 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from app.config_loader import MediaServerConfig
-from app.core.media_server import notify_media_servers, sync_watched_from_media_servers
+from app.core.media_server import (
+    jellyfin_item_id_for_imdb,
+    list_jellyfin_sessions,
+    notify_media_servers,
+    play_on_jellyfin_session,
+    sync_watched_from_media_servers,
+)
 
 
 class _FakeConfig:
@@ -129,3 +135,73 @@ def test_sync_watched_swallows_request_errors(db):
     with patch("app.core.media_server.requests.get", side_effect=requests.RequestException("down")):
         updated = sync_watched_from_media_servers(config, db)  # must not raise
     assert updated == 0
+
+
+def test_jellyfin_item_id_for_imdb_matches_provider_id():
+    items_resp = MagicMock()
+    items_resp.json.return_value = {
+        "Items": [
+            {"Id": "abc123", "ProviderIds": {"Imdb": "tt0000001"}},
+            {"Id": "xyz789", "ProviderIds": {"Imdb": "tt0000002"}},
+        ]
+    }
+    with patch("app.core.media_server.requests.get", return_value=items_resp) as mock_get:
+        result = jellyfin_item_id_for_imdb("http://jf.local:8096", "key", "tt0000002")
+
+    assert result == "xyz789"
+    assert mock_get.call_args.kwargs["headers"]["X-Emby-Token"] == "key"
+
+
+def test_jellyfin_item_id_for_imdb_returns_none_when_no_match():
+    items_resp = MagicMock()
+    items_resp.json.return_value = {"Items": [{"Id": "abc123", "ProviderIds": {"Imdb": "tt0000001"}}]}
+    with patch("app.core.media_server.requests.get", return_value=items_resp):
+        result = jellyfin_item_id_for_imdb("http://jf.local:8096", "key", "tt9999999")
+    assert result is None
+
+
+def test_jellyfin_item_id_for_imdb_swallows_request_errors():
+    import requests
+
+    with patch("app.core.media_server.requests.get", side_effect=requests.RequestException("down")):
+        result = jellyfin_item_id_for_imdb("http://jf.local:8096", "key", "tt0000001")  # must not raise
+    assert result is None
+
+
+def test_list_jellyfin_sessions_filters_remote_controllable():
+    sessions_resp = MagicMock()
+    sessions_resp.json.return_value = [
+        {"Id": "s1", "DeviceName": "Kodi - Living Room", "SupportsRemoteControl": True},
+        {"Id": "s2", "Client": "Some Browser", "SupportsRemoteControl": False},
+    ]
+    with patch("app.core.media_server.requests.get", return_value=sessions_resp):
+        sessions = list_jellyfin_sessions("http://jf.local:8096", "key")
+
+    assert sessions == [{"id": "s1", "name": "Kodi - Living Room"}]
+
+
+def test_list_jellyfin_sessions_swallows_request_errors():
+    import requests
+
+    with patch("app.core.media_server.requests.get", side_effect=requests.RequestException("down")):
+        sessions = list_jellyfin_sessions("http://jf.local:8096", "key")  # must not raise
+    assert sessions == []
+
+
+def test_play_on_jellyfin_session_posts_expected_params():
+    post_resp = MagicMock(ok=True)
+    with patch("app.core.media_server.requests.post", return_value=post_resp) as mock_post:
+        success = play_on_jellyfin_session("http://jf.local:8096", "key", "session-1", "item-1")
+
+    assert success is True
+    assert mock_post.call_args.args[0] == "http://jf.local:8096/Sessions/session-1/Playing"
+    assert mock_post.call_args.kwargs["params"] == {"playCommand": "PlayNow", "itemIds": "item-1"}
+    assert mock_post.call_args.kwargs["headers"]["X-Emby-Token"] == "key"
+
+
+def test_play_on_jellyfin_session_swallows_request_errors():
+    import requests
+
+    with patch("app.core.media_server.requests.post", side_effect=requests.RequestException("down")):
+        success = play_on_jellyfin_session("http://jf.local:8096", "key", "session-1", "item-1")  # must not raise
+    assert success is False

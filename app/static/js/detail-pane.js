@@ -3,7 +3,7 @@
  */
 
 import { closeMatchPicker, escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
-import { $, api, formatBytes, state } from "./core.js";
+import { $, api, formatBytes, showToast, state } from "./core.js";
 import { TV_SHOW_STATUSES, downloadCsv, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, rowsToCsv, saveMovieNote, saveTvNote, setTvShowStatus, toggleWatched } from "./gallery.js";
 import { loadNotifications, loadTrackerTab, TRACKER_CATEGORIES } from "./notifications-tab.js";
 import { formatDuration } from "./stats-tab.js";
@@ -76,6 +76,7 @@ export function renderDetailPane() {
       <div id="detail-ratings" class="detail-ratings"></div>
       <div id="detail-trailer" class="detail-trailer"></div>
       <div id="detail-play-link" class="detail-trailer hidden"></div>
+      <div id="detail-jellyfin-cast" class="detail-trailer hidden"></div>
       <p class="detail-overview">${item.overview || "No overview available."}</p>
       <div id="detail-more-info"></div>
       <div class="detail-file-info">
@@ -107,6 +108,7 @@ export function renderDetailPane() {
     loadTrailer(item.id);
     loadBackdrop(item.id);
     loadPlayLink(item.id);
+    loadJellyfinSessions(item.id);
     loadMoreInfo(item.id);
     loadFileInfo(item.id, "#detail-file-extra");
     if (item.tmdb_id != null) loadMovieStatus(item.tmdb_id);
@@ -743,6 +745,44 @@ async function loadPlayLink(itemId) {
     } else {
       el.classList.add("hidden");
     }
+  } catch (e) {
+    el.classList.add("hidden");
+  }
+}
+
+// "Play on..." (Jellyfin/Kodi) -- movies only, hidden entirely unless
+// Jellyfin is configured and has at least one remote-controllable session
+// connected right now (e.g. Kodi via the Jellyfin-for-Kodi addon). Unlike
+// the Plex link this actively commands playback rather than opening a
+// URL, since Jellyfin has no plain deep-link equivalent.
+async function loadJellyfinSessions(itemId) {
+  const el = $("#detail-jellyfin-cast");
+  if (!el) return;
+  try {
+    const data = await api(`/api/library/${itemId}/jellyfin-sessions`);
+    if (data.sessions.length === 0) {
+      el.classList.add("hidden");
+      return;
+    }
+    el.innerHTML = `
+      <select id="detail-jellyfin-session-select">
+        ${data.sessions.map((s) => `<option value="${escapeAttr(s.id)}">${escapeAttr(s.name)}</option>`).join("")}
+      </select>
+      <button id="detail-jellyfin-play-btn">▶ Play on...</button>
+    `;
+    el.classList.remove("hidden");
+    $("#detail-jellyfin-play-btn").addEventListener("click", async () => {
+      const sessionId = $("#detail-jellyfin-session-select").value;
+      const sessionName = $("#detail-jellyfin-session-select").selectedOptions[0].textContent;
+      try {
+        const result = await api(`/api/library/${itemId}/play-on-jellyfin`, {
+          method: "POST", body: JSON.stringify({ session_id: sessionId }),
+        });
+        showToast(result.success ? `Playing on ${sessionName}.` : `Couldn't start playback on ${sessionName}.`, result.success ? "success" : "error");
+      } catch (e) {
+        showToast(`Error: ${e.message}`, "error");
+      }
+    });
   } catch (e) {
     el.classList.add("hidden");
   }

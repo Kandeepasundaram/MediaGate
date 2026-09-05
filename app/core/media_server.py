@@ -113,6 +113,71 @@ def get_plex_deep_link(url: str, token: str, imdb_id: str) -> str | None:
     return f"https://app.plex.tv/desktop/#!/server/{machine_id}/details?key=%2Flibrary%2Fmetadata%2F{rating_key}"
 
 
+def jellyfin_item_id_for_imdb(url: str, api_key: str, imdb_id: str) -> str | None:
+    """Jellyfin's own item id for a movie, matched by imdb_id -- same
+    /Items?IncludeItemTypes=Movie&Recursive=true&Fields=ProviderIds query
+    and ProviderIds.Imdb match as _jellyfin_watched_imdb_ids, just
+    returning one item's Id instead of collecting every watched one.
+    Needed to tell a Jellyfin session what to play (see
+    play_on_jellyfin_session) -- MediaGate has no media-serving of its
+    own, so casting always goes through whatever Jellyfin already knows
+    about this title."""
+    try:
+        resp = requests.get(
+            f"{url.rstrip('/')}/Items",
+            headers={"X-Emby-Token": api_key},
+            params={"IncludeItemTypes": "Movie", "Recursive": "true", "Fields": "ProviderIds"},
+            timeout=_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        for item in resp.json().get("Items", []):
+            if (item.get("ProviderIds") or {}).get("Imdb") == imdb_id:
+                return item.get("Id")
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        logger.warning("Jellyfin item lookup for imdb_id=%s failed: %s", imdb_id, exc)
+    return None
+
+
+def list_jellyfin_sessions(url: str, api_key: str) -> list[dict]:
+    """Currently-connected Jellyfin clients that accept a remote "play
+    this" command -- a Kodi instance connected via the Jellyfin-for-Kodi
+    addon shows up here once it's logged in. Returns [] (not raised) on
+    any failure, same "just doesn't show the button" tolerance as the
+    Plex deep link."""
+    try:
+        resp = requests.get(f"{url.rstrip('/')}/Sessions", headers={"X-Emby-Token": api_key}, timeout=_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        return [
+            {"id": s["Id"], "name": s.get("DeviceName") or s.get("Client") or "Unknown device"}
+            for s in resp.json()
+            if s.get("SupportsRemoteControl")
+        ]
+    except (requests.RequestException, ValueError, KeyError) as exc:
+        logger.warning("Jellyfin session list failed: %s", exc)
+        return []
+
+
+def play_on_jellyfin_session(url: str, api_key: str, session_id: str, item_id: str) -> bool:
+    """Commands an already-connected Jellyfin session (e.g. Kodi) to start
+    playing a specific item right now -- Jellyfin's standard remote-control
+    endpoint. Query-param shape per Jellyfin/Emby's Sessions API; worth
+    double-checking against the target server's own /api-docs/swagger if
+    this doesn't work first try, same tolerance this file's other
+    Plex/Jellyfin calls already carry for being unverified against a live
+    server from this dev environment."""
+    try:
+        resp = requests.post(
+            f"{url.rstrip('/')}/Sessions/{session_id}/Playing",
+            headers={"X-Emby-Token": api_key},
+            params={"playCommand": "PlayNow", "itemIds": item_id},
+            timeout=_TIMEOUT_SECONDS,
+        )
+        return resp.ok
+    except requests.RequestException as exc:
+        logger.warning("Jellyfin play-on-session failed: %s", exc)
+        return False
+
+
 def _jellyfin_watched_imdb_ids(url: str, api_key: str) -> set[str]:
     """IMDb ids of every movie Jellyfin's first user has marked played.
     Jellyfin's played state is per-user (unlike Plex's per-token view), and
