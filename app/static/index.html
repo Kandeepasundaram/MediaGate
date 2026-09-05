@@ -60,6 +60,7 @@
         <option value="title">Title (A-Z)</option>
         <option value="year">Year (newest)</option>
         <option value="rating">Rating (highest)</option>
+        <option value="watched">Recently watched</option>
       </select>
       <select id="movies-filter">
         <option value="all">All</option>
@@ -107,6 +108,13 @@
         <option value="90">Last 90 days</option>
         <option value="365">Last year</option>
       </select>
+      <select id="movies-watched-within" title="Filter to movies watched within...">
+        <option value="">Any time watched</option>
+        <option value="7">Watched in last 7 days</option>
+        <option value="30">Watched in last 30 days</option>
+        <option value="90">Watched in last 90 days</option>
+        <option value="365">Watched in last year</option>
+      </select>
       <select id="movies-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
       <button id="movies-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
       <button id="movies-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
@@ -142,6 +150,7 @@
         <option value="added">Recently added</option>
         <option value="title">Title (A-Z)</option>
         <option value="rating">Rating (highest)</option>
+        <option value="watched">Recently watched</option>
       </select>
       <select id="tv-filter">
         <option value="all">All</option>
@@ -188,6 +197,13 @@
         <option value="30">Last 30 days</option>
         <option value="90">Last 90 days</option>
         <option value="365">Last year</option>
+      </select>
+      <select id="tv-watched-within" title="Filter to shows watched within...">
+        <option value="">Any time watched</option>
+        <option value="7">Watched in last 7 days</option>
+        <option value="30">Watched in last 30 days</option>
+        <option value="90">Watched in last 90 days</option>
+        <option value="365">Watched in last year</option>
       </select>
       <select id="tv-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
       <button id="tv-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
@@ -864,6 +880,7 @@
         <tr><td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td><td>Move gallery focus (Movies/TV tabs)</td></tr>
         <tr><td><kbd>Enter</kbd></td><td>Open focused gallery card / run selected command</td></tr>
         <tr><td><kbd>W</kbd></td><td>Toggle watched on the focused gallery card (Movies tab)</td></tr>
+        <tr><td><kbd>F</kbd></td><td>Pin/unpin the focused gallery card</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Approve selected (archive/organize)</td></tr>
         <tr><td><kbd>Esc</kbd></td><td>Close modal / detail pane / palette</td></tr>
         <tr><td><kbd>?</kbd></td><td>Show this list</td></tr>

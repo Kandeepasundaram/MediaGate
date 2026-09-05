@@ -11,6 +11,47 @@ import { formatDuration } from "./stats-tab.js";
 // ---- Detail pane ----
 state.detailPane = null; // { kind: "movie"|"tv", data }
 
+// ---- Copy shareable info to clipboard ----
+// navigator.clipboard needs a secure context (https, or localhost) -- this
+// is a LAN homelab dashboard typically reached over plain http, where it's
+// simply undefined, so the execCommand fallback is the common path here,
+// not a rare edge case.
+function legacyCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand("copy");
+    showToast("Copied to clipboard.", "success");
+  } catch (e) {
+    showToast("Copy failed -- select and copy manually.", "error");
+  }
+  ta.remove();
+}
+
+function copyShareText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(
+      () => showToast("Copied to clipboard.", "success"),
+      () => legacyCopy(text),
+    );
+  } else {
+    legacyCopy(text);
+  }
+}
+
+function shareTextForTitle(title, year, voteAverage, personalRating, overview) {
+  const ratingBits = [];
+  if (voteAverage) ratingBits.push(`★ ${voteAverage.toFixed(1)}/10 TMDB`);
+  if (personalRating) ratingBits.push(`my rating ${personalRating}/5`);
+  const ratingLine = ratingBits.length ? ` — ${ratingBits.join(", ")}` : "";
+  return `${title}${year ? ` (${year})` : ""}${ratingLine}${overview ? `\n${overview}` : ""}`;
+}
+
 // ---- Recently viewed (movie/TV only -- tracker-pane views aren't tracked,
 // matching the command palette's own Titles search which only ever jumps
 // to a movie/show, not a tracker row) -- persisted so it survives a
@@ -67,6 +108,7 @@ export function renderDetailPane() {
       ${posterMarkupLarge(item.title, item.poster_path)}
       <div class="detail-title">${item.title}</div>
       <div class="detail-year">${item.year || ""}</div>
+      <button id="detail-share-btn" title="Copy title, rating, and overview to clipboard">📋 Copy Info</button>
       <label class="watched-toggle">
         <input type="checkbox" id="detail-watched-toggle" data-id="${item.id}" ${effectiveWatched(item) ? "checked" : ""}>
         Watched${getActiveViewerId() != null ? ` (${escapeAttr(state.viewers?.find((v) => v.id === getActiveViewerId())?.name || "viewer")})` : ""}
@@ -94,6 +136,7 @@ export function renderDetailPane() {
     `;
     $("#detail-note-download-btn").addEventListener("click", () => downloadMovieNote(item.id));
     $("#detail-note-save-btn").addEventListener("click", () => saveMovieNote(item.id));
+    $("#detail-share-btn").addEventListener("click", () => copyShareText(shareTextForTitle(item.title, item.year, item.vote_average, item.personal_rating, item.overview)));
     $("#detail-watched-toggle").addEventListener("change", async (e) => {
       try {
         await toggleWatched(item.id, e.target.checked);
@@ -232,6 +275,7 @@ export function renderDetailPane() {
       ${posterMarkupLarge(show.title, show.poster_path)}
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
+      <button id="detail-share-btn" title="Copy title, rating, and overview to clipboard">📋 Copy Info</button>
       ${show.tmdb_id != null ? `
         <label class="show-status-select-label">
           Status
@@ -257,6 +301,7 @@ export function renderDetailPane() {
       ` : `<p class="hint">Notes need a TMDB match first.</p>`}
       ${detailFixMarkup()}
     `;
+    $("#detail-share-btn").addEventListener("click", () => copyShareText(shareTextForTitle(show.title, show.year, show.vote_average, show.personal_rating, show.overview)));
     if (show.tmdb_id != null) {
       $("#detail-note-download-btn").addEventListener("click", () => downloadTvNote(show.tmdb_id));
       $("#detail-note-save-btn").addEventListener("click", () => saveTvNote(show.tmdb_id));

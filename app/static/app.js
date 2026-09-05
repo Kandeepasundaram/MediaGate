@@ -9,7 +9,7 @@ import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette,
 import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
 import { $, $all, api, formatBytes, showToast, state } from "./js/core.js";
 import { closeDetailPaneWithConfirm, closePersonModal, exportPersonCredits } from "./js/detail-pane.js";
-import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, removeFromCollection, removeTagBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, surpriseMeMovie, surpriseMeTv, toggleFocusedCardWatched, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
+import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, enableSwipeToToggleWatched, exportMoviesView, exportTvView, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, removeFromCollection, removeTagBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, surpriseMeMovie, surpriseMeTv, toggleFocusedCardWatched, togglePinOnFocusedCard, TV_PRESET_IDS, wireRecommendationsToggle } from "./js/gallery.js";
 import { exportHistoryView, loadHistory } from "./js/history-tab.js";
 import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackerCategoryTabs, setupUniverseTypeTabs, wireUpcomingViewToggles } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
@@ -118,6 +118,12 @@ function setupKeyboardShortcuts() {
         return;
       }
     }
+    if (e.key === "f" || e.key === "F") {
+      if (togglePinOnFocusedCard()) {
+        e.preventDefault();
+        return;
+      }
+    }
 
     const digit = Number(e.key);
     if (digit >= 1 && digit <= Math.min(9, TAB_KEYS.length)) {
@@ -201,6 +207,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupScrollPersistence();
   enableGalleryDragSelect($("#movies-gallery"));
   enableGalleryDragSelect($("#tv-gallery"));
+  enableSwipeToToggleWatched($("#movies-gallery"));
+  enableSwipeToToggleWatched($("#tv-gallery"));
   setupUniverseTypeTabs();
   setupTrackerCategoryTabs();
   setupGlobalSearch();
@@ -329,6 +337,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-year").addEventListener("change", renderMoviesGallery);
   $("#movies-rating").addEventListener("change", renderMoviesGallery);
   $("#movies-added").addEventListener("change", renderMoviesGallery);
+  $("#movies-watched-within").addEventListener("change", renderMoviesGallery);
   $("#movies-select-all-btn").addEventListener("click", () => {
     const boxes = $all("#movies-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
@@ -456,6 +465,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#tv-year").addEventListener("change", renderTvGallery);
   $("#tv-rating").addEventListener("change", renderTvGallery);
   $("#tv-added").addEventListener("change", renderTvGallery);
+  $("#tv-watched-within").addEventListener("change", renderTvGallery);
   $("#tv-select-all-btn").addEventListener("click", () => {
     const boxes = $all("#tv-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);

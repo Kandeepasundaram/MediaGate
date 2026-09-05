@@ -1170,11 +1170,13 @@ button.show-status-pill {
   border: 1px solid var(--surface-border);
   border-radius: var(--radius-lg);
   overflow: hidden;
-  cursor: pointer;
+  cursor: grab;
   box-shadow: var(--shadow-surface, none);
   backdrop-filter: var(--surface-blur, none);
   -webkit-backdrop-filter: var(--surface-blur, none);
 }
+
+.continue-watching-card:active { cursor: grabbing; }
 
 .continue-watching-info { padding: 0.5rem 0.6rem; display: flex; flex-direction: column; gap: 0.2rem; }
 

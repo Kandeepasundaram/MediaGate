@@ -379,8 +379,15 @@ function matchesAddedWithin(item, addedFilter) {
   return new Date(item.archived_at).getTime() >= cutoff;
 }
 
+function matchesWatchedWithin(item, watchedFilter) {
+  if (!watchedFilter) return true;
+  if (!item.watched_at) return false;
+  const cutoff = Date.now() - Number(watchedFilter) * 86400000;
+  return new Date(item.watched_at).getTime() >= cutoff;
+}
+
 function filterAndSort(items, opts) {
-  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter } = opts;
+  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter } = opts;
   let out = items;
   if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
   if (genreFilter) out = out.filter((i) => (i.genres || []).includes(genreFilter));
@@ -391,6 +398,7 @@ function filterAndSort(items, opts) {
   if (yearFilter) out = out.filter((i) => String(i.year) === yearFilter);
   if (ratingFilter) out = out.filter((i) => matchesRating(i, ratingFilter));
   if (addedFilter) out = out.filter((i) => matchesAddedWithin(i, addedFilter));
+  if (watchedFilter) out = out.filter((i) => matchesWatchedWithin(i, watchedFilter));
   if (query) {
     const q = query.toLowerCase();
     out = out.filter((i) => i[titleKey].toLowerCase().includes(q));
@@ -399,6 +407,7 @@ function filterAndSort(items, opts) {
   if (sortMode === "title") out.sort((a, b) => a[titleKey].localeCompare(b[titleKey]));
   else if (sortMode === "year") out.sort((a, b) => (b.year || 0) - (a.year || 0));
   else if (sortMode === "rating") out.sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+  else if (sortMode === "watched") out.sort((a, b) => (b.watched_at || "").localeCompare(a.watched_at || ""));
   return out;
 }
 
@@ -428,8 +437,8 @@ function restoreFilterState(prefix, controlIds) {
   return values;
 }
 
-const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution", "movies-watch", "movies-rating", "movies-added"];
-const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution", "tv-watch", "tv-rating", "tv-added"];
+const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution", "movies-watch", "movies-rating", "movies-added", "movies-watched-within"];
+const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution", "tv-watch", "tv-rating", "tv-added", "tv-watched-within"];
 export const MOVIE_PRESET_IDS = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year", "movies-tag", "movies-collection"];
 export const TV_PRESET_IDS = [...TV_FILTER_IDS, "tv-genre", "tv-year", "tv-tag", "tv-collection"];
 
@@ -663,9 +672,10 @@ export function renderMoviesGallery() {
   const yearFilter = $("#movies-year").value;
   const ratingFilter = $("#movies-rating").value;
   const addedFilter = $("#movies-added").value;
-  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
+  const watchedFilter = $("#movies-watched-within").value;
+  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter }));
   populateAzRail("movies", items);
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter]);
   const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
@@ -770,6 +780,7 @@ function currentMovieFilters() {
     yearFilter: $("#movies-year").value,
     ratingFilter: $("#movies-rating").value,
     addedFilter: $("#movies-added").value,
+    watchedFilter: $("#movies-watched-within").value,
   };
 }
 
@@ -787,6 +798,7 @@ function currentTvFilters() {
     yearFilter: $("#tv-year").value,
     ratingFilter: $("#tv-rating").value,
     addedFilter: $("#tv-added").value,
+    watchedFilter: $("#tv-watched-within").value,
   };
 }
 
@@ -860,6 +872,37 @@ export function enableGalleryDragSelect(container) {
   });
 }
 
+// A fast, mostly-horizontal drag on a card toggles its watched state --
+// touch only (desktop never fires touchstart/touchend, so this is a no-op
+// there; mouse users already have the on-card checkbox). Naturally a no-op
+// on TV cards too, which render no .watched-toggle to find.
+export function enableSwipeToToggleWatched(container) {
+  let startX = 0;
+  let startY = 0;
+  let startTime = 0;
+  let startCard = null;
+
+  container.addEventListener("touchstart", (e) => {
+    if (e.touches.length !== 1) return;
+    startCard = e.target.closest(".gallery-card");
+    if (!startCard) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    startTime = Date.now();
+  }, { passive: true });
+
+  container.addEventListener("touchend", (e) => {
+    if (!startCard) return;
+    const card = startCard;
+    startCard = null;
+    const dt = Date.now() - startTime;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (dt > 600 || Math.abs(dx) < 60 || Math.abs(dy) > 40) return;
+    card.querySelector(".watched-toggle input")?.click();
+  }, { passive: true });
+}
+
 // Linear (not row/column-aware) card-to-card nav -- simple, and the number
 // of columns per row changes with window width anyway, so a strictly
 // grid-aware up/down wouldn't stay correct without recomputing layout.
@@ -896,6 +939,20 @@ export function toggleFocusedCardWatched() {
   const checkbox = focused?.querySelector(".watched-toggle input");
   if (!checkbox) return false;
   checkbox.click();
+  return true;
+}
+
+// "F" shortcut -- reuses the card's own pin button rather than re-deriving
+// which item/ids it maps to (wirePinToggles already indexes that via
+// data-pin-index). A TV card with no files on disk renders no pin button,
+// same as toggleFocusedCardWatched's movie-only limitation above.
+export function togglePinOnFocusedCard() {
+  const ctx = activeGalleryContext();
+  if (!ctx) return false;
+  const focused = ctx.container.querySelector(".gallery-focused");
+  const btn = focused?.querySelector(".pin-toggle-btn");
+  if (!btn) return false;
+  btn.click();
   return true;
 }
 
@@ -1062,6 +1119,9 @@ export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || 
     show.episodes.sort((a, b) => (a.season_number - b.season_number) || (a.episode_number - b.episode_number));
     show.watched = show.episodes.length > 0 && show.episodes.every((e) => e.watched);
     show.archived_at = show.episodes.reduce((min, e) => (e.archived_at && (!min || e.archived_at < min)) ? e.archived_at : min, null);
+    // Most recent episode watched, not earliest -- "recently watched" means
+    // when the viewer was last in this show, unlike archived_at above.
+    show.watched_at = show.episodes.reduce((max, e) => (e.watched_at && (!max || e.watched_at > max)) ? e.watched_at : max, null);
   }
   for (const orphan of orphanShows) {
     if (shows.has(orphan.title)) continue;
@@ -1090,12 +1150,39 @@ function computeUpNext(shows) {
     .filter(Boolean);
 }
 
+// ---- Continue Watching: manual drag-to-reorder ----
+// Persists which show the viewer wants surfaced first, overriding the
+// default order (whatever groupEpisodesByShow/filterAndSort produced) --
+// unlisted shows keep their relative default order, appended after
+// whatever's been manually placed.
+const CONTINUE_ORDER_KEY = "media-manager:continue-watching-order";
+
+function continueWatchingKey(show) {
+  return show.tmdb_id != null ? `tmdb:${show.tmdb_id}` : `title:${show.title}`;
+}
+
+function loadContinueOrder() {
+  try { return JSON.parse(localStorage.getItem(CONTINUE_ORDER_KEY) || "[]"); } catch (e) { return []; }
+}
+
+function saveContinueOrder(keys) {
+  try { localStorage.setItem(CONTINUE_ORDER_KEY, JSON.stringify(keys)); } catch (e) { /* private browsing / storage disabled */ }
+}
+
+function applyContinueOrder(upNext) {
+  const rank = new Map(loadContinueOrder().map((k, i) => [k, i]));
+  return upNext
+    .map((entry, i) => ({ entry, i, r: rank.has(continueWatchingKey(entry.show)) ? rank.get(continueWatchingKey(entry.show)) : Infinity }))
+    .sort((a, b) => (a.r - b.r) || (a.i - b.i))
+    .map((x) => x.entry);
+}
+
 function renderContinueWatching(allShows) {
   const row = $("#continue-watching-row");
   const cards = $("#continue-watching-cards");
   if (!row || !cards) return;
 
-  const upNext = computeUpNext(allShows);
+  const upNext = applyContinueOrder(computeUpNext(allShows));
   if (upNext.length === 0) {
     row.classList.add("hidden");
     cards.innerHTML = "";
@@ -1103,7 +1190,7 @@ function renderContinueWatching(allShows) {
   }
   row.classList.remove("hidden");
   cards.innerHTML = upNext.map(({ show, nextEpisode, watchedCount, totalCount }, i) => `
-    <div class="continue-watching-card" data-up-next-index="${i}">
+    <div class="continue-watching-card" data-up-next-index="${i}" draggable="true" title="Drag to reorder">
       ${posterMarkup(show.title, show.poster_path)}
       <div class="continue-watching-info">
         <div class="gallery-title" title="${show.title}">${show.title}</div>
@@ -1112,12 +1199,28 @@ function renderContinueWatching(allShows) {
       </div>
     </div>
   `).join("");
+  let dragSrcIndex = null;
   cards.querySelectorAll(".continue-watching-card").forEach((card, i) => {
     card.addEventListener("click", () => {
       const { show, nextEpisode } = upNext[i];
       openDetailPane("tv", show);
       state.detailPane.selectedSeason = nextEpisode.season_number;
       renderTvBody();
+    });
+    card.addEventListener("dragstart", (e) => {
+      dragSrcIndex = i;
+      e.dataTransfer.effectAllowed = "move";
+    });
+    card.addEventListener("dragover", (e) => e.preventDefault());
+    card.addEventListener("drop", (e) => {
+      e.preventDefault();
+      if (dragSrcIndex === null || dragSrcIndex === i) return;
+      const reordered = upNext.map((entry) => entry.show);
+      const [moved] = reordered.splice(dragSrcIndex, 1);
+      reordered.splice(i, 0, moved);
+      saveContinueOrder(reordered.map(continueWatchingKey));
+      dragSrcIndex = null;
+      renderContinueWatching(allShows);
     });
   });
 }
@@ -1201,11 +1304,12 @@ export function renderTvGallery() {
   const yearFilter = $("#tv-year").value;
   const ratingFilter = $("#tv-rating").value;
   const addedFilter = $("#tv-added").value;
+  const watchedFilter = $("#tv-watched-within").value;
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
-  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter }));
+  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter }));
   populateAzRail("tv", shows);
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter]);
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter]);
   const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
