@@ -1634,4 +1634,18 @@ textarea:focus-visible,
     left: 0;
     width: 100%;
   }
+  /* Keep each catalog row's poster+text together across a page break
+     rather than splitting a row's image from its own data. */
+  .catalog-table tr { break-inside: avoid; }
+}
+
+/* ---- Catalog report poster thumbnails ---- */
+.catalog-poster-cell { width: 42px; padding: 0.3rem 0.5rem 0.3rem 0 !important; white-space: normal; }
+.catalog-poster-cell .gallery-poster,
+.catalog-poster-cell .gallery-poster-placeholder {
+  width: 36px;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-sm);
+  font-size: 0.45rem;
+  padding: 0.1rem;
 }

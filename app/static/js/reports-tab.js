@@ -7,7 +7,7 @@
 import { escapeAttr, showConfirm } from "./archive-tab.js";
 import { $, api, formatBytes } from "./core.js";
 import {
-  applyFilterPreset, deleteFilterPreset, downloadCsv, groupEpisodesByShow, populatePresetSelect, rowsToCsv, saveFilterPreset,
+  applyFilterPreset, deleteFilterPreset, downloadCsv, groupEpisodesByShow, populatePresetSelect, posterMarkup, rowsToCsv, saveFilterPreset,
 } from "./gallery.js";
 import { formatDuration } from "./stats-tab.js";
 
@@ -80,8 +80,9 @@ function updateCustomRangeVisibility() {
 const SNAPSHOT_REPORT_TYPES = new Set(["catalog", "tracking"]);
 
 function updatePeriodGroupVisibility() {
-  const isSnapshot = SNAPSHOT_REPORT_TYPES.has($("#report-view-select").value);
-  $("#report-period-group").classList.toggle("hidden", isSnapshot);
+  const viewType = $("#report-view-select").value;
+  $("#report-period-group").classList.toggle("hidden", SNAPSHOT_REPORT_TYPES.has(viewType));
+  $("#report-catalog-type").classList.toggle("hidden", viewType !== "catalog");
 }
 
 export function setupReportsTab() {
@@ -89,6 +90,7 @@ export function setupReportsTab() {
     updatePeriodGroupVisibility();
     generateReport();
   });
+  $("#report-catalog-type").addEventListener("change", generateReport);
   updatePeriodGroupVisibility();
   $("#report-period").addEventListener("change", updateCustomRangeVisibility);
   updateCustomRangeVisibility();
@@ -219,34 +221,35 @@ function personalStarsText(rating) {
   return rating ? "★".repeat(rating) : "";
 }
 
-function catalogRows(movies, shows) {
-  const movieRows = movies.map((m) => ({
+function catalogRows(movies, shows, typeFilter = "all") {
+  const movieRows = typeFilter === "tv" ? [] : movies.map((m) => ({
     title: m.title, type: "Movie", year: m.year ?? "", genres: m.genres || [],
     resolution: m.resolution || "—", watchedLabel: m.watched ? "Yes" : "No",
-    personalRating: m.personal_rating, voteAverage: m.vote_average, tags: m.tags || [],
+    personalRating: m.personal_rating, voteAverage: m.vote_average, tags: m.tags || [], posterPath: m.poster_path,
   }));
-  const showRows = shows.map((s) => {
+  const showRows = typeFilter === "movie" ? [] : shows.map((s) => {
     const watchedCount = s.episodes.filter((e) => e.watched).length;
     return {
       title: s.title, type: "TV", year: s.year ?? "", genres: s.genres || [],
       resolution: "—", // episodes vary; no single show-level resolution
       watchedLabel: s.episodes.length ? `${watchedCount}/${s.episodes.length} episodes` : "—",
-      personalRating: s.personal_rating, voteAverage: s.vote_average, tags: s.tags || [],
+      personalRating: s.personal_rating, voteAverage: s.vote_average, tags: s.tags || [], posterPath: s.poster_path,
     };
   });
   return [...movieRows, ...showRows].sort((a, b) => a.title.localeCompare(b.title));
 }
 
-function renderCatalog(movies, shows) {
-  const rows = catalogRows(movies, shows);
-  if (rows.length === 0) return `<p class="hint">Library is empty.</p>`;
+function renderCatalog(movies, shows, typeFilter = "all") {
+  const rows = catalogRows(movies, shows, typeFilter);
+  if (rows.length === 0) return `<p class="hint">Nothing matches this filter.</p>`;
   return `
     <h4>Catalog — ${rows.length} title(s)</h4>
     <div class="card">
-      <table class="insights-table">
-        <thead><tr><th>Title</th><th>Type</th><th>Year</th><th>Genres</th><th>Resolution</th><th>Watched</th><th>My Rating</th><th>TMDB Rating</th><th>Tags</th></tr></thead>
+      <table class="insights-table catalog-table">
+        <thead><tr><th></th><th>Title</th><th>Type</th><th>Year</th><th>Genres</th><th>Resolution</th><th>Watched</th><th>My Rating</th><th>TMDB Rating</th><th>Tags</th></tr></thead>
         <tbody>${rows.map((r) => `
           <tr>
+            <td class="catalog-poster-cell">${posterMarkup(r.title, r.posterPath)}</td>
             <td>${escapeAttr(r.title)}</td><td>${r.type}</td><td>${r.year}</td>
             <td>${escapeAttr(r.genres.join(", "))}</td><td>${r.resolution}</td><td>${r.watchedLabel}</td>
             <td>${personalStarsText(r.personalRating)}</td><td>${r.voteAverage ? r.voteAverage.toFixed(1) : ""}</td>
@@ -313,7 +316,7 @@ function renderTrackingList(tracked) {
 function exportNonSummaryCsv() {
   const { viewType } = lastReport;
   if (viewType === "catalog") {
-    const rows = catalogRows(lastReport.movies, lastReport.shows);
+    const rows = catalogRows(lastReport.movies, lastReport.shows, lastReport.typeFilter);
     const header = ["Title", "Type", "Year", "Genres", "Resolution", "Watched", "My Rating", "TMDB Rating", "Tags"];
     const csvRows = rows.map((r) => [r.title, r.type, r.year, r.genres.join("; "), r.resolution, r.watchedLabel, r.personalRating ?? "", r.voteAverage ?? "", r.tags.join("; ")]);
     downloadCsv(`catalog-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
@@ -392,10 +395,11 @@ async function generateReport() {
       lastReport = { viewType, data };
       output.innerHTML = renderReport(data);
     } else if (viewType === "catalog") {
+      const typeFilter = $("#report-catalog-type").value;
       const [movies, tv] = await Promise.all([api("/api/library/movies"), api("/api/library/tv")]);
       const shows = groupEpisodesByShow(tv.items);
-      lastReport = { viewType, movies: movies.items, shows };
-      output.innerHTML = renderCatalog(movies.items, shows);
+      lastReport = { viewType, movies: movies.items, shows, typeFilter };
+      output.innerHTML = renderCatalog(movies.items, shows, typeFilter);
     } else if (viewType === "watched-list" || viewType === "watch-history") {
       const rows = await fetchWatchedRows(period);
       lastReport = { viewType, rows };
