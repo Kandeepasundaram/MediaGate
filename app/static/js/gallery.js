@@ -1291,7 +1291,30 @@ function renderContinueWatching(allShows) {
       reordered.splice(i, 0, moved);
       saveContinueOrder(reordered.map(continueWatchingKey));
       dragSrcIndex = null;
+
+      // FLIP: record each card's slot (keyed by title -- unique within
+      // this row) before the re-render replaces the DOM, then run the
+      // new cards in from their old position so a reorder reads as
+      // movement instead of a teleport.
+      const before = new Map();
+      cards.querySelectorAll(".continue-watching-card").forEach((c) => {
+        before.set(c.querySelector(".gallery-title")?.textContent, c.getBoundingClientRect());
+      });
       renderContinueWatching(allShows);
+      cards.querySelectorAll(".continue-watching-card").forEach((c) => {
+        const prevRect = before.get(c.querySelector(".gallery-title")?.textContent);
+        if (!prevRect) return;
+        const newRect = c.getBoundingClientRect();
+        const dx = prevRect.left - newRect.left;
+        const dy = prevRect.top - newRect.top;
+        if (!dx && !dy) return;
+        c.style.transition = "none";
+        c.style.transform = `translate(${dx}px, ${dy}px)`;
+        requestAnimationFrame(() => {
+          c.style.transition = "transform 0.25s ease-out";
+          c.style.transform = "";
+        });
+      });
     });
   });
 }

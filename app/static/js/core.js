@@ -43,7 +43,10 @@ export function showToast(message, type = "info", duration = 4000) {
   el.dataset.toastId = id;
   el.innerHTML = `<span class="toast-message"></span><button class="toast-close" aria-label="Dismiss">×</button>`;
   el.querySelector(".toast-message").textContent = message;
-  const remove = () => el.remove();
+  const remove = () => {
+    el.classList.add("leaving");
+    setTimeout(() => el.remove(), 150);
+  };
   el.querySelector(".toast-close").addEventListener("click", remove);
   container.appendChild(el);
   setTimeout(remove, duration);
