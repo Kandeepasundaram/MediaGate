@@ -504,6 +504,20 @@ export function renderTvBody() {
   }
   if (pane.nameMode == null) pane.nameMode = "episode";
 
+  const AUDIO_CHANNEL_LABELS = { 1: "1.0", 2: "2.0", 6: "5.1", 8: "7.1" };
+  const episodeTooltip = (ep) => {
+    const lines = [];
+    lines.push(`S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}${ep.episode_title ? ` - ${ep.episode_title}` : ""}`);
+    if (ep.overview) lines.push(ep.overview);
+    if (ep.air_date) lines.push(`Aired: ${ep.air_date}`);
+    lines.push(effectiveWatched(ep) ? "Watched" : "Not watched");
+    const video = [ep.resolution, ep.hdr ? "HDR" : null, ep.audio_channels ? `${AUDIO_CHANNEL_LABELS[ep.audio_channels] || `${ep.audio_channels}ch`} audio` : null].filter(Boolean);
+    if (video.length) lines.push(video.join(", "));
+    if (ep.vote_average) lines.push(`Rating: ${ep.vote_average}/10`);
+    if (ep.file_name) lines.push(`File: ${ep.file_name}${ep.size_bytes != null ? ` (${formatBytes(ep.size_bytes)})` : ""}`);
+    return lines.join("\n");
+  };
+
   const seasonEpisodes = show.episodes.filter((e) => e.season_number === pane.selectedSeason);
   const allWatched = seasonEpisodes.length > 0 && seasonEpisodes.every(effectiveWatched);
   const hasEpisodeNames = show.episodes.some((e) => e.episode_title);
@@ -545,9 +559,9 @@ export function renderTvBody() {
     ${showWatchProgressMarkup(show)}
     <div class="detail-episodes">
       ${seasonEpisodes.length > 0 ? seasonEpisodes.map((ep) => `
-        <div class="detail-episode-row">
+        <div class="detail-episode-row" title="${escapeAttr(episodeTooltip(ep))}">
           <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
-          <span class="detail-ep-file hint" title="${ep.file_name || ""}">${(pane.nameMode === "episode" && ep.episode_title) ? ep.episode_title : (ep.file_name || "")}${ep.air_date ? ` · ${ep.air_date}` : ""}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
+          <span class="detail-ep-file hint">${(pane.nameMode === "episode" && ep.episode_title) ? ep.episode_title : (ep.file_name || "")}${ep.air_date ? ` · ${ep.air_date}` : ""}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
           <label class="watched-toggle">
             <input type="checkbox" class="detail-ep-watched" data-id="${ep.id}" ${effectiveWatched(ep) ? "checked" : ""}>
             Watched
@@ -661,6 +675,16 @@ export function renderTvBody() {
   });
 }
 
+// Shared tooltip builder for the two remote (TMDB/TVmaze, not-yet-archived)
+// episode list renderers below -- those only ever carry name/air_date/overview,
+// never the file/watch/quality fields a locally-archived episode row has.
+function remoteEpisodeTooltip(seasonNumber, ep) {
+  const lines = [`S${String(seasonNumber).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}${ep.name ? ` - ${ep.name}` : ""}`];
+  if (ep.overview) lines.push(ep.overview);
+  if (ep.air_date) lines.push(`Aired: ${ep.air_date}`);
+  return lines.join("\n");
+}
+
 // Read-only TMDB episode list for a season with no locally-archived files --
 // mirrors loadTrackerSeasonEpisodes but targets the gallery show pane's
 // #detail-tv-remote-episodes slot instead of the tracker pane's, since a
@@ -676,7 +700,7 @@ async function loadTvRemoteSeasonEpisodes(tmdbId, seasonNumber) {
       return;
     }
     el.innerHTML = data.episodes.map((ep) => `
-      <div class="detail-episode-row">
+      <div class="detail-episode-row" title="${escapeAttr(remoteEpisodeTooltip(seasonNumber, ep))}">
         <span>S${String(seasonNumber).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
         <span class="detail-ep-file hint">${escapeAttr(ep.name || "")}${ep.air_date ? ` · ${ep.air_date}` : ""}</span>
       </div>
@@ -1387,7 +1411,7 @@ async function loadTrackerSeasonEpisodes(tmdbId, seasonNumber) {
       return;
     }
     el.innerHTML = data.episodes.map((ep) => `
-      <div class="detail-episode-row">
+      <div class="detail-episode-row" title="${escapeAttr(remoteEpisodeTooltip(seasonNumber, ep))}">
         <span>E${String(ep.episode_number).padStart(2, "0")}</span>
         <span class="detail-ep-file hint">${escapeAttr(ep.name || "")}${ep.air_date ? ` · ${ep.air_date}` : ""}</span>
       </div>
