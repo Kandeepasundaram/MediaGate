@@ -343,6 +343,27 @@ export function renderDetailPane() {
   if (pane.kind !== "tracker") wireDetailFix();
 }
 
+// Season/earlier-seasons/whole-show "mark watched" buttons all funnel
+// through here -- with an active viewer profile, each episode's watched
+// state is per-viewer, so this fans out to the same per-episode
+// /watched-by/{viewer_id} call the individual checkboxes use (toggleWatched)
+// rather than the global /watched-batch endpoint, which would silently mark
+// them watched for "no viewer selected" instead of the viewer actually
+// picking up the show.
+async function batchMarkEpisodesWatched(episodes, watched) {
+  const viewerId = getActiveViewerId();
+  if (viewerId != null) {
+    await Promise.all(episodes.map((ep) => toggleWatched(ep.id, watched)));
+    episodes.forEach((ep) => { ep.viewer_watched = watched; });
+  } else {
+    await api("/api/library/watched-batch", {
+      method: "POST",
+      body: JSON.stringify({ ids: episodes.map((ep) => ep.id), watched }),
+    });
+    episodes.forEach((ep) => { ep.watched = watched; });
+  }
+}
+
 // Redraws just the season tabs + episode list (not the outer shell), so
 // switching seasons or toggling name/watched state doesn't re-trigger the
 // show-level ratings/status fetches (loadRatings especially -- OMDb isn't
@@ -367,16 +388,19 @@ export function renderTvBody() {
   if (pane.nameMode == null) pane.nameMode = "episode";
 
   const seasonEpisodes = show.episodes.filter((e) => e.season_number === pane.selectedSeason);
-  const allWatched = seasonEpisodes.length > 0 && seasonEpisodes.every((e) => e.watched);
+  const allWatched = seasonEpisodes.length > 0 && seasonEpisodes.every(effectiveWatched);
   const hasEpisodeNames = show.episodes.some((e) => e.episode_title);
   // Every episode in a season strictly before the one currently selected --
   // lets someone who's picking up a show mid-way mark everything they're
   // already past as watched without also touching the season they're on.
   const earlierEpisodes = show.episodes.filter((e) => e.season_number < pane.selectedSeason);
-  const earlierAllWatched = earlierEpisodes.length > 0 && earlierEpisodes.every((e) => e.watched);
+  const earlierAllWatched = earlierEpisodes.length > 0 && earlierEpisodes.every(effectiveWatched);
   // Recomputed on every render (not just at groupEpisodesByShow time) so it
-  // stays correct after a season- or episode-level toggle changes it.
-  show.watched = show.episodes.every((e) => e.watched);
+  // stays correct after a season- or episode-level toggle changes it. Reads
+  // effectiveWatched (per-viewer state when a viewer profile is active),
+  // not the raw watched column, so the label/state track whichever viewer
+  // is currently selected -- same reasoning as the per-episode checkboxes below.
+  show.watched = show.episodes.every(effectiveWatched);
 
   container.innerHTML = `
     <div class="season-tabs">
@@ -431,11 +455,7 @@ export function renderTvBody() {
     const newWatched = !allWatched;
     btn.disabled = true;
     try {
-      await api("/api/library/watched-batch", {
-        method: "POST",
-        body: JSON.stringify({ ids: seasonEpisodes.map((ep) => ep.id), watched: newWatched }),
-      });
-      seasonEpisodes.forEach((ep) => { ep.watched = newWatched; });
+      await batchMarkEpisodesWatched(seasonEpisodes, newWatched);
       renderTvBody();
       renderTvGallery(); // keeps the gallery card's "all watched" badge in sync
     } catch (err) {
@@ -450,11 +470,7 @@ export function renderTvBody() {
       const newWatched = !earlierAllWatched;
       btn.disabled = true;
       try {
-        await api("/api/library/watched-batch", {
-          method: "POST",
-          body: JSON.stringify({ ids: earlierEpisodes.map((ep) => ep.id), watched: newWatched }),
-        });
-        earlierEpisodes.forEach((ep) => { ep.watched = newWatched; });
+        await batchMarkEpisodesWatched(earlierEpisodes, newWatched);
         renderTvBody();
         renderTvGallery();
       } catch (err) {
@@ -468,11 +484,7 @@ export function renderTvBody() {
     const newWatched = !show.watched;
     btn.disabled = true;
     try {
-      await api("/api/library/watched-batch", {
-        method: "POST",
-        body: JSON.stringify({ ids: show.episodes.map((ep) => ep.id), watched: newWatched }),
-      });
-      show.episodes.forEach((ep) => { ep.watched = newWatched; });
+      await batchMarkEpisodesWatched(show.episodes, newWatched);
       renderTvBody();
       renderTvGallery();
     } catch (err) {
