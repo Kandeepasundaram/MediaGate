@@ -2,10 +2,12 @@
 poster_path, overview) for media_items rows that were auto-adopted from the
 filesystem (library_adopt.py) rather than archived through the normal
 TMDB-matched preview/confirm flow, which already has metadata by save time.
-Also backfills vote_average onto already-matched rows that predate that
-field, so a library archived before ratings shipped picks them up on its
-own instead of needing a manual "Refresh Metadata" click -- unmatched
-items are drained first, then vote_average gaps, each one row at a time.
+Also backfills vote_average, and per-episode episode_title/air_date for TV
+rows, onto already-matched rows that predate those fields, so a library
+archived (or adopted) before they existed picks them up on its own instead
+of needing a manual "Refresh Metadata" click -- unmatched items are drained
+first, then vote_average gaps, then episode_title gaps, each one row at a
+time.
 
 Runs one lookup at a time via asyncio.to_thread so TMDBScraper's own
 internal rate limiting (a blocking time.sleep) doesn't block the event loop.
@@ -127,12 +129,57 @@ def refresh_vote_average_one(db: Database, tmdb: TMDBClient) -> bool:
     return True
 
 
+def refresh_episode_title_one(db: Database, tmdb: TMDBClient, tvmaze: TVmazeClient) -> bool:
+    """Backfills episode_title/air_date onto one already-matched TV episode
+    row that doesn't have one yet (see list_tv_episodes_missing_title) --
+    covers a show adopted from the filesystem before match_one learned to
+    fetch per-episode names (older library), or one archived when TMDB/TVmaze
+    had no title for that episode at the time. All other metadata keys are
+    preserved untouched. Returns True if there was a row to process, False
+    if the queue is empty."""
+    rows = db.list_tv_episodes_missing_title(limit=1)
+    if not rows:
+        return False
+    row = rows[0]
+
+    now = datetime.now(timezone.utc).isoformat()
+    season_episodes = resolve_season_episodes(tmdb, tvmaze, row["tmdb_id"], row["season_number"])
+    ep = next((e for e in season_episodes if e.get("episode_number") == row["episode_number"]), None)
+    if ep is None:
+        db.update_media_item(row["id"], match_attempted_at=now)
+        logger.info("No episode title available yet for %r S%02dE%02d; will retry later",
+                    row["title"], row["season_number"], row["episode_number"])
+        return True
+
+    try:
+        existing_meta = json.loads(row["metadata"]) if row["metadata"] else {}
+    except json.JSONDecodeError:
+        existing_meta = {}
+    if not isinstance(existing_meta, dict):
+        existing_meta = {}
+
+    db.update_media_item(
+        row["id"],
+        metadata={
+            **existing_meta,
+            "episode_title": ep.get("name"),
+            "air_date": ep.get("air_date") or existing_meta.get("air_date"),
+        },
+        match_attempted_at=now,
+    )
+    logger.info("Backfilled episode_title for %r S%02dE%02d", row["title"], row["season_number"], row["episode_number"])
+    return True
+
+
 async def run_metadata_backfill() -> None:
     while True:
         try:
-            found = await asyncio.to_thread(match_one, get_database(), get_tmdb_client(), get_tvmaze_client())
+            db, tmdb, tvmaze = get_database(), get_tmdb_client(), get_tvmaze_client()
+            found = await asyncio.to_thread(match_one, db, tmdb, tvmaze)
             if not found:
-                found = await asyncio.to_thread(refresh_vote_average_one, get_database(), get_tmdb_client())
+                found = await asyncio.to_thread(refresh_vote_average_one, db, tmdb)
+            if not found:
+                found = await asyncio.to_thread(refresh_episode_title_one, db, tmdb, tvmaze)
             if not found:
                 await asyncio.sleep(IDLE_SLEEP_SECONDS)
         except asyncio.CancelledError:

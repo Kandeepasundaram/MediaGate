@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
-from app.core.metadata_backfill import match_one, refresh_vote_average_one
+from app.core.metadata_backfill import match_one, refresh_episode_title_one, refresh_vote_average_one
 from app.core.tmdb_client import MediaResult
 
 
@@ -169,3 +169,61 @@ def test_refresh_vote_average_one_respects_retry_cooldown_on_failed_refresh(db):
     assert refresh_vote_average_one(db, tmdb) is True  # first attempt, marks match_attempted_at
     assert refresh_vote_average_one(db, tmdb) is False  # cooldown active
     assert tmdb.refresh_movie_details.call_count == 1
+
+
+def test_refresh_episode_title_one_returns_false_when_queue_empty(db):
+    tmdb = MagicMock()
+    tvmaze = MagicMock()
+    assert refresh_episode_title_one(db, tmdb, tvmaze) is False
+    tmdb.get_season_episodes.assert_not_called()
+
+
+def test_refresh_episode_title_one_fills_in_missing_title(db):
+    """An already-matched TV row adopted before match_one learned to fetch
+    per-episode names -- the older-library self-heal case."""
+    item_id = db.create_media_item(
+        original_path="/x", final_path="/x", title="Old Show", media_type="tv",
+        tmdb_id=99, season_number=1, episode_number=2, metadata={"poster_path": "/p.jpg"},
+    )
+    tmdb = MagicMock()
+    tmdb.get_season_episodes.return_value = [
+        {"episode_number": 1, "name": "Pilot", "air_date": "2020-01-01", "overview": "First."},
+        {"episode_number": 2, "name": "Second One", "air_date": "2020-01-08", "overview": "Second."},
+    ]
+    tvmaze = MagicMock()
+
+    found = refresh_episode_title_one(db, tmdb, tvmaze)
+
+    assert found is True
+    item = db.get_media_item(item_id)
+    meta = json.loads(item["metadata"])
+    assert meta["episode_title"] == "Second One"
+    assert meta["air_date"] == "2020-01-08"
+    assert meta["poster_path"] == "/p.jpg"  # existing metadata preserved
+
+
+def test_refresh_episode_title_one_skips_rows_that_already_have_it(db):
+    db.create_media_item(
+        original_path="/x", final_path="/x", title="Named Show", media_type="tv",
+        tmdb_id=7, season_number=1, episode_number=1, metadata={"episode_title": "Pilot"},
+    )
+    tmdb = MagicMock()
+    tvmaze = MagicMock()
+
+    assert refresh_episode_title_one(db, tmdb, tvmaze) is False
+    tmdb.get_season_episodes.assert_not_called()
+
+
+def test_refresh_episode_title_one_respects_retry_cooldown_when_no_title_found(db):
+    db.create_media_item(
+        original_path="/x", final_path="/x", title="Mystery Show", media_type="tv",
+        tmdb_id=13, season_number=1, episode_number=1, metadata={},
+    )
+    tmdb = MagicMock()
+    tmdb.get_season_episodes.return_value = []
+    tvmaze = MagicMock()
+    tvmaze.enabled = False
+
+    assert refresh_episode_title_one(db, tmdb, tvmaze) is True  # first attempt, marks match_attempted_at
+    assert refresh_episode_title_one(db, tmdb, tvmaze) is False  # cooldown active
+    assert tmdb.get_season_episodes.call_count == 1

@@ -457,6 +457,25 @@ class Database:
             (cutoff, limit),
         )
 
+    def list_tv_episodes_missing_title(self, retry_cooldown_hours: float = 6.0, limit: int = 1) -> list[dict[str, Any]]:
+        """Already-matched TV episode rows with no episode_title -- either
+        adopted from the filesystem before the metadata backfill learned to
+        fetch per-episode names, or archived when TMDB/TVmaze had no title
+        for that episode yet. Same self-healing cooldown pattern as
+        list_items_missing_vote_average, reusing match_attempted_at, so an
+        older library backfills without a manual "Refresh Metadata" click."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=retry_cooldown_hours)).isoformat()
+        return self.fetch_all(
+            "SELECT * FROM media_items "
+            "WHERE media_type = 'tv' AND tmdb_id IS NOT NULL "
+            "AND season_number IS NOT NULL AND episode_number IS NOT NULL "
+            "AND json_extract(metadata, '$.episode_title') IS NULL "
+            "AND (match_attempted_at IS NULL OR match_attempted_at < ?) "
+            "ORDER BY (match_attempted_at IS NULL) DESC, created_at ASC "
+            "LIMIT ?",
+            (cutoff, limit),
+        )
+
     def count_unmatched_media_items(self, media_type: str | None = None) -> int:
         if media_type:
             row = self.fetch_one(
