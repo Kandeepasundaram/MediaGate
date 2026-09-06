@@ -7,11 +7,14 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
 
 from app.core.tmdb_scraper import ScrapedResult, TMDBScraper
+
+if TYPE_CHECKING:
+    from app.core.tvmaze_client import TVmazeClient
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +79,28 @@ def vote_average_for(media: "MediaResult") -> float | None:
     scraper mode or if TMDB hasn't got enough votes to publish one yet."""
     value = media.raw.get("vote_average")
     return float(value) if isinstance(value, (int, float)) and value > 0 else None
+
+
+def resolve_season_episodes(tmdb: "TMDBClient", tvmaze: "TVmazeClient", tmdb_id: int, season_number: int) -> list[dict]:
+    """Episode name/air_date/overview for one season, TMDB first (API-key-only,
+    richest data including overview) then TVmaze (keyless, name/air_date only)
+    when TMDB has nothing -- the exact fallback chain the /tv-season route and
+    the metadata backfill both need, kept in one place so they can't drift."""
+    episodes = tmdb.get_season_episodes(tmdb_id, season_number)
+    if episodes:
+        return episodes
+
+    if not tvmaze.enabled:
+        return []
+    imdb_id = tmdb.get_external_imdb_id(tmdb_id, "tv")
+    tvmaze_id = tvmaze.lookup_show_id_by_imdb(imdb_id) if imdb_id else None
+    if tvmaze_id is None:
+        return []
+    season_episodes = sorted(
+        (e for e in tvmaze.get_episodes(tvmaze_id) if e.season == season_number),
+        key=lambda e: e.episode,
+    )
+    return [{"episode_number": e.episode, "name": e.name, "air_date": e.air_date, "overview": None} for e in season_episodes]
 
 
 def season_episode_counts(media: "MediaResult") -> dict[int, int]:

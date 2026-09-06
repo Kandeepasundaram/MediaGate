@@ -20,9 +20,10 @@ import json
 import logging
 from datetime import datetime, timezone
 
-from app.core.tmdb_client import TMDBClient, genres_for, vote_average_for
+from app.core.tmdb_client import TMDBClient, genres_for, resolve_season_episodes, vote_average_for
+from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
-from app.dependencies import get_database, get_tmdb_client
+from app.dependencies import get_database, get_tmdb_client, get_tvmaze_client
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ IDLE_SLEEP_SECONDS = 15
 ERROR_BACKOFF_SECONDS = 5
 
 
-def match_one(db: Database, tmdb: TMDBClient) -> bool:
+def match_one(db: Database, tmdb: TMDBClient, tvmaze: TVmazeClient) -> bool:
     """Attempts to match a single unmatched item. Returns True if there was
     an item to process (matched or not), False if the queue is empty."""
     rows = db.list_unmatched_media_items(limit=1)
@@ -46,17 +47,30 @@ def match_one(db: Database, tmdb: TMDBClient) -> bool:
     now = datetime.now(timezone.utc).isoformat()
     if matches:
         m = matches[0]
+        metadata = {
+            "poster_path": m.poster_path,
+            "overview": m.overview,
+            "vote_average": vote_average_for(m),
+            "genres": genres_for(m),
+        }
+        # Episode name/air_date: an adopted TV file only ever got here via
+        # library_adopt.py (no archive/preview flow, which is the only other
+        # place these get set -- see archiver.py), so without this an
+        # adopted show never has episode_title and the detail pane's
+        # "Show episode names" toggle (which needs at least one) never
+        # appears for it.
+        if row["media_type"] == "tv" and m.tmdb_id is not None and row["season_number"] is not None:
+            season_episodes = resolve_season_episodes(tmdb, tvmaze, m.tmdb_id, row["season_number"])
+            ep = next((e for e in season_episodes if e.get("episode_number") == row["episode_number"]), None)
+            if ep:
+                metadata["episode_title"] = ep.get("name")
+                metadata["air_date"] = ep.get("air_date")
         db.update_media_item(
             row["id"],
             tmdb_id=m.tmdb_id,
             title=m.title,
             year=m.year if m.year is not None else row["year"],
-            metadata={
-                "poster_path": m.poster_path,
-                "overview": m.overview,
-                "vote_average": vote_average_for(m),
-                "genres": genres_for(m),
-            },
+            metadata=metadata,
             match_attempted_at=now,
         )
         logger.info("Matched adopted item %r -> tmdb_id=%s", row["title"], m.tmdb_id)
@@ -116,7 +130,7 @@ def refresh_vote_average_one(db: Database, tmdb: TMDBClient) -> bool:
 async def run_metadata_backfill() -> None:
     while True:
         try:
-            found = await asyncio.to_thread(match_one, get_database(), get_tmdb_client())
+            found = await asyncio.to_thread(match_one, get_database(), get_tmdb_client(), get_tvmaze_client())
             if not found:
                 found = await asyncio.to_thread(refresh_vote_average_one, get_database(), get_tmdb_client())
             if not found:

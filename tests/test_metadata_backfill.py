@@ -9,7 +9,8 @@ from app.core.tmdb_client import MediaResult
 
 def test_match_one_returns_false_when_queue_empty(db):
     tmdb = MagicMock()
-    assert match_one(db, tmdb) is False
+    tvmaze = MagicMock()
+    assert match_one(db, tmdb, tvmaze) is False
     tmdb.search_movie.assert_not_called()
 
 
@@ -22,8 +23,9 @@ def test_match_one_updates_item_on_match(db):
         MediaResult(tmdb_id=42, title="Some Movie", media_type="movie", year=2020,
                     poster_path="/p.jpg", overview="Plot.")
     ]
+    tvmaze = MagicMock()
 
-    found = match_one(db, tmdb)
+    found = match_one(db, tmdb, tvmaze)
 
     assert found is True
     item = db.get_media_item(item_id)
@@ -39,8 +41,9 @@ def test_match_one_marks_attempted_without_match(db):
     )
     tmdb = MagicMock()
     tmdb.search_movie.return_value = []
+    tvmaze = MagicMock()
 
-    found = match_one(db, tmdb)
+    found = match_one(db, tmdb, tvmaze)
 
     assert found is True
     item = db.get_media_item(item_id)
@@ -54,11 +57,36 @@ def test_match_one_uses_search_tv_for_tv_items(db):
     )
     tmdb = MagicMock()
     tmdb.search_tv.return_value = []
+    tvmaze = MagicMock()
 
-    match_one(db, tmdb)
+    match_one(db, tmdb, tvmaze)
 
     tmdb.search_tv.assert_called_once_with("Show")
     tmdb.search_movie.assert_not_called()
+
+
+def test_match_one_backfills_episode_title_for_tv_items(db):
+    """A TV item adopted straight from the filesystem (no archive/preview
+    flow) never got an episode_title -- match_one should fetch it once it
+    resolves a show match, so the detail pane's "Show episode names" toggle
+    (which needs at least one episode_title) can appear."""
+    item_id = db.create_media_item(
+        original_path="/x", final_path="/x", title="Show", media_type="tv", season_number=1, episode_number=2
+    )
+    tmdb = MagicMock()
+    tmdb.search_tv.return_value = [MediaResult(tmdb_id=99, title="Show", media_type="tv")]
+    tmdb.get_season_episodes.return_value = [
+        {"episode_number": 1, "name": "Pilot", "air_date": "2020-01-01", "overview": "First."},
+        {"episode_number": 2, "name": "Second One", "air_date": "2020-01-08", "overview": "Second."},
+    ]
+    tvmaze = MagicMock()
+
+    match_one(db, tmdb, tvmaze)
+
+    item = db.get_media_item(item_id)
+    meta = json.loads(item["metadata"])
+    assert meta["episode_title"] == "Second One"
+    assert meta["air_date"] == "2020-01-08"
 
 
 def test_match_one_respects_retry_cooldown(db):
@@ -67,9 +95,10 @@ def test_match_one_respects_retry_cooldown(db):
     db.create_media_item(original_path="/x", final_path="/x", title="Nope", media_type="movie")
     tmdb = MagicMock()
     tmdb.search_movie.return_value = []
+    tvmaze = MagicMock()
 
-    assert match_one(db, tmdb) is True  # first attempt
-    assert match_one(db, tmdb) is False  # cooldown active, nothing to do
+    assert match_one(db, tmdb, tvmaze) is True  # first attempt
+    assert match_one(db, tmdb, tvmaze) is False  # cooldown active, nothing to do
     assert tmdb.search_movie.call_count == 1
 
 

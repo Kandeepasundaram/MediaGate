@@ -14,9 +14,10 @@ from fastapi import APIRouter, Depends
 from app.api.routes.library_common import _metadata_dict, _to_out
 from app.config_loader import AppConfig
 from app.core.orphan_artwork import cleanup_orphaned_artwork, find_orphaned_artwork
-from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, vote_average_for
+from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, resolve_season_episodes, vote_average_for
+from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
-from app.dependencies import get_config, get_database, get_tmdb_client
+from app.dependencies import get_config, get_database, get_tmdb_client, get_tvmaze_client
 from app.models import (
     LibraryExportResponse,
     LibraryHealthOut,
@@ -192,6 +193,7 @@ def refresh_metadata(
     payload: RefreshMetadataRequest,
     db: Database = Depends(get_database),
     tmdb: TMDBClient = Depends(get_tmdb_client),
+    tvmaze: TVmazeClient = Depends(get_tvmaze_client),
 ) -> RefreshMetadataResponse:
     """Bulk "Refresh Metadata" for the gallery multi-select: re-fetches
     title/poster/overview/rating/genres from TMDB for each selected,
@@ -204,12 +206,18 @@ def refresh_metadata(
 
     Multiple selected rows sharing one tmdb_id (every episode of a TV show)
     only trigger one TMDB lookup, not one per row. ffprobe-derived fields
-    (resolution/codec/HDR/audio) and episode_title are carried forward from
-    the existing row -- refreshing metadata shouldn't need to re-probe the
-    file or lose per-episode data TMDB doesn't have anyway.
+    (resolution/codec/HDR/audio) are carried forward from the existing row
+    -- refreshing metadata shouldn't need to re-probe the file. episode_title
+    is carried forward when the row already has one, and looked up (one
+    season-episode-list call per tmdb_id/season pair, cached the same way)
+    when it doesn't -- covers a show adopted from the filesystem before the
+    metadata backfill learned to fetch per-episode names, which otherwise
+    would keep the detail pane's "Show episode names" toggle hidden forever
+    for that show even after a refresh.
     """
     now = datetime.now(timezone.utc).isoformat()
     media_cache: dict[tuple[int, str], MediaResult | None] = {}
+    season_episodes_cache: dict[tuple[int, int], list[dict]] = {}
     updated = 0
     failed = 0
 
@@ -232,6 +240,17 @@ def refresh_metadata(
             continue
 
         existing_meta = _metadata_dict(row)
+        episode_title = existing_meta.get("episode_title")
+        air_date = existing_meta.get("air_date")
+        if not episode_title and row["media_type"] == "tv" and row["season_number"] is not None:
+            season_key = (row["tmdb_id"], row["season_number"])
+            if season_key not in season_episodes_cache:
+                season_episodes_cache[season_key] = resolve_season_episodes(tmdb, tvmaze, row["tmdb_id"], row["season_number"])
+            ep = next((e for e in season_episodes_cache[season_key] if e.get("episode_number") == row["episode_number"]), None)
+            if ep:
+                episode_title = ep.get("name")
+                air_date = ep.get("air_date") or air_date
+
         db.update_media_item(
             item_id,
             title=media.title,
@@ -242,7 +261,8 @@ def refresh_metadata(
                 "video_codec": existing_meta.get("video_codec"),
                 "hdr": existing_meta.get("hdr"),
                 "audio_channels": existing_meta.get("audio_channels"),
-                "episode_title": existing_meta.get("episode_title"),
+                "episode_title": episode_title,
+                "air_date": air_date,
                 "poster_path": media.poster_path,
                 "overview": media.overview,
                 "vote_average": vote_average_for(media),
