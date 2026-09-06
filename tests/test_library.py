@@ -1503,6 +1503,43 @@ def test_tv_show_persists_in_orphaned_shows_after_all_episodes_deleted(client):
     assert orphan["status"] == "watching"
 
 
+def test_get_tv_includes_tracker_only_shows_with_zero_archived_episodes(client):
+    c, db = client
+    db.upsert_tracker(
+        tmdb_id=99, media_type="tv", title="Never Archived", poster_path="/np.jpg",
+        category="interested", watched_through_season=2, watched_through_episode=5,
+    )
+
+    body = c.get("/api/library/tv").json()
+    assert body["items"] == []
+    assert body["orphaned_shows"] == []
+    assert len(body["tracked_shows"]) == 1
+    tracked = body["tracked_shows"][0]
+    assert tracked["tmdb_id"] == 99
+    assert tracked["title"] == "Never Archived"
+    assert tracked["category"] == "interested"
+    assert tracked["watched_through_season"] == 2
+    assert tracked["watched_through_episode"] == 5
+
+
+def test_get_tv_excludes_tracker_only_show_once_it_has_archived_episodes(client):
+    c, db = client
+    db.upsert_tracker(tmdb_id=75219, media_type="tv", title="Show", category="watching")
+
+    season = _archive_tv_dir(c) / "Show" / "Season 01"
+    season.mkdir(parents=True)
+    video = season / "Show - S01E01.mkv"
+    video.write_bytes(b"1")
+    db.create_media_item(
+        original_path="x", final_path=str(video), title="Show", media_type="tv",
+        tmdb_id=75219, season_number=1, episode_number=1, metadata={},
+    )
+
+    body = c.get("/api/library/tv").json()
+    assert len(body["items"]) == 1
+    assert body["tracked_shows"] == []
+
+
 def test_set_tv_show_status_updates_and_survives_resync(client):
     c, db = client
     season = _archive_tv_dir(c) / "Show" / "Season 01"

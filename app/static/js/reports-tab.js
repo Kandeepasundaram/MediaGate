@@ -329,18 +329,15 @@ function localSeasonGroups(show) {
   return map;
 }
 
-function buildShowProgressRow(show, tvStatus) {
+function buildShowProgressRow(show, tvStatus, watchedThrough) {
   const seasons = localSeasonGroups(show);
-  const watchedSeasons = Array.from(seasons.values()).filter((eps) => eps.length > 0 && eps.every(effectiveWatched)).length;
   const availableEpisodes = show.episodes.length;
-  const watchedEpisodes = show.episodes.filter(effectiveWatched).length;
 
-  // Locally watched count per season, keyed by season number -- used as the
-  // "watched" side of each aired-season row regardless of whether the TMDB
-  // or archive-only branch below supplies the "episodes" (aired/total) side.
-  // effectiveWatched (not the raw `watched` column) so this respects the
-  // active viewer profile, same as the Movies/TV galleries -- otherwise a
-  // per-viewer watch mark never shows up here and every season looks untouched.
+  // Locally watched count per season, keyed by season number -- the
+  // "watched" side of each aired-season row before the watched-through
+  // overlay below. effectiveWatched (not the raw `watched` column) so this
+  // respects the active viewer profile, same as the Movies/TV galleries --
+  // otherwise a per-viewer watch mark never shows up here.
   const watchedBySeason = (num) => (seasons.get(num) || []).filter(effectiveWatched).length;
 
   const tmdbAvailable = !!(tvStatus && tvStatus.data_available && tvStatus.seasons.length);
@@ -360,10 +357,38 @@ function buildShowProgressRow(show, tvStatus) {
       .map((s) => ({ season: s, episodes: seasons.get(s).length, watched: watchedBySeason(s) }));
   }
 
+  // Overlay archive_tracker.watched_through_season/episode -- the only
+  // signal available for a season with zero archived episodes (there's no
+  // per-episode watched flag to read at all there), so a show that's
+  // "watched through S09" but only has S08-S09 actually downloaded still
+  // shows S01-S07 as watched instead of stuck at 0. Takes the higher of the
+  // two signals per season, since an episode individually marked watched
+  // past the bookmark should still count. Only reaches seasons already
+  // listed in airedSeasons -- the archive-only fallback above can't cover a
+  // season it doesn't know exists at all.
+  if (watchedThrough && watchedThrough.season != null) {
+    airedSeasons = airedSeasons.map((s) => {
+      let derived = 0;
+      if (s.season < watchedThrough.season) derived = s.episodes;
+      else if (s.season === watchedThrough.season) {
+        derived = watchedThrough.episode != null ? Math.min(s.episodes, watchedThrough.episode) : s.episodes;
+      }
+      return derived > s.watched ? { ...s, watched: derived } : s;
+    });
+  }
+
+  const watchedEpisodes = airedSeasons.reduce((sum, s) => sum + s.watched, 0);
+  const watchedSeasons = airedSeasons.filter((s) => s.episodes > 0 && s.watched >= s.episodes).length;
+
   return { title: show.title, totalSeasons, watchedSeasons, totalEpisodes, watchedEpisodes, availableEpisodes, airedSeasons, tmdbAvailable };
 }
 
-async function fetchShowProgress(shows) {
+// watchedThroughByTmdbId: Map of tmdb_id -> {season, episode} from
+// archive_tracker (GET /api/tracker/list) -- covers any show, archived or
+// not. A trackerOnly show (see groupEpisodesByShow) already carries its own
+// watched_through_season/episode inline, so that's checked first and the
+// map is only a fallback for shows that don't already have it attached.
+async function fetchShowProgress(shows, watchedThroughByTmdbId) {
   const rows = await Promise.all(shows.map(async (show) => {
     let tvStatus = null;
     if (show.tmdb_id) {
@@ -373,7 +398,10 @@ async function fetchShowProgress(shows) {
         tvStatus = null;
       }
     }
-    return buildShowProgressRow(show, tvStatus);
+    const watchedThrough = show.watched_through_season != null
+      ? { season: show.watched_through_season, episode: show.watched_through_episode }
+      : (show.tmdb_id != null ? watchedThroughByTmdbId.get(show.tmdb_id) : null) || null;
+    return buildShowProgressRow(show, tvStatus, watchedThrough);
   }));
   return rows.sort((a, b) => a.title.localeCompare(b.title));
 }
@@ -538,9 +566,20 @@ async function generateReport() {
       output.innerHTML = renderTrackingList(data.tracked);
     } else if (viewType === "show-progress" || viewType === "show-progress-unwatched") {
       const viewerId = getActiveViewerId();
-      const tv = await api(`/api/library/tv${viewerId != null ? `?viewer_id=${viewerId}` : ""}`);
-      const shows = groupEpisodesByShow(tv.items);
-      const rows = await fetchShowProgress(shows);
+      const [tv, trackerList] = await Promise.all([
+        api(`/api/library/tv${viewerId != null ? `?viewer_id=${viewerId}` : ""}`),
+        api("/api/tracker/list"),
+      ]);
+      // Fetched directly rather than relying on state.tvOrphanShows/tvTrackedShows
+      // defaults -- those are only populated once the TV tab itself has been
+      // loaded this session, and the Reports tab can be generated without that.
+      const shows = groupEpisodesByShow(tv.items, tv.orphaned_shows || [], tv.tracked_shows || []);
+      const watchedThroughByTmdbId = new Map(
+        trackerList.tracked
+          .filter((t) => t.media_type === "tv" && t.watched_through_season != null)
+          .map((t) => [t.tmdb_id, { season: t.watched_through_season, episode: t.watched_through_episode }])
+      );
+      const rows = await fetchShowProgress(shows, watchedThroughByTmdbId);
       lastReport = { viewType, rows };
       output.innerHTML = viewType === "show-progress-unwatched" ? renderShowProgressUnwatched(rows) : renderShowProgress(rows);
     }

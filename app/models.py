@@ -170,6 +170,17 @@ class TrackerWatchProgressRequest(BaseModel):
     episode: int | None = Field(default=None, ge=0)
 
 
+class TrackerWatchProgressByTmdbRequest(TrackerWatchProgressRequest):
+    """Same as TrackerWatchProgressRequest, but for a show that might not
+    have a tracker row yet -- title/poster_path/overview seed one on
+    first use (see the /by-tmdb/{tmdb_id}/watch-progress route) so setting
+    "watched through" from a show's detail pane doesn't require the user to
+    have separately added it to the Tracker tab first."""
+    title: str
+    poster_path: str | None = None
+    overview: str | None = None
+
+
 class TrackerSnoozeRequest(BaseModel):
     days: int = Field(gt=0)
 
@@ -544,9 +555,28 @@ class TvShowSummaryOut(BaseModel):
     personal_note: str | None = None
 
 
+class TrackedTvShowOut(BaseModel):
+    """A show that's only in archive_tracker -- never had a single episode
+    archived (unlike TvShowSummaryOut's orphaned_shows, which did at some
+    point). Surfaced in the TV tab so a pure watchlist/tracker entry is
+    visible there too, "archived" being just another status rather than a
+    gate on appearing at all. tracker_id (not just tmdb_id) is included
+    because the watch-progress endpoint for an existing tracker row is
+    keyed by it."""
+    tracker_id: int
+    tmdb_id: int
+    title: str
+    poster_path: str | None = None
+    overview: str = ""
+    category: TrackerCategory = "watching"
+    watched_through_season: int | None = None
+    watched_through_episode: int | None = None
+
+
 class TvLibraryResponse(BaseModel):
     items: list[LibraryItemOut]
     orphaned_shows: list[TvShowSummaryOut] = Field(default_factory=list)
+    tracked_shows: list[TrackedTvShowOut] = Field(default_factory=list)
 
 
 class TvShowStatusUpdateRequest(BaseModel):

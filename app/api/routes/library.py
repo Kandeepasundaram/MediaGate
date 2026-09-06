@@ -71,6 +71,7 @@ from app.models import (
     TagsBatchResponse,
     TagsListResponse,
     TagsUpdateRequest,
+    TrackedTvShowOut,
     TrailerOut,
     TvEpisodeOut,
     TvLibraryResponse,
@@ -129,6 +130,13 @@ def list_tv(
     ever be deleted -- and returns any tracked show with zero episode rows
     left (`orphaned_shows`) so it stays visible in the TV tab (with its
     user-set status) even after every file was deleted from disk.
+
+    `tracked_shows` is the other "zero episode rows" case: a show in
+    archive_tracker that's never had a single file archived here at all --
+    a pure watchlist/tracker entry, distinct from orphaned_shows (which did
+    at some point exist in tv_shows/media_items). Surfacing it too means
+    "archived" is just another status on a show already visible in the TV
+    tab, not a gate on whether it shows up.
     """
     adopt_new_files(db, config, "tv")
     rows = db.list_media_items(media_type="tv")
@@ -167,7 +175,18 @@ def list_tv(
         )
         for s in all_shows if s["tmdb_id"] not in present_tmdb_ids
     ]
-    return TvLibraryResponse(items=items, orphaned_shows=orphaned_shows)
+
+    orphaned_tmdb_ids = {s.tmdb_id for s in orphaned_shows}
+    tracked_shows = [
+        TrackedTvShowOut(
+            tracker_id=t["id"], tmdb_id=t["tmdb_id"], title=t["title"], poster_path=t["poster_path"],
+            overview=t["overview"] or "", category=t["category"],
+            watched_through_season=t["watched_through_season"], watched_through_episode=t["watched_through_episode"],
+        )
+        for t in db.list_tracked()
+        if t["media_type"] == "tv" and t["tmdb_id"] not in present_tmdb_ids and t["tmdb_id"] not in orphaned_tmdb_ids
+    ]
+    return TvLibraryResponse(items=items, orphaned_shows=orphaned_shows, tracked_shows=tracked_shows)
 
 
 @router.post("/tv-shows/{tmdb_id}/status", response_model=TvShowSummaryOut)

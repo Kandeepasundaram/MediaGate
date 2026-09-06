@@ -338,9 +338,78 @@ export function renderDetailPane() {
       });
     }
     if (show.tmdb_id != null) loadTvStatus(show);
+    // trackerOnly shows already carry watched_through_season/episode from
+    // /api/library/tv's tracked_shows -- only an archived (or orphaned) show
+    // needs this separate lookup, since those come from media_items/tv_shows,
+    // which know nothing about archive_tracker.
+    if (show.tmdb_id != null && !show.trackerOnly) loadShowWatchProgress(show);
   }
 
   if (pane.kind !== "tracker") wireDetailFix();
+}
+
+async function loadShowWatchProgress(show) {
+  try {
+    const { tracker } = await api(`/api/tracker/by-tmdb/${show.tmdb_id}`);
+    if (!tracker) return;
+    show.watched_through_season = tracker.watched_through_season;
+    show.watched_through_episode = tracker.watched_through_episode;
+    if (state.detailPane && state.detailPane.data === show) renderTvBody();
+  } catch (e) {
+    // Best-effort prefill -- the Save button still works even if this lookup fails.
+  }
+}
+
+// "Watched through SxxEyy" for a TV show's detail pane -- unlike the
+// per-episode checkboxes (which need an archived file to hang a watched
+// flag off of), this records progress on seasons that were never
+// downloaded at all, via archive_tracker.watched_through_season/episode
+// (see /api/tracker/by-tmdb/{tmdb_id}/watch-progress). Shown for every TV
+// show with a tmdb_id -- a fully-archived show has no use for it, but a
+// partially-archived one (some seasons owned, earlier ones never
+// downloaded) or a pure tracker-only entry (trackerOnly, zero episodes
+// ever archived) both need it to mark those seasons "watched" at all.
+function showWatchProgressMarkup(show) {
+  if (show.tmdb_id == null) return "";
+  const summary = show.watched_through_season != null
+    ? `Watched through S${String(show.watched_through_season).padStart(2, "0")}${show.watched_through_episode != null ? `E${String(show.watched_through_episode).padStart(2, "0")}` : ""}`
+    : "Not set";
+  return `
+    <div class="detail-file-info">
+      <div class="detail-file-row"><span>Watched through (covers seasons not archived)</span><span id="detail-show-progress-summary">${summary}</span></div>
+      <div class="tracker-watch-progress-form">
+        <label>Season <input type="number" id="detail-show-progress-season" min="0" value="${show.watched_through_season ?? ""}"></label>
+        <label>Episode <input type="number" id="detail-show-progress-episode" min="0" value="${show.watched_through_episode ?? ""}"></label>
+        <button id="detail-show-progress-save-btn">Save</button>
+        ${show.watched_through_season != null ? `<button id="detail-show-progress-clear-btn">Clear</button>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function wireShowWatchProgress(show) {
+  const seasonInput = $("#detail-show-progress-season");
+  const episodeInput = $("#detail-show-progress-episode");
+  if (!seasonInput || !episodeInput) return;
+
+  const save = async (season, episode) => {
+    const res = await api(`/api/tracker/by-tmdb/${show.tmdb_id}/watch-progress`, {
+      method: "POST",
+      body: JSON.stringify({ season, episode, title: show.title, poster_path: show.poster_path, overview: show.overview }),
+    });
+    show.watched_through_season = res.tracker.watched_through_season;
+    show.watched_through_episode = res.tracker.watched_through_episode;
+    renderTvBody();
+    renderTvGallery();
+  };
+
+  $("#detail-show-progress-save-btn").addEventListener("click", () => {
+    const season = seasonInput.value === "" ? null : Number(seasonInput.value);
+    const episode = episodeInput.value === "" ? null : Number(episodeInput.value);
+    save(season, episode);
+  });
+  const clearBtn = $("#detail-show-progress-clear-btn");
+  if (clearBtn) clearBtn.addEventListener("click", () => save(null, null));
 }
 
 // Every season the dropdown should offer: archived seasons always (from
@@ -411,7 +480,11 @@ export function renderTvBody() {
   if (!container) return;
 
   if (show.episodes.length === 0) {
-    container.innerHTML = `<p class="hint">No files on disk for this show -- status is still tracked above.</p>`;
+    container.innerHTML = `
+      <p class="hint">${show.trackerOnly ? "Not archived -- tracked only. Use \"Watched through\" below to record progress." : "No files on disk for this show -- status is still tracked above."}</p>
+      ${showWatchProgressMarkup(show)}
+    `;
+    wireShowWatchProgress(show);
     return;
   }
 
@@ -459,6 +532,7 @@ export function renderTvBody() {
       ` : ""}
       <button id="detail-show-watched-btn">${show.watched ? "Mark Show Unwatched" : "Mark Show Watched"}</button>
     </div>
+    ${showWatchProgressMarkup(show)}
     <div class="detail-episodes">
       ${seasonEpisodes.length > 0 ? seasonEpisodes.map((ep) => `
         <div class="detail-episode-row">
@@ -484,6 +558,7 @@ export function renderTvBody() {
     pane.selectedSeason = Number(e.target.value);
     renderTvBody();
   });
+  wireShowWatchProgress(show);
 
   const nameModeToggle = $("#detail-name-mode-toggle");
   if (nameModeToggle) {

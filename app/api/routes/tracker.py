@@ -30,6 +30,7 @@ from app.models import (
     TrackerNotificationsResponse,
     TrackerSnoozeRequest,
     TrackerStatusResponse,
+    TrackerWatchProgressByTmdbRequest,
     TrackerWatchProgressRequest,
     UpcomingReleaseOut,
     UpcomingReleasesResponse,
@@ -292,6 +293,20 @@ def set_tracker_interval(tracker_id: int, payload: TrackerIntervalRequest, db: D
     return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
 
 
+@router.get("/by-tmdb/{tmdb_id}")
+def get_tracker_by_tmdb(tmdb_id: int, db: Database = Depends(get_database)) -> dict:
+    """Looks up a tv tracker row by tmdb_id -- used by the show detail pane
+    to prefill the "Watched through" control for a show that's already
+    tracked (e.g. from a previous watch-progress save or the Tracker tab)
+    without the pane having to know its tracker_id. Not tracked yet is a
+    normal, common state here (most archived shows never get a tracker row
+    until someone sets watch progress or the tracker check flags them), so
+    this returns tracker: null rather than 404.
+    """
+    tracker = db.get_tracker(tmdb_id, "tv")
+    return {"tracker": _to_out(tracker) if tracker else None}
+
+
 @router.post("/{tracker_id}/watch-progress")
 def set_tracker_watch_progress(
     tracker_id: int, payload: TrackerWatchProgressRequest, db: Database = Depends(get_database)
@@ -307,6 +322,34 @@ def set_tracker_watch_progress(
         watched_through_episode=payload.episode,
     )
     return {"tracker": _to_out(db.get_tracker_by_id(tracker_id))}
+
+
+@router.post("/by-tmdb/{tmdb_id}/watch-progress")
+def set_tracker_watch_progress_by_tmdb(
+    tmdb_id: int, payload: TrackerWatchProgressByTmdbRequest, db: Database = Depends(get_database)
+) -> dict:
+    """Same as the tracker_id-keyed route above, but for the TV show detail
+    pane, which only ever has a tmdb_id in hand -- for a partially-archived
+    show (some seasons owned, earlier ones never downloaded) there's no
+    per-episode row to mark those earlier seasons watched on, so this is the
+    only way to record "caught up through SxxEyy" for them. Auto-creates a
+    tracker row (category 'watching') if this show isn't tracked yet, so
+    setting watch progress from the detail pane never requires a separate
+    trip to the Tracker tab first.
+    """
+    tracker = db.get_tracker(tmdb_id, "tv")
+    if tracker is None:
+        db.upsert_tracker(
+            tmdb_id=tmdb_id, media_type="tv", title=payload.title,
+            poster_path=payload.poster_path, overview=payload.overview, category="watching",
+        )
+        tracker = db.get_tracker(tmdb_id, "tv")
+    db.update_tracker(
+        tracker["id"],
+        watched_through_season=payload.season,
+        watched_through_episode=payload.episode,
+    )
+    return {"tracker": _to_out(db.get_tracker_by_id(tracker["id"]))}
 
 
 @router.post("/{tracker_id}/check-now")

@@ -1156,7 +1156,13 @@ export async function setTvShowStatus(tmdbId, status) {
 // TvShowSummaryOut / GET /api/library/tv's orphaned_shows) -- rendered as
 // show cards with an empty episodes array so a show stays visible (with its
 // user-set status) even after every episode was deleted from disk.
-export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || []) {
+// trackedShows: archive_tracker rows that never had a single episode
+// archived here at all (TrackedTvShowOut / tracked_shows) -- a pure
+// watchlist entry. Distinct from orphanShows (which did exist once); both
+// end up with the same empty-episodes shape so the gallery/detail pane
+// don't need two code paths, just the trackerOnly flag where behavior
+// actually differs (e.g. which watch-progress endpoint to call).
+export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || [], trackedShows = state.tvTrackedShows || []) {
   const shows = new Map();
   for (const item of items) {
     const key = item.title;
@@ -1184,6 +1190,17 @@ export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || 
       manual_override: false, vote_average: null, genres: orphan.genres, tags: [], year: null, episodes: [],
       show_status: orphan.status, watched: false, archived_at: null, noFilesOnDisk: true,
       personal_rating: orphan.personal_rating, personal_note: orphan.personal_note,
+    });
+  }
+  for (const tracked of trackedShows) {
+    if (shows.has(tracked.title)) continue;
+    shows.set(tracked.title, {
+      title: tracked.title, poster_path: tracked.poster_path, tmdb_id: tracked.tmdb_id, overview: tracked.overview,
+      manual_override: false, vote_average: null, genres: [], tags: [], year: null, episodes: [],
+      show_status: null, watched: false, archived_at: null, noFilesOnDisk: true, trackerOnly: true,
+      trackerId: tracked.tracker_id, trackerCategory: tracked.category,
+      watched_through_season: tracked.watched_through_season, watched_through_episode: tracked.watched_through_episode,
+      personal_rating: null, personal_note: null,
     });
   }
   return Array.from(shows.values());
@@ -1394,8 +1411,9 @@ export function renderTvGallery() {
         <div class="gallery-meta">
           <span>${show.episodes.length} episode(s)</span>
           ${show.show_status ? `<span class="show-status-pill show-status-${show.show_status}">${tvShowStatusLabel(show.show_status)}</span>` : ""}
+          ${show.trackerOnly ? `<span class="show-status-pill">${show.trackerCategory}</span>` : ""}
         </div>
-        ${show.noFilesOnDisk ? `<div class="hint">Removed from disk -- still tracked</div>` : ""}
+        ${show.trackerOnly ? `<div class="hint">Not archived -- tracked only</div>` : (show.noFilesOnDisk ? `<div class="hint">Removed from disk -- still tracked</div>` : "")}
       </div>
     </div>
   `).join("") + galleryLoadMoreMarkup(visible.length, total);
@@ -1436,6 +1454,7 @@ export async function loadTvGallery() {
     cacheGalleryResponse(cacheKey, data);
     state.tvItems = data.items;
     state.tvOrphanShows = data.orphaned_shows || [];
+    state.tvTrackedShows = data.tracked_shows || [];
     const previousGenre = state.pendingGenreRestore.tv ?? $("#tv-genre").value;
     state.pendingGenreRestore.tv = null;
     populateGenreOptions($("#tv-genre"), state.tvItems, previousGenre);
@@ -1455,6 +1474,7 @@ export async function loadTvGallery() {
     if (cached) {
       state.tvItems = cached.data.items;
       state.tvOrphanShows = cached.data.orphaned_shows || [];
+      state.tvTrackedShows = cached.data.tracked_shows || [];
       renderTvGallery();
       gallery.insertAdjacentHTML("afterbegin", offlineBannerMarkup(cached.cachedAt));
     } else {

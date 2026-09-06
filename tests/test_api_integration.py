@@ -670,6 +670,38 @@ def test_tracker_set_category_404_for_missing_tracker(client):
     assert resp.status_code == 404
 
 
+def test_tracker_watch_progress_by_tmdb_auto_creates_tracker(client):
+    c, _ = client
+    resp = c.get("/api/tracker/by-tmdb/5")
+    assert resp.json()["tracker"] is None
+
+    resp = c.post(
+        "/api/tracker/by-tmdb/5/watch-progress",
+        json={"season": 2, "episode": 3, "title": "Show", "poster_path": "/p.jpg"},
+    )
+    assert resp.status_code == 200
+    tracker = resp.json()["tracker"]
+    assert tracker["watched_through_season"] == 2
+    assert tracker["watched_through_episode"] == 3
+    assert tracker["category"] == "watching"
+
+    assert c.get("/api/tracker/by-tmdb/5").json()["tracker"]["watched_through_season"] == 2
+
+
+def test_tracker_watch_progress_by_tmdb_updates_existing_tracker(client):
+    c, _ = client
+    add_resp = c.post("/api/tracker/add", json={"tmdb_id": 5, "media_type": "tv", "title": "Show", "category": "interested"})
+    tracker_id = add_resp.json()["tracker"]["id"]
+
+    resp = c.post("/api/tracker/by-tmdb/5/watch-progress", json={"season": 1, "episode": None, "title": "Show"})
+    assert resp.status_code == 200
+    tracker = resp.json()["tracker"]
+    assert tracker["id"] == tracker_id
+    assert tracker["category"] == "interested"  # untouched by the by-tmdb route
+    assert tracker["watched_through_season"] == 1
+    assert tracker["watched_through_episode"] is None
+
+
 def test_preview_flags_duplicate_against_existing_media_item(client):
     c, incoming_movies = client
 
