@@ -479,7 +479,13 @@ export function renderTvBody() {
   const container = $("#detail-tv-body");
   if (!container) return;
 
-  if (show.episodes.length === 0) {
+  const localSeasons = Array.from(new Set(show.episodes.map((e) => e.season_number))).sort((a, b) => a - b);
+  const seasonOptions = buildSeasonOptions(show);
+
+  if (seasonOptions.length === 0) {
+    // Neither local episodes nor a resolved TMDB/TVmaze season list yet --
+    // nothing to build tabs from at all (loadTvStatus will re-render this
+    // once it resolves, per the comment on that function).
     container.innerHTML = `
       <p class="hint">${show.trackerOnly ? "Not archived -- tracked only. Use \"Watched through\" below to record progress." : "No files on disk for this show -- status is still tracked above."}</p>
       ${showWatchProgressMarkup(show)}
@@ -488,13 +494,13 @@ export function renderTvBody() {
     return;
   }
 
-  const localSeasons = Array.from(new Set(show.episodes.map((e) => e.season_number))).sort((a, b) => a - b);
-  const seasonOptions = buildSeasonOptions(show);
   if (pane.selectedSeason == null || !seasonOptions.some((o) => o.season === pane.selectedSeason)) {
     // Default to the highest archived season, not the highest TMDB knows
     // about -- picking up mid-catalog-scroll should land on what's actually
-    // watchable, not an empty not-yet-archived season.
-    pane.selectedSeason = localSeasons[localSeasons.length - 1];
+    // watchable, not an empty not-yet-archived season. Falls back to the
+    // highest season TMDB knows about when nothing's archived at all (a
+    // trackerOnly show), so aired-but-not-owned seasons are still visible.
+    pane.selectedSeason = localSeasons.length > 0 ? localSeasons[localSeasons.length - 1] : seasonOptions[seasonOptions.length - 1].season;
   }
   if (pane.nameMode == null) pane.nameMode = "episode";
 
@@ -526,11 +532,15 @@ export function renderTvBody() {
           Show episode names
         </label>
       ` : "<span></span>"}
-      <button id="detail-season-watched-btn">${allWatched ? "Mark Season Unwatched" : "Mark Season Watched"}</button>
+      ${seasonEpisodes.length > 0 ? `
+        <button id="detail-season-watched-btn">${allWatched ? "Mark Season Unwatched" : "Mark Season Watched"}</button>
+      ` : ""}
       ${earlierEpisodes.length > 0 ? `
         <button id="detail-earlier-watched-btn">${earlierAllWatched ? "Mark Earlier Seasons Unwatched" : "Mark Earlier Seasons Watched"}</button>
       ` : ""}
-      <button id="detail-show-watched-btn">${show.watched ? "Mark Show Unwatched" : "Mark Show Watched"}</button>
+      ${show.episodes.length > 0 ? `
+        <button id="detail-show-watched-btn">${show.watched ? "Mark Show Unwatched" : "Mark Show Watched"}</button>
+      ` : ""}
     </div>
     ${showWatchProgressMarkup(show)}
     <div class="detail-episodes">
@@ -545,7 +555,9 @@ export function renderTvBody() {
           <button class="ep-details-btn" data-id="${ep.id}">Details</button>
         </div>
         <div class="detail-ep-extra hint" id="detail-ep-extra-${ep.id}" hidden></div>
-      `).join("") : `<p class="hint">Season ${pane.selectedSeason} isn't archived yet.</p>`}
+      `).join("") : (show.tmdb_id != null
+        ? `<p class="hint">Season ${pane.selectedSeason} isn't archived yet -- showing TMDB episode list.</p><div id="detail-tv-remote-episodes"><span class="hint">Loading episodes…</span></div>`
+        : `<p class="hint">Season ${pane.selectedSeason} isn't archived yet.</p>`)}
     </div>
   `;
 
@@ -568,18 +580,21 @@ export function renderTvBody() {
     });
   }
 
-  $("#detail-season-watched-btn").addEventListener("click", async (e) => {
-    const btn = e.target;
-    const newWatched = !allWatched;
-    btn.disabled = true;
-    try {
-      await batchMarkEpisodesWatched(seasonEpisodes, newWatched);
-      renderTvBody();
-      renderTvGallery(); // keeps the gallery card's "all watched" badge in sync
-    } catch (err) {
-      btn.disabled = false;
-    }
-  });
+  const seasonWatchedBtn = $("#detail-season-watched-btn");
+  if (seasonWatchedBtn) {
+    seasonWatchedBtn.addEventListener("click", async (e) => {
+      const btn = e.target;
+      const newWatched = !allWatched;
+      btn.disabled = true;
+      try {
+        await batchMarkEpisodesWatched(seasonEpisodes, newWatched);
+        renderTvBody();
+        renderTvGallery(); // keeps the gallery card's "all watched" badge in sync
+      } catch (err) {
+        btn.disabled = false;
+      }
+    });
+  }
 
   const earlierBtn = $("#detail-earlier-watched-btn");
   if (earlierBtn) {
@@ -597,18 +612,25 @@ export function renderTvBody() {
     });
   }
 
-  $("#detail-show-watched-btn").addEventListener("click", async (e) => {
-    const btn = e.target;
-    const newWatched = !show.watched;
-    btn.disabled = true;
-    try {
-      await batchMarkEpisodesWatched(show.episodes, newWatched);
-      renderTvBody();
-      renderTvGallery();
-    } catch (err) {
-      btn.disabled = false;
-    }
-  });
+  const showWatchedBtn = $("#detail-show-watched-btn");
+  if (showWatchedBtn) {
+    showWatchedBtn.addEventListener("click", async (e) => {
+      const btn = e.target;
+      const newWatched = !show.watched;
+      btn.disabled = true;
+      try {
+        await batchMarkEpisodesWatched(show.episodes, newWatched);
+        renderTvBody();
+        renderTvGallery();
+      } catch (err) {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  if (seasonEpisodes.length === 0 && show.tmdb_id != null) {
+    loadTvRemoteSeasonEpisodes(show.tmdb_id, pane.selectedSeason);
+  }
 
   container.querySelectorAll(".detail-ep-watched").forEach((input) => {
     input.addEventListener("change", async () => {
@@ -637,6 +659,31 @@ export function renderTvBody() {
       loadFileInfo(Number(btn.dataset.id), `#detail-ep-extra-${btn.dataset.id}`);
     });
   });
+}
+
+// Read-only TMDB episode list for a season with no locally-archived files --
+// mirrors loadTrackerSeasonEpisodes but targets the gallery show pane's
+// #detail-tv-remote-episodes slot instead of the tracker pane's, since a
+// partially- or never-archived show (trackerOnly) still has real air dates
+// worth showing for seasons nothing was downloaded for yet.
+async function loadTvRemoteSeasonEpisodes(tmdbId, seasonNumber) {
+  const el = $("#detail-tv-remote-episodes");
+  if (!el) return;
+  try {
+    const data = await api(`/api/library/tv-season?tmdb_id=${tmdbId}&season_number=${seasonNumber}`);
+    if (!data.data_available || data.episodes.length === 0) {
+      el.innerHTML = `<span class="hint">No episode details available for this season.</span>`;
+      return;
+    }
+    el.innerHTML = data.episodes.map((ep) => `
+      <div class="detail-episode-row">
+        <span>S${String(seasonNumber).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
+        <span class="detail-ep-file hint">${escapeAttr(ep.name || "")}${ep.air_date ? ` · ${ep.air_date}` : ""}</span>
+      </div>
+    `).join("");
+  } catch (e) {
+    el.innerHTML = `<span class="hint">Error loading episodes: ${e.message}</span>`;
+  }
 }
 
 // Permanent watched-count banner, styled like the season-gap/next-episode
