@@ -77,7 +77,7 @@ function updateCustomRangeVisibility() {
 // Catalog and Tracking List are always-current snapshots -- the period
 // picker (and its custom-range/saved-preset controls) is meaningless for
 // them, so hide the whole group rather than leave it visibly inert.
-const SNAPSHOT_REPORT_TYPES = new Set(["catalog", "tracking", "show-progress"]);
+const SNAPSHOT_REPORT_TYPES = new Set(["catalog", "tracking", "show-progress", "show-progress-unwatched"]);
 
 function updatePeriodGroupVisibility() {
   const viewType = $("#report-view-select").value;
@@ -335,6 +335,11 @@ function buildShowProgressRow(show, tvStatus) {
   const availableEpisodes = show.episodes.length;
   const watchedEpisodes = show.episodes.filter((e) => e.watched).length;
 
+  // Locally watched count per season, keyed by season number -- used as the
+  // "watched" side of each aired-season row regardless of whether the TMDB
+  // or archive-only branch below supplies the "episodes" (aired/total) side.
+  const watchedBySeason = (num) => (seasons.get(num) || []).filter((e) => e.watched).length;
+
   const tmdbAvailable = !!(tvStatus && tvStatus.data_available && tvStatus.seasons.length);
   let totalSeasons, totalEpisodes, airedSeasons;
   if (tmdbAvailable) {
@@ -343,13 +348,13 @@ function buildShowProgressRow(show, tvStatus) {
     airedSeasons = tvStatus.seasons
       .slice()
       .sort((a, b) => a.season_number - b.season_number)
-      .map((s) => ({ season: s.season_number, episodes: s.aired_count ?? s.episode_count }));
+      .map((s) => ({ season: s.season_number, episodes: s.aired_count ?? s.episode_count, watched: watchedBySeason(s.season_number) }));
   } else {
     totalSeasons = seasons.size;
     totalEpisodes = availableEpisodes;
     airedSeasons = Array.from(seasons.keys())
       .sort((a, b) => a - b)
-      .map((s) => ({ season: s, episodes: seasons.get(s).length }));
+      .map((s) => ({ season: s, episodes: seasons.get(s).length, watched: watchedBySeason(s) }));
   }
 
   return { title: show.title, totalSeasons, watchedSeasons, totalEpisodes, watchedEpisodes, availableEpisodes, airedSeasons, tmdbAvailable };
@@ -390,6 +395,37 @@ function renderShowProgress(rows) {
   `;
 }
 
+// A season counts as unwatched here if fewer episodes are watched locally
+// than have aired (TMDB/TVmaze) or been archived (fallback) -- so a
+// partially-watched season still shows up, not just fully-untouched ones.
+// Shows with nothing unwatched are dropped entirely rather than left as an
+// empty card.
+function unwatchedShowProgressRows(rows) {
+  return rows
+    .map((r) => ({ ...r, airedSeasons: r.airedSeasons.filter((s) => s.watched < s.episodes) }))
+    .filter((r) => r.airedSeasons.length > 0);
+}
+
+function renderShowProgressUnwatched(rows) {
+  const filtered = unwatchedShowProgressRows(rows);
+  if (filtered.length === 0) return `<p class="hint">Nothing unwatched -- every aired/archived episode is caught up.</p>`;
+  return `
+    <h4>Show Progress — Unwatched Seasons — ${filtered.length} show(s)</h4>
+    ${filtered.map((r) => `
+      <div class="card">
+        <h5>${escapeAttr(r.title)}</h5>
+        ${r.tmdbAvailable ? "" : `<p class="hint">TMDB data unavailable for this show -- totals below reflect only what's archived.</p>`}
+        <p>Total Seasons: <strong>${r.totalSeasons}</strong> &middot; Watched Seasons: <strong>${r.watchedSeasons}</strong></p>
+        <p>Total Episodes: <strong>${r.totalEpisodes}</strong> &middot; Watched Episodes: <strong>${r.watchedEpisodes}</strong></p>
+        <table class="insights-table">
+          <thead><tr><th>Season #</th><th>Aired Episodes</th><th>Watched</th><th>Remaining</th></tr></thead>
+          <tbody>${r.airedSeasons.map((s) => `<tr><td>${s.season}</td><td>${s.episodes}</td><td>${s.watched}</td><td>${s.episodes - s.watched}</td></tr>`).join("")}</tbody>
+        </table>
+      </div>
+    `).join("")}
+  `;
+}
+
 function exportNonSummaryCsv() {
   const { viewType } = lastReport;
   if (viewType === "catalog") {
@@ -419,6 +455,12 @@ function exportNonSummaryCsv() {
       ? r.airedSeasons.map((s) => [r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.availableEpisodes, s.season, s.episodes])
       : [[r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.availableEpisodes, "", ""]]);
     downloadCsv(`show-progress-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
+  } else if (viewType === "show-progress-unwatched") {
+    const header = ["Show", "Total Seasons", "Watched Seasons", "Total Episodes", "Watched Episodes", "Season #", "Aired Episodes", "Watched", "Remaining"];
+    const csvRows = unwatchedShowProgressRows(lastReport.rows).flatMap((r) =>
+      r.airedSeasons.map((s) => [r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, s.season, s.episodes, s.watched, s.episodes - s.watched])
+    );
+    downloadCsv(`show-progress-unwatched-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
   }
 }
 
@@ -491,12 +533,12 @@ async function generateReport() {
       const data = await api("/api/tracker/list");
       lastReport = { viewType, tracked: data.tracked };
       output.innerHTML = renderTrackingList(data.tracked);
-    } else if (viewType === "show-progress") {
+    } else if (viewType === "show-progress" || viewType === "show-progress-unwatched") {
       const tv = await api("/api/library/tv");
       const shows = groupEpisodesByShow(tv.items);
       const rows = await fetchShowProgress(shows);
       lastReport = { viewType, rows };
-      output.innerHTML = renderShowProgress(rows);
+      output.innerHTML = viewType === "show-progress-unwatched" ? renderShowProgressUnwatched(rows) : renderShowProgress(rows);
     }
     $("#report-export-csv-btn").classList.remove("hidden");
     $("#report-print-btn").classList.remove("hidden");
