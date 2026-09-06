@@ -7,7 +7,7 @@
 import { escapeAttr, showConfirm } from "./archive-tab.js";
 import { $, api, formatBytes } from "./core.js";
 import {
-  applyFilterPreset, deleteFilterPreset, downloadCsv, groupEpisodesByShow, populatePresetSelect, posterMarkup, rowsToCsv, saveFilterPreset,
+  applyFilterPreset, deleteFilterPreset, downloadCsv, effectiveWatched, getActiveViewerId, groupEpisodesByShow, populatePresetSelect, posterMarkup, rowsToCsv, saveFilterPreset,
 } from "./gallery.js";
 import { formatDuration } from "./stats-tab.js";
 
@@ -331,14 +331,17 @@ function localSeasonGroups(show) {
 
 function buildShowProgressRow(show, tvStatus) {
   const seasons = localSeasonGroups(show);
-  const watchedSeasons = Array.from(seasons.values()).filter((eps) => eps.length > 0 && eps.every((e) => e.watched)).length;
+  const watchedSeasons = Array.from(seasons.values()).filter((eps) => eps.length > 0 && eps.every(effectiveWatched)).length;
   const availableEpisodes = show.episodes.length;
-  const watchedEpisodes = show.episodes.filter((e) => e.watched).length;
+  const watchedEpisodes = show.episodes.filter(effectiveWatched).length;
 
   // Locally watched count per season, keyed by season number -- used as the
   // "watched" side of each aired-season row regardless of whether the TMDB
   // or archive-only branch below supplies the "episodes" (aired/total) side.
-  const watchedBySeason = (num) => (seasons.get(num) || []).filter((e) => e.watched).length;
+  // effectiveWatched (not the raw `watched` column) so this respects the
+  // active viewer profile, same as the Movies/TV galleries -- otherwise a
+  // per-viewer watch mark never shows up here and every season looks untouched.
+  const watchedBySeason = (num) => (seasons.get(num) || []).filter(effectiveWatched).length;
 
   const tmdbAvailable = !!(tvStatus && tvStatus.data_available && tvStatus.seasons.length);
   let totalSeasons, totalEpisodes, airedSeasons;
@@ -534,7 +537,8 @@ async function generateReport() {
       lastReport = { viewType, tracked: data.tracked };
       output.innerHTML = renderTrackingList(data.tracked);
     } else if (viewType === "show-progress" || viewType === "show-progress-unwatched") {
-      const tv = await api("/api/library/tv");
+      const viewerId = getActiveViewerId();
+      const tv = await api(`/api/library/tv${viewerId != null ? `?viewer_id=${viewerId}` : ""}`);
       const shows = groupEpisodesByShow(tv.items);
       const rows = await fetchShowProgress(shows);
       lastReport = { viewType, rows };
