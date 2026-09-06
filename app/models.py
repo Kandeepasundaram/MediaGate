@@ -487,6 +487,8 @@ class TvStatusOut(BaseModel):
     network: str | None = None  # TVmaze-only -- see library.py's tv_status route
     next_episode_air_date: str | None = None
     next_episode_code: str | None = None  # "S05E03"
+    last_episode_air_date: str | None = None
+    last_episode_code: str | None = None  # "S05E02"
 
 
 class TvEpisodeOut(BaseModel):

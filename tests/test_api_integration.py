@@ -2080,6 +2080,51 @@ def test_tv_status_reports_per_season_episode_counts_excluding_specials(client):
     ]
 
 
+def test_tv_status_reports_last_aired_episode_from_tmdb(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=1399, title="Show", media_type="tv", source="api",
+        raw={"last_episode_to_air": {"season_number": 4, "episode_number": 2, "air_date": "2026-08-01"}},
+    )
+
+    resp = c.get("/api/library/tv-status", params={"tmdb_id": 1399})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["last_episode_air_date"] == "2026-08-01"
+    assert body["last_episode_code"] == "S04E02"
+
+
+def test_tv_status_prefers_tvmaze_for_last_aired_episode(client):
+    c, _ = client
+    config = app.dependency_overrides[get_config]()
+    config.tvmaze.enabled = True
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=56, title="Show", media_type="tv",
+        raw={"last_episode_to_air": {"season_number": 1, "episode_number": 1, "air_date": "2025-01-01"}},
+    )
+    fake_tmdb.get_external_imdb_id.return_value = "tt0000056"
+
+    fake_tvmaze = MagicMock()
+    fake_tvmaze.enabled = True
+    fake_tvmaze.lookup_show_id_by_imdb.return_value = 6
+    fake_tvmaze.get_show_info.return_value = TVmazeShowInfo(
+        tvmaze_id=6, status="Running", network=None, next_episode_air_date=None, next_episode_code=None,
+    )
+    fake_tvmaze.get_episodes.return_value = [
+        TVmazeEpisode(season=1, episode=1, name=None, air_date="2025-01-01"),
+        TVmazeEpisode(season=2, episode=3, name=None, air_date="2026-08-01"),  # more current than TMDB's field
+    ]
+    app.dependency_overrides[get_tvmaze_client] = lambda: fake_tvmaze
+
+    resp = c.get("/api/library/tv-status", params={"tmdb_id": 56})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["last_episode_air_date"] == "2026-08-01"
+    assert body["last_episode_code"] == "S02E03"
+
+
 def test_tv_status_scraper_mode_reports_data_unavailable(client):
     c, _ = client
     fake_tmdb = app.dependency_overrides[get_tmdb_client]()

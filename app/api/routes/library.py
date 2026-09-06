@@ -429,7 +429,11 @@ def tv_status(
     preferred for `status`/next-episode fields when it has an answer, since
     it's the newer, richer signal; TMDB's own fields (already used before
     TVmaze existed) fill in whatever TVmaze didn't return. `network` has no
-    TMDB equivalent in this endpoint, so it's TVmaze-only.
+    TMDB equivalent in this endpoint, so it's TVmaze-only. Same preference
+    order for last_episode_air_date/last_episode_code (the most recently
+    aired episode, the Show Progress report's "Last Aired" line) -- TVmaze's
+    full episode list can be more current than TMDB's own last_episode_to_air
+    field.
     """
     media = tmdb.get_tv_details(tmdb_id)
     if media is None:
@@ -446,13 +450,19 @@ def tv_status(
 
     # Aired-episode count per season, as of today -- only available via
     # TVmaze (TMDB's per-season episode_count doesn't distinguish aired from
-    # scheduled-but-not-yet-aired within a season still being released).
+    # scheduled-but-not-yet-aired within a season still being released). The
+    # same pass over the episode list also finds the most recently aired
+    # episode (highest air_date <= today), the TVmaze half of last_episode_*
+    # below -- no extra request, since get_episodes is already cached.
     aired_by_season: dict[int, int] = {}
+    last_aired_tvmaze: tuple[str, int, int] | None = None  # (air_date, season, episode)
     if tvmaze_id is not None:
         today = date.today().isoformat()
         for ep in tvmaze.get_episodes(tvmaze_id):
             if ep.air_date and ep.air_date <= today:
                 aired_by_season[ep.season] = aired_by_season.get(ep.season, 0) + 1
+                if last_aired_tvmaze is None or ep.air_date > last_aired_tvmaze[0]:
+                    last_aired_tvmaze = (ep.air_date, ep.season, ep.episode)
 
     # season_number 0 is TMDB's "Specials" bucket -- never counted as a gap,
     # same reason latest_known_season/total_episodes never include it.
@@ -469,6 +479,19 @@ def tv_status(
         f"S{next_season:02d}E{next_number:02d}" if next_season is not None and next_number is not None else None
     )
 
+    # Most recently aired episode -- TVmaze's own full episode list (already
+    # scanned above for aired_by_season) wins when available, since it can
+    # catch an episode TMDB's last_episode_to_air hasn't been updated to
+    # reflect yet; TMDB's field is the sole source when TVmaze has nothing,
+    # same preference order as next_episode_* above.
+    last_episode_to_air = media.raw.get("last_episode_to_air") or {}
+    last_season = last_episode_to_air.get("season_number")
+    last_number = last_episode_to_air.get("episode_number")
+    tmdb_last_code = (
+        f"S{last_season:02d}E{last_number:02d}" if last_season is not None and last_number is not None else None
+    )
+    tmdb_last_air_date = last_episode_to_air.get("air_date")
+
     return TvStatusOut(
         tmdb_id=tmdb_id,
         status=(show_info.status if show_info else None) or media.raw.get("status"),
@@ -481,6 +504,8 @@ def tv_status(
         next_episode_air_date=(show_info.next_episode_air_date if show_info else None)
         or next_episode_to_air.get("air_date"),
         next_episode_code=(show_info.next_episode_code if show_info else None) or tmdb_next_code,
+        last_episode_air_date=(last_aired_tvmaze[0] if last_aired_tvmaze else None) or tmdb_last_air_date,
+        last_episode_code=(f"S{last_aired_tvmaze[1]:02d}E{last_aired_tvmaze[2]:02d}" if last_aired_tvmaze else None) or tmdb_last_code,
     )
 
 
