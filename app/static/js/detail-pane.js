@@ -343,6 +343,40 @@ export function renderDetailPane() {
   if (pane.kind !== "tracker") wireDetailFix();
 }
 
+// Every season the dropdown should offer: archived seasons always (from
+// show.episodes, always available), plus every season TMDB/TVmaze knows
+// about once /api/library/tv-status has resolved (state.tvStatusCache,
+// populated by loadTvStatus below) -- so a show with only 2 seasons
+// actually downloaded still lists all 9 the show has aired, each labeled
+// with its archive status, instead of silently hiding the ones not owned.
+// Falls back to archived-only options if the TMDB lookup hasn't
+// resolved yet or failed for this show.
+function buildSeasonOptions(show) {
+  const ownedBySeason = new Map();
+  show.episodes.forEach((e) => ownedBySeason.set(e.season_number, (ownedBySeason.get(e.season_number) || 0) + 1));
+
+  const status = show.tmdb_id != null ? state.tvStatusCache[show.tmdb_id] : null;
+  if (status && status.data_available && status.seasons && status.seasons.length > 0) {
+    const options = status.seasons.map((s) => {
+      const owned = ownedBySeason.get(s.season_number) || 0;
+      const total = s.episode_count;
+      return { season: s.season_number, label: `Season ${s.season_number} (${owned}/${total} archived)` };
+    });
+    // A locally-archived season TMDB doesn't list (e.g. season 0 specials) --
+    // still needs to be selectable, so it isn't just dropped from the dropdown.
+    for (const num of ownedBySeason.keys()) {
+      if (!options.some((o) => o.season === num)) {
+        options.push({ season: num, label: `Season ${num} (${ownedBySeason.get(num)} archived)` });
+      }
+    }
+    return options.sort((a, b) => a.season - b.season);
+  }
+
+  return Array.from(ownedBySeason.keys())
+    .sort((a, b) => a - b)
+    .map((num) => ({ season: num, label: `Season ${num} (Archived)` }));
+}
+
 // Season/earlier-seasons/whole-show "mark watched" buttons all funnel
 // through here -- with an active viewer profile, each episode's watched
 // state is per-viewer, so this fans out to the same per-episode
@@ -381,9 +415,13 @@ export function renderTvBody() {
     return;
   }
 
-  const seasons = Array.from(new Set(show.episodes.map((e) => e.season_number))).sort((a, b) => a - b);
-  if (pane.selectedSeason == null || !seasons.includes(pane.selectedSeason)) {
-    pane.selectedSeason = seasons[seasons.length - 1];
+  const localSeasons = Array.from(new Set(show.episodes.map((e) => e.season_number))).sort((a, b) => a - b);
+  const seasonOptions = buildSeasonOptions(show);
+  if (pane.selectedSeason == null || !seasonOptions.some((o) => o.season === pane.selectedSeason)) {
+    // Default to the highest archived season, not the highest TMDB knows
+    // about -- picking up mid-catalog-scroll should land on what's actually
+    // watchable, not an empty not-yet-archived season.
+    pane.selectedSeason = localSeasons[localSeasons.length - 1];
   }
   if (pane.nameMode == null) pane.nameMode = "episode";
 
@@ -404,7 +442,9 @@ export function renderTvBody() {
 
   container.innerHTML = `
     <div class="season-tabs">
-      ${seasons.map((s) => `<button class="season-tab-btn ${s === pane.selectedSeason ? "active" : ""}" data-season="${s}">Season ${s}</button>`).join("")}
+      <select id="detail-season-select">
+        ${seasonOptions.map((o) => `<option value="${o.season}" ${o.season === pane.selectedSeason ? "selected" : ""}>${escapeAttr(o.label)}</option>`).join("")}
+      </select>
     </div>
     <div class="episode-toolbar">
       ${hasEpisodeNames ? `
@@ -420,7 +460,7 @@ export function renderTvBody() {
       <button id="detail-show-watched-btn">${show.watched ? "Mark Show Unwatched" : "Mark Show Watched"}</button>
     </div>
     <div class="detail-episodes">
-      ${seasonEpisodes.map((ep) => `
+      ${seasonEpisodes.length > 0 ? seasonEpisodes.map((ep) => `
         <div class="detail-episode-row">
           <span>S${String(ep.season_number).padStart(2, "0")}E${String(ep.episode_number).padStart(2, "0")}</span>
           <span class="detail-ep-file hint" title="${ep.file_name || ""}">${(pane.nameMode === "episode" && ep.episode_title) ? ep.episode_title : (ep.file_name || "")}${ep.air_date ? ` · ${ep.air_date}` : ""}${ep.size_bytes != null ? ` · ${formatBytes(ep.size_bytes)}` : ""}</span>
@@ -431,21 +471,18 @@ export function renderTvBody() {
           <button class="ep-details-btn" data-id="${ep.id}">Details</button>
         </div>
         <div class="detail-ep-extra hint" id="detail-ep-extra-${ep.id}" hidden></div>
-      `).join("")}
+      `).join("") : `<p class="hint">Season ${pane.selectedSeason} isn't archived yet.</p>`}
     </div>
   `;
 
-  container.querySelectorAll(".season-tab-btn").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      // renderTvBody() below replaces this button's own DOM node synchronously,
-      // mid-bubble -- without stopping propagation here, the document-level
-      // click-outside-to-close listener sees a detached e.target (no longer a
-      // descendant of #detail-pane) and treats the click as "away from the
-      // pane", closing it right after this handler runs.
-      e.stopPropagation();
-      pane.selectedSeason = Number(btn.dataset.season);
-      renderTvBody();
-    });
+  // A <select> instead of one button per season doesn't need the
+  // click-outside-to-close stopPropagation workaround: choosing an option
+  // fires "change", not a bubbling "click", so renderTvBody() below (which
+  // replaces this select's own DOM node) never races the document-level
+  // click listener the way the old per-season buttons did.
+  $("#detail-season-select").addEventListener("change", (e) => {
+    pane.selectedSeason = Number(e.target.value);
+    renderTvBody();
   });
 
   const nameModeToggle = $("#detail-name-mode-toggle");
@@ -636,6 +673,11 @@ async function loadTvStatus(show) {
   const el = $("#detail-tv-status");
   if (!el) return;
   const status = await getTvStatus(show.tmdb_id);
+  // Refreshes the season dropdown (buildSeasonOptions reads state.tvStatusCache
+  // directly) now that TMDB/TVmaze's full season list has resolved -- it
+  // rendered archived-only options at pane-open time, before this awaited.
+  // Guarded against the pane having moved on to a different show meanwhile.
+  if (state.detailPane && state.detailPane.data === show) renderTvBody();
   const info = computeTvStatusInfo(status, show.episodes);
   const missingEpisodes = computeMissingEpisodes(status, show.episodes);
   const seasonBreakdown = computeSeasonBreakdown(status, show.episodes);
