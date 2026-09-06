@@ -1152,6 +1152,18 @@ export async function setTvShowStatus(tmdbId, status) {
   });
 }
 
+// groupEpisodesByShow re-groups from scratch on every renderTvGallery() call,
+// reading show_status off the first per-episode item (state.tvItems) or, for
+// a no-files show, state.tvOrphanShows -- a status change applied only to the
+// detail pane's own local `show` object never reached either source array,
+// so the gallery card's pill kept showing the pre-change status until a full
+// reload re-fetched from the server. Call this alongside setting show.show_status.
+export function syncShowStatusIntoState(show, status) {
+  state.tvItems.forEach((item) => { if (item.title === show.title) item.show_status = status; });
+  const orphan = state.tvOrphanShows?.find((o) => o.tmdb_id === show.tmdb_id);
+  if (orphan) orphan.status = status;
+}
+
 // orphanShows: tracked shows with zero episode files left on disk (see
 // TvShowSummaryOut / GET /api/library/tv's orphaned_shows) -- rendered as
 // show cards with an empty episodes array so a show stays visible (with its

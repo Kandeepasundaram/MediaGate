@@ -4,7 +4,7 @@
 
 import { escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
 import { $, api, formatBytes, showToast, state } from "./core.js";
-import { TV_SHOW_STATUSES, downloadCsv, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, rowsToCsv, saveMovieNote, saveTvNote, setTvShowStatus, toggleWatched } from "./gallery.js";
+import { TV_SHOW_STATUSES, downloadCsv, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, rowsToCsv, saveMovieNote, saveTvNote, setTvShowStatus, syncShowStatusIntoState, toggleWatched } from "./gallery.js";
 import { loadNotifications, loadTrackerTab, TRACKER_CATEGORIES } from "./notifications-tab.js";
 import { formatDuration } from "./stats-tab.js";
 
@@ -271,7 +271,7 @@ export function renderDetailPane() {
       <div id="detail-watched-summary"></div>
       <div id="detail-tv-status"></div>
       ${(show.tmdb_id == null && !show.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
-      ${show.noFilesOnDisk ? `<p class="unidentified-badge">🗑 Removed from disk — still tracked</p>` : ""}
+      ${show.trackerOnly ? `<p class="unidentified-badge">📌 Not archived — tracked only</p>` : (show.noFilesOnDisk ? `<p class="unidentified-badge">🗑 Removed from disk — still tracked</p>` : "")}
       ${posterMarkupLarge(show.title, show.poster_path)}
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
@@ -312,6 +312,7 @@ export function renderDetailPane() {
         try {
           await setTvShowStatus(show.tmdb_id, select.value);
           show.show_status = select.value;
+          syncShowStatusIntoState(show, select.value);
           renderTvGallery();
         } catch (err) {
           select.value = previous;
@@ -336,6 +337,16 @@ export function renderDetailPane() {
         show.episodes.forEach((e) => { e.tags = tags; });
         renderTvGallery();
       });
+    } else if (show.tmdb_id != null) {
+      // No local episode row to hang the item-id-based lookups off of
+      // (trackerOnly, or an orphaned show whose files are all gone) --
+      // same tmdb_id-keyed endpoints the tracker pane uses below, so this
+      // pane shows the same ratings/trailer/backdrop/more-info a fully
+      // archived show gets instead of leaving them blank.
+      loadRatingsByTmdb(show.tmdb_id, "tv");
+      loadTrailerByTmdb(show.tmdb_id, "tv");
+      loadBackdropByTmdb(show.tmdb_id, "tv");
+      loadMoreInfoByTmdb(show.tmdb_id, "tv");
     }
     if (show.tmdb_id != null) loadTvStatus(show);
     // trackerOnly shows already carry watched_through_season/episode from
@@ -917,6 +928,7 @@ function renderApiStatusPill(show, info) {
       try {
         await setTvShowStatus(show.tmdb_id, mapped);
         show.show_status = mapped;
+        syncShowStatusIntoState(show, mapped);
         const select = $("#detail-show-status-select");
         if (select) select.value = mapped;
         renderApiStatusPill(show, info);
