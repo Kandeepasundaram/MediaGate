@@ -77,7 +77,7 @@ function updateCustomRangeVisibility() {
 // Catalog and Tracking List are always-current snapshots -- the period
 // picker (and its custom-range/saved-preset controls) is meaningless for
 // them, so hide the whole group rather than leave it visibly inert.
-const SNAPSHOT_REPORT_TYPES = new Set(["catalog", "tracking"]);
+const SNAPSHOT_REPORT_TYPES = new Set(["catalog", "tracking", "show-progress"]);
 
 function updatePeriodGroupVisibility() {
   const viewType = $("#report-view-select").value;
@@ -313,6 +313,83 @@ function renderTrackingList(tracked) {
   `;
 }
 
+// ---- Show Progress ----
+// Per-show snapshot combining local watch/archive state (media_items) with
+// live TMDB/TVmaze season data from /api/library/tv-status (the same
+// endpoint the detail pane's "new season available" banner uses) -- falls
+// back to archive-only counts when a show has no tmdb_id or the lookup
+// fails, so an unmatched title still gets a row instead of breaking the
+// whole report.
+function localSeasonGroups(show) {
+  const map = new Map();
+  for (const ep of show.episodes) {
+    if (!map.has(ep.season_number)) map.set(ep.season_number, []);
+    map.get(ep.season_number).push(ep);
+  }
+  return map;
+}
+
+function buildShowProgressRow(show, tvStatus) {
+  const seasons = localSeasonGroups(show);
+  const watchedSeasons = Array.from(seasons.values()).filter((eps) => eps.length > 0 && eps.every((e) => e.watched)).length;
+  const availableEpisodes = show.episodes.length;
+  const watchedEpisodes = show.episodes.filter((e) => e.watched).length;
+
+  const tmdbAvailable = !!(tvStatus && tvStatus.data_available && tvStatus.seasons.length);
+  let totalSeasons, totalEpisodes, airedSeasons;
+  if (tmdbAvailable) {
+    totalSeasons = tvStatus.seasons.length;
+    totalEpisodes = tvStatus.seasons.reduce((sum, s) => sum + (s.episode_count || 0), 0);
+    airedSeasons = tvStatus.seasons
+      .slice()
+      .sort((a, b) => a.season_number - b.season_number)
+      .map((s) => ({ season: s.season_number, episodes: s.aired_count ?? s.episode_count }));
+  } else {
+    totalSeasons = seasons.size;
+    totalEpisodes = availableEpisodes;
+    airedSeasons = Array.from(seasons.keys())
+      .sort((a, b) => a - b)
+      .map((s) => ({ season: s, episodes: seasons.get(s).length }));
+  }
+
+  return { title: show.title, totalSeasons, watchedSeasons, totalEpisodes, watchedEpisodes, availableEpisodes, airedSeasons, tmdbAvailable };
+}
+
+async function fetchShowProgress(shows) {
+  const rows = await Promise.all(shows.map(async (show) => {
+    let tvStatus = null;
+    if (show.tmdb_id) {
+      try {
+        tvStatus = await api(`/api/library/tv-status?tmdb_id=${show.tmdb_id}`);
+      } catch (e) {
+        tvStatus = null;
+      }
+    }
+    return buildShowProgressRow(show, tvStatus);
+  }));
+  return rows.sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function renderShowProgress(rows) {
+  if (rows.length === 0) return `<p class="hint">No TV shows in the library yet.</p>`;
+  return `
+    <h4>Show Progress — ${rows.length} show(s)</h4>
+    ${rows.map((r) => `
+      <div class="card">
+        <h5>${escapeAttr(r.title)}</h5>
+        ${r.tmdbAvailable ? "" : `<p class="hint">TMDB data unavailable for this show -- totals below reflect only what's archived.</p>`}
+        <p>Total Seasons: <strong>${r.totalSeasons}</strong> &middot; Watched Seasons: <strong>${r.watchedSeasons}</strong></p>
+        <p>Total Episodes: <strong>${r.totalEpisodes}</strong> &middot; Watched Episodes: <strong>${r.watchedEpisodes}</strong></p>
+        <p>Available Episodes in archive: <strong>${r.availableEpisodes}</strong></p>
+        <table class="insights-table">
+          <thead><tr><th>Season #</th><th>Aired Episodes</th></tr></thead>
+          <tbody>${r.airedSeasons.map((s) => `<tr><td>${s.season}</td><td>${s.episodes}</td></tr>`).join("")}</tbody>
+        </table>
+      </div>
+    `).join("")}
+  `;
+}
+
 function exportNonSummaryCsv() {
   const { viewType } = lastReport;
   if (viewType === "catalog") {
@@ -336,6 +413,12 @@ function exportNonSummaryCsv() {
       t.next_episode_air_date || "", t.snoozed_until || "", t.last_checked || "",
     ]);
     downloadCsv(`tracking-list-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
+  } else if (viewType === "show-progress") {
+    const header = ["Show", "Total Seasons", "Watched Seasons", "Total Episodes", "Watched Episodes", "Available Episodes in Archive", "Season #", "Aired Episodes"];
+    const csvRows = lastReport.rows.flatMap((r) => r.airedSeasons.length
+      ? r.airedSeasons.map((s) => [r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.availableEpisodes, s.season, s.episodes])
+      : [[r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.availableEpisodes, "", ""]]);
+    downloadCsv(`show-progress-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
   }
 }
 
@@ -408,6 +491,12 @@ async function generateReport() {
       const data = await api("/api/tracker/list");
       lastReport = { viewType, tracked: data.tracked };
       output.innerHTML = renderTrackingList(data.tracked);
+    } else if (viewType === "show-progress") {
+      const tv = await api("/api/library/tv");
+      const shows = groupEpisodesByShow(tv.items);
+      const rows = await fetchShowProgress(shows);
+      lastReport = { viewType, rows };
+      output.innerHTML = renderShowProgress(rows);
     }
     $("#report-export-csv-btn").classList.remove("hidden");
     $("#report-print-btn").classList.remove("hidden");
