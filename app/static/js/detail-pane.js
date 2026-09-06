@@ -436,7 +436,13 @@ export function renderTvBody() {
   `;
 
   container.querySelectorAll(".season-tab-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (e) => {
+      // renderTvBody() below replaces this button's own DOM node synchronously,
+      // mid-bubble -- without stopping propagation here, the document-level
+      // click-outside-to-close listener sees a detached e.target (no longer a
+      // descendant of #detail-pane) and treats the click as "away from the
+      // pane", closing it right after this handler runs.
+      e.stopPropagation();
       pane.selectedSeason = Number(btn.dataset.season);
       renderTvBody();
     });
