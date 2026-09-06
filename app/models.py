@@ -446,6 +446,7 @@ class LibraryItemOut(BaseModel):
     resolution: str | None = None
     hdr: bool = False
     audio_channels: int | None = None
+    duration_seconds: float | None = None  # best-effort -- only set once ffprobe has run (see get_file_info)
     tags: list[str] = Field(default_factory=list)
     viewer_watched: bool | None = None  # only set when a ?viewer_id= is passed; reflects that viewer's own state
     show_status: TvShowStatus | None = None  # tv rows only -- see TvShowStatus

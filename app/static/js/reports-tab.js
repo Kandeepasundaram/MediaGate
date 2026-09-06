@@ -77,7 +77,7 @@ function updateCustomRangeVisibility() {
 // Catalog and Tracking List are always-current snapshots -- the period
 // picker (and its custom-range/saved-preset controls) is meaningless for
 // them, so hide the whole group rather than leave it visibly inert.
-const SNAPSHOT_REPORT_TYPES = new Set(["catalog", "tracking", "show-progress", "show-progress-unwatched"]);
+const SNAPSHOT_REPORT_TYPES = new Set(["catalog", "tracking", "show-progress", "show-progress-unwatched", "show-progress-unwatched-detailed"]);
 
 function updatePeriodGroupVisibility() {
   const viewType = $("#report-view-select").value;
@@ -475,6 +475,63 @@ function renderShowProgressUnwatched(rows) {
   `;
 }
 
+// ---- Show Progress — Unwatched Episode List ----
+// The season-count summary above answers "how far behind is this show";
+// this answers "which episodes, exactly" -- per-season episode name/air
+// date/duration/resolution/size for every locally-archived episode not
+// marked watched. Duration/resolution/size are best-effort, same as the
+// gallery badges: only populated once ffprobe has run for that file (see
+// get_file_info) -- deliberately not probed here just to fill this report,
+// same reasoning that keeps probing lazy everywhere else in the app.
+function buildUnwatchedEpisodeDetail(show) {
+  const bySeason = new Map();
+  for (const ep of show.episodes) {
+    if (effectiveWatched(ep)) continue;
+    if (!bySeason.has(ep.season_number)) bySeason.set(ep.season_number, []);
+    bySeason.get(ep.season_number).push(ep);
+  }
+  const seasons = Array.from(bySeason.keys())
+    .sort((a, b) => a - b)
+    .map((num) => ({ season: num, episodes: bySeason.get(num).slice().sort((a, b) => a.episode_number - b.episode_number) }));
+  return { title: show.title, seasons };
+}
+
+function unwatchedEpisodeDetailRows(shows) {
+  return shows
+    .map(buildUnwatchedEpisodeDetail)
+    .filter((r) => r.seasons.length > 0)
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function renderShowProgressUnwatchedDetailed(rows) {
+  if (rows.length === 0) return `<p class="hint">Nothing unwatched -- every archived episode is caught up.</p>`;
+  const totalEpisodes = rows.reduce((sum, r) => sum + r.seasons.reduce((s, se) => s + se.episodes.length, 0), 0);
+  return `
+    <h4>Show Progress — Unwatched Episode List — ${rows.length} show(s), ${totalEpisodes} episode(s)</h4>
+    ${rows.map((r) => `
+      <div class="card">
+        <h5>${escapeAttr(r.title)}</h5>
+        ${r.seasons.map((s) => `
+          <h6>Season ${s.season}</h6>
+          <table class="insights-table">
+            <thead><tr><th>Ep #</th><th>Name</th><th>Aired</th><th>Duration</th><th>Resolution</th><th>Size</th></tr></thead>
+            <tbody>${s.episodes.map((ep) => `
+              <tr>
+                <td>${ep.episode_number}</td>
+                <td>${escapeAttr(ep.episode_title || ep.file_name || "—")}</td>
+                <td>${ep.air_date || "—"}</td>
+                <td>${ep.duration_seconds != null ? formatDuration(ep.duration_seconds) : "—"}</td>
+                <td>${ep.resolution || "—"}</td>
+                <td>${ep.size_bytes != null ? formatBytes(ep.size_bytes) : "—"}</td>
+              </tr>
+            `).join("")}</tbody>
+          </table>
+        `).join("")}
+      </div>
+    `).join("")}
+  `;
+}
+
 function exportNonSummaryCsv() {
   const { viewType } = lastReport;
   if (viewType === "catalog") {
@@ -510,6 +567,15 @@ function exportNonSummaryCsv() {
       r.airedSeasons.map((s) => [r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.lastEpisodeCode || "", r.lastEpisodeAirDate || "", r.nextEpisodeAirDate || "", s.season, s.episodes, s.watched, s.episodes - s.watched])
     );
     downloadCsv(`show-progress-unwatched-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
+  } else if (viewType === "show-progress-unwatched-detailed") {
+    const header = ["Show", "Season", "Episode #", "Name", "Aired", "Duration (sec)", "Resolution", "Size (bytes)"];
+    const csvRows = lastReport.rows.flatMap((r) =>
+      r.seasons.flatMap((s) => s.episodes.map((ep) => [
+        r.title, s.season, ep.episode_number, ep.episode_title || ep.file_name || "", ep.air_date || "",
+        ep.duration_seconds ?? "", ep.resolution || "", ep.size_bytes ?? "",
+      ]))
+    );
+    downloadCsv(`show-progress-unwatched-episodes-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
   }
 }
 
@@ -600,6 +666,17 @@ async function generateReport() {
       const rows = await fetchShowProgress(shows, watchedThroughByTmdbId);
       lastReport = { viewType, rows };
       output.innerHTML = viewType === "show-progress-unwatched" ? renderShowProgressUnwatched(rows) : renderShowProgress(rows);
+    } else if (viewType === "show-progress-unwatched-detailed") {
+      // No tv-status/tracker calls needed here, unlike the two views above --
+      // this only lists locally-archived episodes with their own per-episode
+      // watched flag, so there's no aired-but-not-downloaded gap or
+      // watched-through bookmark to overlay.
+      const viewerId = getActiveViewerId();
+      const tv = await api(`/api/library/tv${viewerId != null ? `?viewer_id=${viewerId}` : ""}`);
+      const shows = groupEpisodesByShow(tv.items, tv.orphaned_shows || [], tv.tracked_shows || []);
+      const rows = unwatchedEpisodeDetailRows(shows);
+      lastReport = { viewType, rows };
+      output.innerHTML = renderShowProgressUnwatchedDetailed(rows);
     }
     $("#report-export-csv-btn").classList.remove("hidden");
     $("#report-print-btn").classList.remove("hidden");

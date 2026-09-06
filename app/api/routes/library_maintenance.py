@@ -206,8 +206,8 @@ def refresh_metadata(
 
     Multiple selected rows sharing one tmdb_id (every episode of a TV show)
     only trigger one TMDB lookup, not one per row. ffprobe-derived fields
-    (resolution/codec/HDR/audio) are carried forward from the existing row
-    -- refreshing metadata shouldn't need to re-probe the file. episode_title
+    (resolution/codec/HDR/audio/duration) are carried forward from the
+    existing row -- refreshing metadata shouldn't need to re-probe the file. episode_title
     is carried forward when the row already has one, and looked up (one
     season-episode-list call per tmdb_id/season pair, cached the same way)
     when it doesn't -- covers a show adopted from the filesystem before the
@@ -261,6 +261,7 @@ def refresh_metadata(
                 "video_codec": existing_meta.get("video_codec"),
                 "hdr": existing_meta.get("hdr"),
                 "audio_channels": existing_meta.get("audio_channels"),
+                "duration_seconds": existing_meta.get("duration_seconds"),
                 "episode_title": episode_title,
                 "air_date": air_date,
                 "poster_path": media.poster_path,

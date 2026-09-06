@@ -697,6 +697,11 @@ def test_file_info_returns_size_and_probe_result(client, monkeypatch):
     assert body["video_codec"] == "h264"
     assert body["probe_available"] is True
 
+    # Cached onto the row's metadata (see get_file_info) -- the gallery list
+    # endpoint should surface it too, not just the one-off file-info lookup.
+    movies = c.get("/api/library/movies").json()["items"]
+    assert movies[0]["duration_seconds"] == 120.5
+
 
 def test_file_info_works_without_ffprobe(client, monkeypatch):
     c, db = client
@@ -1312,7 +1317,7 @@ def test_refresh_metadata_updates_title_and_metadata_keeping_tmdb_id(client):
     c, db = client
     item_id = _seed_movie(
         db, title="Old Title", tmdb_id=42, final_path="/archive/movie1.mkv",
-        metadata={"poster_path": "/old.jpg", "overview": "old", "height": 1080, "video_codec": "h264"},
+        metadata={"poster_path": "/old.jpg", "overview": "old", "height": 1080, "video_codec": "h264", "duration_seconds": 5400.0},
     )
     fake_tmdb = MagicMock(mode="scraper")
     app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
@@ -1337,6 +1342,7 @@ def test_refresh_metadata_updates_title_and_metadata_keeping_tmdb_id(client):
     # ffprobe-derived fields carried forward, not wiped by the refresh
     assert meta["height"] == 1080
     assert meta["video_codec"] == "h264"
+    assert meta["duration_seconds"] == 5400.0
     fake_tmdb.refresh_movie_details.assert_called_once_with(42)
 
 

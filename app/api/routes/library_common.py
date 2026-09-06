@@ -72,6 +72,7 @@ def _to_out(
         resolution=media_probe.resolution_bucket(meta.get("height")),
         hdr=bool(meta.get("hdr", False)),
         audio_channels=meta.get("audio_channels"),
+        duration_seconds=meta.get("duration_seconds"),
         tags=_tags_list(row),
         viewer_watched=(row["id"] in viewer_watched_ids) if viewer_watched_ids is not None else None,
         show_status=show_status,
