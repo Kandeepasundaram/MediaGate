@@ -834,7 +834,16 @@ textarea {
   -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
   mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
 }
-.detail-backdrop-banner.hidden { display: none; }
+/* Deliberately not the shared .hidden utility (display:none !important) --
+   the close/nav buttons are absolutely positioned against the pane and
+   expect this much clearance above the first line of content. Without a
+   reserved gap here, a title with no backdrop image renders its
+   badge/title text right under those buttons. */
+.detail-backdrop-banner.no-backdrop {
+  height: 0;
+  margin: 0 0 1.8rem;
+  background: none;
+}
 .detail-backdrop-banner.banner-overlap { margin-bottom: 0; }
 
 .detail-close-btn {

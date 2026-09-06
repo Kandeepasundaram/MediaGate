@@ -102,7 +102,7 @@ export function renderDetailPane() {
   if (pane.kind === "movie") {
     const item = pane.data;
     content.innerHTML = `
-      <div id="detail-backdrop-banner" class="detail-backdrop-banner hidden"></div>
+      <div id="detail-backdrop-banner" class="detail-backdrop-banner no-backdrop"></div>
       <div id="detail-movie-status"></div>
       ${(item.tmdb_id == null && !item.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
       ${posterMarkupLarge(item.title, item.poster_path)}
@@ -169,7 +169,7 @@ export function renderDetailPane() {
           : (item.latest_known_season != null ? `Up to date through season ${item.latest_known_season}` : "Not checked yet"))
       : (item.pending_notification ? `⚡ ${item.movie_release_status || "New release detected"}` : (item.movie_release_status || "Watching for a new release"));
     content.innerHTML = `
-      <div id="detail-backdrop-banner" class="detail-backdrop-banner hidden"></div>
+      <div id="detail-backdrop-banner" class="detail-backdrop-banner no-backdrop"></div>
       ${posterMarkupLarge(item.title, item.poster_path)}
       <div class="detail-title">${escapeAttr(item.title)}</div>
       <div class="detail-year">${item.media_type === "tv" ? "TV Show" : "Movie"}${item.muted ? " · Muted" : ""}</div>
@@ -267,7 +267,7 @@ export function renderDetailPane() {
     const show = pane.data;
     const hasEpisodes = show.episodes.length > 0;
     content.innerHTML = `
-      <div id="detail-backdrop-banner" class="detail-backdrop-banner hidden"></div>
+      <div id="detail-backdrop-banner" class="detail-backdrop-banner no-backdrop"></div>
       <div id="detail-watched-summary"></div>
       <div id="detail-tv-status"></div>
       ${(show.tmdb_id == null && !show.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
@@ -950,7 +950,7 @@ function renderBackdrop(b) {
   el.nextElementSibling?.classList.remove("poster-overlap");
   if (b.backdrop_path) {
     el.style.backgroundImage = `url(https://image.tmdb.org/t/p/w1280${b.backdrop_path})`;
-    el.classList.remove("hidden");
+    el.classList.remove("no-backdrop");
     // Only overlap the poster over the banner when the poster is the very
     // next thing in the DOM (the tracker pane). The movie/TV panes render a
     // status banner (watched count, season status) between the two, and
@@ -962,7 +962,7 @@ function renderBackdrop(b) {
       poster.classList.add("poster-overlap");
     }
   } else {
-    el.classList.add("hidden");
+    el.classList.add("no-backdrop");
   }
 }
 
