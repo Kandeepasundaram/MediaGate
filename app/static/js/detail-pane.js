@@ -643,15 +643,57 @@ export function renderTvBody() {
 // banners below it but always present (no network round trip, so it's never
 // blank while those load, and it survives every watched-state toggle since
 // renderTvBody -- called after each one -- refreshes it every time).
+// "X of Y watched" -- Y is aired episodes (TMDB/TVmaze), not just what's
+// archived, and X folds in the watched-through bookmark the same way the
+// Show Progress report does (see reports-tab.js's buildShowProgressRow):
+// per season, the higher of "locally watched" and "implied by watched
+// through S/E" wins, capped at that season's aired total. Without this, a
+// show with e.g. 2 of 9 seasons archived (both fully watched) always read
+// "36 of 36 watched" no matter how far past that the viewer had actually
+// gotten, since there's no archived file to hang a watched flag on for the
+// other 7 seasons. Falls back to archived-only counts when TMDB data for
+// this show hasn't resolved yet or isn't available.
+function computeShowWatchedCount(show) {
+  const status = show.tmdb_id != null ? state.tvStatusCache[show.tmdb_id] : null;
+  if (!status || !status.data_available || !status.seasons || status.seasons.length === 0) {
+    return { watched: show.episodes.filter(effectiveWatched).length, total: show.episodes.length };
+  }
+  const localWatchedBySeason = new Map();
+  show.episodes.forEach((e) => {
+    if (effectiveWatched(e)) localWatchedBySeason.set(e.season_number, (localWatchedBySeason.get(e.season_number) || 0) + 1);
+  });
+  const watchedThrough = show.watched_through_season != null
+    ? { season: show.watched_through_season, episode: show.watched_through_episode }
+    : null;
+
+  let watched = 0;
+  let total = 0;
+  for (const s of status.seasons) {
+    const airedTotal = s.aired_count ?? s.episode_count;
+    total += airedTotal;
+    let seasonWatched = localWatchedBySeason.get(s.season_number) || 0;
+    if (watchedThrough) {
+      let derived = 0;
+      if (s.season_number < watchedThrough.season) derived = airedTotal;
+      else if (s.season_number === watchedThrough.season) {
+        derived = watchedThrough.episode != null ? Math.min(airedTotal, watchedThrough.episode) : airedTotal;
+      }
+      seasonWatched = Math.max(seasonWatched, derived);
+    }
+    watched += Math.min(seasonWatched, airedTotal);
+  }
+  return { watched, total };
+}
+
 function renderWatchedSummary(show) {
   const el = $("#detail-watched-summary");
   if (!el) return;
-  if (show.episodes.length === 0) {
+  const { watched, total } = computeShowWatchedCount(show);
+  if (total === 0) {
     el.innerHTML = "";
     return;
   }
-  const watchedCount = show.episodes.filter((e) => effectiveWatched(e)).length;
-  el.innerHTML = `<div class="status-banner status-banner-ok">👁️ ${watchedCount} of ${show.episodes.length} watched</div>`;
+  el.innerHTML = `<div class="status-banner status-banner-ok">👁️ ${watched} of ${total} watched</div>`;
 }
 
 // GET /api/library/tv-status, memoized in state.tvStatusCache so the gallery
