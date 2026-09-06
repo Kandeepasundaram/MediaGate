@@ -826,7 +826,7 @@ textarea {
 .detail-pane:not(.hidden) { animation: detail-pane-in 0.22s ease-out; }
 
 .detail-backdrop-banner {
-  margin: -1.2rem -1.2rem 0;
+  margin: -1.2rem -1.2rem 0.8rem;
   height: 160px;
   background-size: cover;
   background-position: center 20%;
@@ -835,6 +835,7 @@ textarea {
   mask-image: linear-gradient(180deg, #000 55%, transparent 100%);
 }
 .detail-backdrop-banner.hidden { display: none; }
+.detail-backdrop-banner.banner-overlap { margin-bottom: 0; }
 
 .detail-close-btn {
   position: absolute;
@@ -896,10 +897,12 @@ textarea {
 }
 
 /* Pull the poster up over the banner's faded bottom edge so it reads as
-   sitting on the backdrop instead of stacked flush beneath it. Scoped to
-   when the banner actually has an image loaded (not .hidden). */
-.detail-backdrop-banner:not(.hidden) ~ .detail-poster,
-.detail-backdrop-banner:not(.hidden) ~ .detail-poster-placeholder {
+   sitting on the backdrop instead of stacked flush beneath it. Only ever
+   applied (in JS, renderBackdrop()) when the poster directly follows the
+   banner in the DOM -- panes with a status banner in between keep the
+   normal gap instead of overlapping that content. */
+.detail-poster.poster-overlap,
+.detail-poster-placeholder.poster-overlap {
   margin-top: -64px;
 }
 

@@ -946,9 +946,21 @@ function renderTrailer(t) {
 function renderBackdrop(b) {
   const el = $("#detail-backdrop-banner");
   if (!el) return;
+  el.classList.remove("banner-overlap");
+  el.nextElementSibling?.classList.remove("poster-overlap");
   if (b.backdrop_path) {
     el.style.backgroundImage = `url(https://image.tmdb.org/t/p/w1280${b.backdrop_path})`;
     el.classList.remove("hidden");
+    // Only overlap the poster over the banner when the poster is the very
+    // next thing in the DOM (the tracker pane). The movie/TV panes render a
+    // status banner (watched count, season status) between the two, and
+    // pulling the poster up there would draw it over that live content
+    // instead of just the backdrop's faded edge.
+    const poster = el.nextElementSibling;
+    if (poster?.classList.contains("detail-poster") || poster?.classList.contains("detail-poster-placeholder")) {
+      el.classList.add("banner-overlap");
+      poster.classList.add("poster-overlap");
+    }
   } else {
     el.classList.add("hidden");
   }
