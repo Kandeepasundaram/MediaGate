@@ -380,7 +380,11 @@ function buildShowProgressRow(show, tvStatus, watchedThrough) {
   const watchedEpisodes = airedSeasons.reduce((sum, s) => sum + s.watched, 0);
   const watchedSeasons = airedSeasons.filter((s) => s.episodes > 0 && s.watched >= s.episodes).length;
 
-  return { title: show.title, totalSeasons, watchedSeasons, totalEpisodes, watchedEpisodes, availableEpisodes, airedSeasons, tmdbAvailable };
+  return {
+    title: show.title, totalSeasons, watchedSeasons, totalEpisodes, watchedEpisodes, availableEpisodes, airedSeasons, tmdbAvailable,
+    nextEpisodeAirDate: tvStatus?.next_episode_air_date ?? null,
+    nextEpisodeCode: tvStatus?.next_episode_code ?? null,
+  };
 }
 
 // watchedThroughByTmdbId: Map of tmdb_id -> {season, episode} from
@@ -417,6 +421,7 @@ function renderShowProgress(rows) {
         <p>Total Seasons: <strong>${r.totalSeasons}</strong> &middot; Watched Seasons: <strong>${r.watchedSeasons}</strong></p>
         <p>Total Episodes: <strong>${r.totalEpisodes}</strong> &middot; Watched Episodes: <strong>${r.watchedEpisodes}</strong></p>
         <p>Available Episodes in archive: <strong>${r.availableEpisodes}</strong></p>
+        ${r.nextEpisodeAirDate ? `<p>Next Episode: <strong>${r.nextEpisodeCode ? `${r.nextEpisodeCode} — ` : ""}${r.nextEpisodeAirDate}</strong></p>` : ""}
         <table class="insights-table">
           <thead><tr><th>Season #</th><th>Aired Episodes</th></tr></thead>
           <tbody>${r.airedSeasons.map((s) => `<tr><td>${s.season}</td><td>${s.episodes}</td></tr>`).join("")}</tbody>
@@ -448,6 +453,7 @@ function renderShowProgressUnwatched(rows) {
         ${r.tmdbAvailable ? "" : `<p class="hint">TMDB data unavailable for this show -- totals below reflect only what's archived.</p>`}
         <p>Total Seasons: <strong>${r.totalSeasons}</strong> &middot; Watched Seasons: <strong>${r.watchedSeasons}</strong></p>
         <p>Total Episodes: <strong>${r.totalEpisodes}</strong> &middot; Watched Episodes: <strong>${r.watchedEpisodes}</strong></p>
+        ${r.nextEpisodeAirDate ? `<p>Next Episode: <strong>${r.nextEpisodeCode ? `${r.nextEpisodeCode} — ` : ""}${r.nextEpisodeAirDate}</strong></p>` : ""}
         <table class="insights-table">
           <thead><tr><th>Season #</th><th>Aired Episodes</th><th>Watched</th><th>Remaining</th></tr></thead>
           <tbody>${r.airedSeasons.map((s) => `<tr><td>${s.season}</td><td>${s.episodes}</td><td>${s.watched}</td><td>${s.episodes - s.watched}</td></tr>`).join("")}</tbody>
@@ -481,15 +487,15 @@ function exportNonSummaryCsv() {
     ]);
     downloadCsv(`tracking-list-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
   } else if (viewType === "show-progress") {
-    const header = ["Show", "Total Seasons", "Watched Seasons", "Total Episodes", "Watched Episodes", "Available Episodes in Archive", "Season #", "Aired Episodes"];
+    const header = ["Show", "Total Seasons", "Watched Seasons", "Total Episodes", "Watched Episodes", "Available Episodes in Archive", "Next Episode Air Date", "Season #", "Aired Episodes"];
     const csvRows = lastReport.rows.flatMap((r) => r.airedSeasons.length
-      ? r.airedSeasons.map((s) => [r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.availableEpisodes, s.season, s.episodes])
-      : [[r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.availableEpisodes, "", ""]]);
+      ? r.airedSeasons.map((s) => [r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.availableEpisodes, r.nextEpisodeAirDate || "", s.season, s.episodes])
+      : [[r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.availableEpisodes, r.nextEpisodeAirDate || "", "", ""]]);
     downloadCsv(`show-progress-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
   } else if (viewType === "show-progress-unwatched") {
-    const header = ["Show", "Total Seasons", "Watched Seasons", "Total Episodes", "Watched Episodes", "Season #", "Aired Episodes", "Watched", "Remaining"];
+    const header = ["Show", "Total Seasons", "Watched Seasons", "Total Episodes", "Watched Episodes", "Next Episode Air Date", "Season #", "Aired Episodes", "Watched", "Remaining"];
     const csvRows = unwatchedShowProgressRows(lastReport.rows).flatMap((r) =>
-      r.airedSeasons.map((s) => [r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, s.season, s.episodes, s.watched, s.episodes - s.watched])
+      r.airedSeasons.map((s) => [r.title, r.totalSeasons, r.watchedSeasons, r.totalEpisodes, r.watchedEpisodes, r.nextEpisodeAirDate || "", s.season, s.episodes, s.watched, s.episodes - s.watched])
     );
     downloadCsv(`show-progress-unwatched-${isoDate(new Date())}.csv`, rowsToCsv(header, csvRows));
   }
