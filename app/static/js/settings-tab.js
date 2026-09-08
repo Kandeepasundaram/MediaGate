@@ -621,6 +621,40 @@ export async function syncWatchedFromMediaServers() {
   }
 }
 
+// Clears the two things that can make this browser keep showing stale data
+// after the server's already moved on: the PWA service worker's Cache
+// Storage entries (sw.js is network-first, but a browser that installed an
+// older worker version -- or whose network fetch is silently failing --
+// can still be serving a stale cached shell/API-adjacent asset) and this
+// app's own localStorage read-through cache (GALLERY_CACHE_KEY_PREFIX in
+// gallery.js, meant only as an offline fallback but occasionally the thing
+// actually on screen if a fetch keeps failing). Leaves user preferences
+// (theme, filters, viewer, API token, etc.) untouched -- this is a "my data
+// looks wrong/stale" escape hatch, not a full reset.
+export async function clearBrowserCache() {
+  const status = $("#clear-cache-status");
+  const ok = await showConfirm("Clear cached app data and reload? Your settings, filters, and login token are kept -- this only clears stale cached pages/data.");
+  if (!ok) return;
+  status.textContent = "Clearing…";
+  try {
+    if ("serviceWorker" in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(registrations.map((r) => r.unregister()));
+    }
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith("media-manager:gallery-cache:"))
+      .forEach((k) => localStorage.removeItem(k));
+  } catch (e) {
+    status.textContent = `Error: ${e.message}`;
+    return;
+  }
+  location.reload();
+}
+
 export async function checkPermissions() {
   const result = $("#permissions-result");
   result.textContent = "Checking...";
