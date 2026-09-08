@@ -1058,6 +1058,13 @@ textarea {
   margin: 0.8rem 0;
 }
 
+#browse-table .browse-note-download-btn,
+#browse-table .browse-note-save-btn {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  margin-right: 0.3rem;
+}
+
 .detail-file-row {
   display: flex;
   justify-content: space-between;

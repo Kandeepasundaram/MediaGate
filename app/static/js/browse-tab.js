@@ -4,7 +4,7 @@
 
 import { escapeAttr, previewPaths, setPreviewMode, showConfirm } from "./archive-tab.js";
 import { $, $all, api, formatBytes, state } from "./core.js";
-import { loadMoviesGallery, loadTvGallery } from "./gallery.js";
+import { downloadMovieNote, downloadTvNote, loadMoviesGallery, loadTvGallery, saveMovieNote, saveTvNote } from "./gallery.js";
 
 // ---- Browse & Clean Up tab ----
 state.browseItems = [];
@@ -35,13 +35,14 @@ export function renderBrowseTable() {
   }
 
   if (state.browseItems.length === 0) {
-    tbody.innerHTML = `<tr><td colspan=6>No files found.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan=7>No files found.</td></tr>`;
     return;
   }
   if (items.length === 0) {
-    tbody.innerHTML = `<tr><td colspan=6>No files match the current filters.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan=7>No files match the current filters.</td></tr>`;
     return;
   }
+  const mediaType = $("#browse-type").value;
   tbody.innerHTML = items.map((item, i) => `
     <tr>
       <td><input type="checkbox" class="browse-check" data-index="${i}" aria-label="Select ${escapeAttr(item.path.split(/[\\/]/).pop())}"></td>
@@ -51,18 +52,57 @@ export function renderBrowseTable() {
       }</td>
       <td>${formatBytes(item.size_bytes)}</td>
       <td class="${item.tracked ? "tracked-yes" : "tracked-no"}">${item.tracked ? "tracked" : "untracked"}</td>
+      <td>${browseNoteActionsMarkup(item, mediaType, i)}</td>
       <td><button class="danger browse-delete-btn" data-index="${i}">Delete</button></td>
     </tr>
   `).join("");
   $all(".browse-delete-btn").forEach((btn) => {
     btn.addEventListener("click", () => deleteBrowseItem(Number(btn.dataset.index)));
   });
+  $all(".browse-note-download-btn").forEach((btn) => {
+    btn.addEventListener("click", () => downloadBrowseNote(Number(btn.dataset.index)));
+  });
+  $all(".browse-note-save-btn").forEach((btn) => {
+    btn.addEventListener("click", () => saveBrowseNote(Number(btn.dataset.index)));
+  });
+}
+
+// A note (the Obsidian Media DB-style .md file also offered from the
+// gallery detail pane, see gallery.js) needs a TMDB-backed record to build
+// from -- a movie needs its media_items row (media_id), a show note is
+// keyed by tmdb_id and aggregates every episode sharing it (see
+// library_notes.py::_generate_tv_note). An adopted-but-not-yet-backfilled
+// row can be tracked with tmdb_id still null, so gate on the specific id
+// each note route needs rather than on `tracked` alone.
+function browseNoteActionsMarkup(item, mediaType, index) {
+  const available = mediaType === "movie" ? item.media_id != null : item.tmdb_id != null;
+  if (!available) return `<span class="hint">—</span>`;
+  return `
+    <button class="browse-note-download-btn" data-index="${index}" title="Download a Media DB-style .md note">Note</button>
+    <button class="browse-note-save-btn" data-index="${index}" title="Save the .md note into the file's own folder">Save Note</button>
+  `;
+}
+
+async function downloadBrowseNote(index) {
+  const item = state.browseFiltered[index];
+  const mediaType = $("#browse-type").value;
+  const status = $("#browse-status");
+  if (mediaType === "movie") await downloadMovieNote(item.media_id, status);
+  else await downloadTvNote(item.tmdb_id, status);
+}
+
+async function saveBrowseNote(index) {
+  const item = state.browseFiltered[index];
+  const mediaType = $("#browse-type").value;
+  const status = $("#browse-status");
+  if (mediaType === "movie") await saveMovieNote(item.media_id, status);
+  else await saveTvNote(item.tmdb_id, status);
 }
 
 export async function loadBrowse() {
   const tbody = $("#browse-table tbody");
   const mediaType = $("#browse-type").value;
-  tbody.innerHTML = `<tr><td colspan=6>Loading...</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan=7>Loading...</td></tr>`;
   $("#browse-status").textContent = "";
 
   try {
@@ -71,7 +111,7 @@ export async function loadBrowse() {
     state.browseDirectory = data.directory;
     renderBrowseTable();
   } catch (e) {
-    tbody.innerHTML = `<tr><td colspan=6>Error: ${e.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan=7>Error: ${e.message}</td></tr>`;
   }
   loadLibraryHealth();
 }

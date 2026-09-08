@@ -115,9 +115,11 @@ export function surpriseMeTv() {
   openDetailPane("tv", shows[Math.floor(Math.random() * shows.length)]);
 }
 
-export async function downloadMovieNote(itemId) {
-  const status = $("#detail-note-status");
-  status.textContent = "Generating…";
+// statusEl defaults to the detail pane's own status span; the Browse & Clean
+// Up table has no detail pane open, so it passes its own #browse-status
+// span instead of these falling back to a null $("#detail-note-status").
+export async function downloadMovieNote(itemId, statusEl = $("#detail-note-status")) {
+  statusEl.textContent = "Generating…";
   try {
     const headers = {};
     const token = getStoredApiToken();
@@ -127,26 +129,24 @@ export async function downloadMovieNote(itemId) {
     const filename = parseDownloadFilename(resp.headers.get("Content-Disposition"), "movie-note.md");
     const text = await resp.text();
     downloadTextFile(filename, text, "text/markdown;charset=utf-8;");
-    status.textContent = "";
+    statusEl.textContent = "";
   } catch (e) {
-    status.textContent = `Error: ${e.message}`;
+    statusEl.textContent = `Error: ${e.message}`;
   }
 }
 
-export async function saveMovieNote(itemId) {
-  const status = $("#detail-note-status");
-  status.textContent = "Saving…";
+export async function saveMovieNote(itemId, statusEl = $("#detail-note-status")) {
+  statusEl.textContent = "Saving…";
   try {
     const data = await api(`/api/library/${itemId}/note/save`, { method: "POST" });
-    status.textContent = `Saved to ${data.path}`;
+    statusEl.textContent = `Saved to ${data.path}`;
   } catch (e) {
-    status.textContent = `Error: ${e.message}`;
+    statusEl.textContent = `Error: ${e.message}`;
   }
 }
 
-export async function downloadTvNote(tmdbId) {
-  const status = $("#detail-note-status");
-  status.textContent = "Generating…";
+export async function downloadTvNote(tmdbId, statusEl = $("#detail-note-status")) {
+  statusEl.textContent = "Generating…";
   try {
     const headers = {};
     const token = getStoredApiToken();
@@ -156,20 +156,19 @@ export async function downloadTvNote(tmdbId) {
     const filename = parseDownloadFilename(resp.headers.get("Content-Disposition"), "show-note.md");
     const text = await resp.text();
     downloadTextFile(filename, text, "text/markdown;charset=utf-8;");
-    status.textContent = "";
+    statusEl.textContent = "";
   } catch (e) {
-    status.textContent = `Error: ${e.message}`;
+    statusEl.textContent = `Error: ${e.message}`;
   }
 }
 
-export async function saveTvNote(tmdbId) {
-  const status = $("#detail-note-status");
-  status.textContent = "Saving…";
+export async function saveTvNote(tmdbId, statusEl = $("#detail-note-status")) {
+  statusEl.textContent = "Saving…";
   try {
     const data = await api(`/api/library/tv-shows/${tmdbId}/note/save`, { method: "POST" });
-    status.textContent = `Saved to ${data.path}`;
+    statusEl.textContent = `Saved to ${data.path}`;
   } catch (e) {
-    status.textContent = `Error: ${e.message}`;
+    statusEl.textContent = `Error: ${e.message}`;
   }
 }
 
@@ -1176,8 +1175,16 @@ export function syncShowStatusIntoState(show, status) {
 // actually differs (e.g. which watch-progress endpoint to call).
 export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || [], trackedShows = state.tvTrackedShows || []) {
   const shows = new Map();
+  // Group by tmdb_id, not title -- a tracked-only entry's title (set when
+  // the tracker row was created) and an archived episode's title (set from
+  // the RenamePlan at archive time) can differ in whitespace/formatting even
+  // for the same TMDB show, which used to leave the tracked card and the
+  // newly-archived episodes as two separate cards instead of one merged
+  // show. tmdb_id is the same identity in both places. Fall back to title
+  // only for the rare item with no tmdb_id match yet.
+  const groupKey = (x) => (x.tmdb_id != null ? `tmdb:${x.tmdb_id}` : `title:${x.title}`);
   for (const item of items) {
-    const key = item.title;
+    const key = groupKey(item);
     if (!shows.has(key)) {
       shows.set(key, {
         title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview,
@@ -1196,8 +1203,9 @@ export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || 
     show.watched_at = show.episodes.reduce((max, e) => (e.watched_at && (!max || e.watched_at > max)) ? e.watched_at : max, null);
   }
   for (const orphan of orphanShows) {
-    if (shows.has(orphan.title)) continue;
-    shows.set(orphan.title, {
+    const key = groupKey(orphan);
+    if (shows.has(key)) continue;
+    shows.set(key, {
       title: orphan.title, poster_path: orphan.poster_path, tmdb_id: orphan.tmdb_id, overview: orphan.overview,
       manual_override: false, vote_average: null, genres: orphan.genres, tags: [], year: null, episodes: [],
       show_status: orphan.status, watched: false, archived_at: null, noFilesOnDisk: true,
@@ -1205,8 +1213,9 @@ export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || 
     });
   }
   for (const tracked of trackedShows) {
-    if (shows.has(tracked.title)) continue;
-    shows.set(tracked.title, {
+    const key = groupKey(tracked);
+    if (shows.has(key)) continue;
+    shows.set(key, {
       title: tracked.title, poster_path: tracked.poster_path, tmdb_id: tracked.tmdb_id, overview: tracked.overview,
       manual_override: false, vote_average: null, genres: [], tags: [], year: null, episodes: [],
       show_status: null, watched: false, archived_at: null, noFilesOnDisk: true, trackerOnly: true,
