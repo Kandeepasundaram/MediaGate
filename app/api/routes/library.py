@@ -829,9 +829,16 @@ def _apply_rematch(db: Database, ids: list[int], media: MediaResult, now: str, i
             },
             match_attempted_at=now,
             manual_override=0,
+            # Always set (not just when the caller passed one): the old
+            # imdb_id -- if any -- was resolved from the *previous* tmdb_id
+            # (see get_ratings' lazy backfill) and almost certainly points
+            # to the wrong title now that tmdb_id has changed here. Clearing
+            # it to None when the caller doesn't already know the new one
+            # (the by-tmdb-id rematch path) lets it get re-derived from the
+            # corrected tmdb_id on next use instead of silently continuing
+            # to feed OMDb (ratings, notes) the old match's imdb_id.
+            imdb_id=imdb_id,
         )
-        if imdb_id is not None:
-            fields["imdb_id"] = imdb_id
         db.update_media_item(item_id, **fields)
         updated += 1
     return updated

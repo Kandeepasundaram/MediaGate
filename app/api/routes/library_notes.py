@@ -15,8 +15,9 @@ from app.api.routes.library_common import _metadata_dict
 from app.core.media_note import build_movie_note, build_tv_note
 from app.core.omdb_client import OMDbClient
 from app.core.renamer import TMDB_IMAGE_BASE, sanitize_filename
+from app.core.tmdb_client import TMDBClient
 from app.database import Database
-from app.dependencies import get_database, get_omdb_client
+from app.dependencies import get_database, get_omdb_client, get_tmdb_client
 from app.models import NoteSaveResponse
 
 router = APIRouter(prefix="/api/library", tags=["library"])
@@ -35,7 +36,24 @@ class NoteError(Exception):
         self.status_code = status_code
 
 
-def _generate_movie_note(item_id: int, db: Database, omdb: OMDbClient) -> tuple[str, str]:
+def _resolve_imdb_id(db: Database, tmdb: TMDBClient, item: dict, media_type: str) -> str | None:
+    """Same lazy tmdb_id -> imdb_id backfill as get_ratings (library.py) --
+    an item's cached imdb_id was resolved from whatever tmdb_id it had *at
+    the time*, so after a rematch changes tmdb_id (see _apply_rematch,
+    which now clears the old imdb_id for exactly this reason) it's None
+    again here until re-derived. Without this, a note built right after a
+    rematch would either show no OMDb data or -- if the stale imdb_id
+    hadn't been cleared -- the *previous* (wrong) match's title, which is
+    what item["title"] itself is supposed to have just corrected."""
+    imdb_id = item["imdb_id"]
+    if imdb_id is None and item["tmdb_id"] is not None:
+        imdb_id = tmdb.get_external_imdb_id(item["tmdb_id"], media_type)
+        if imdb_id:
+            db.update_media_item(item["id"], imdb_id=imdb_id)
+    return imdb_id
+
+
+def _generate_movie_note(item_id: int, db: Database, tmdb: TMDBClient, omdb: OMDbClient) -> tuple[str, str]:
     """Returns (markdown_text, filename). Shared by the download and
     save-to-folder routes below so they can never drift out of sync with
     each other. Movies only -- the Obsidian Media DB plugin's frontmatter
@@ -54,12 +72,13 @@ def _generate_movie_note(item_id: int, db: Database, omdb: OMDbClient) -> tuple[
     poster_path = meta.get("poster_path")
     tmdb_poster_url = f"{TMDB_IMAGE_BASE}{poster_path}" if poster_path else ""
 
-    omdb_data = omdb.get_full_details(item["imdb_id"]) if item["imdb_id"] else None
+    imdb_id = _resolve_imdb_id(db, tmdb, item, "movie")
+    omdb_data = omdb.get_full_details(imdb_id) if imdb_id else None
 
     markdown = build_movie_note(
         title=item["title"],
         year=item["year"],
-        imdb_id=item["imdb_id"],
+        imdb_id=imdb_id,
         tmdb_id=item["tmdb_id"],
         watched=bool(item["watched"]),
         tmdb_overview=meta.get("overview", ""),
@@ -114,13 +133,16 @@ def _write_note_to_folder(markdown: str, filename: str, folder: Path, *, what: s
 
 @router.get("/{item_id}/note")
 def download_movie_note(
-    item_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
+    item_id: int,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    omdb: OMDbClient = Depends(get_omdb_client),
 ) -> Response:
     """Downloads the generated note without touching the archive folder --
     for saving it anywhere the user wants (e.g. an existing Obsidian vault
     outside this app's own media paths)."""
     try:
-        markdown, filename = _generate_movie_note(item_id, db, omdb)
+        markdown, filename = _generate_movie_note(item_id, db, tmdb, omdb)
     except NoteError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return _note_download_response(markdown, filename)
@@ -128,13 +150,16 @@ def download_movie_note(
 
 @router.post("/{item_id}/note/save", response_model=NoteSaveResponse)
 def save_movie_note(
-    item_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
+    item_id: int,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    omdb: OMDbClient = Depends(get_omdb_client),
 ) -> NoteSaveResponse:
     """Writes the generated note directly into the movie's own archive
     folder, alongside the video file -- for a vault that watches the
     library's own folders rather than a separate notes directory."""
     try:
-        markdown, filename = _generate_movie_note(item_id, db, omdb)
+        markdown, filename = _generate_movie_note(item_id, db, tmdb, omdb)
     except NoteError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     item = db.get_media_item(item_id)
@@ -144,7 +169,7 @@ def save_movie_note(
     return _write_note_to_folder(markdown, filename, folder, what="Movie")
 
 
-def _generate_tv_note(tmdb_id: int, db: Database, omdb: OMDbClient) -> tuple[str, str, list[dict]]:
+def _generate_tv_note(tmdb_id: int, db: Database, tmdb: TMDBClient, omdb: OMDbClient) -> tuple[str, str, list[dict]]:
     """Show-level counterpart of _generate_movie_note. Keyed by tmdb_id,
     not a single media_items row: a show is however many per-episode rows
     share that tmdb_id, so this aggregates across all of them (episode
@@ -166,11 +191,12 @@ def _generate_tv_note(tmdb_id: int, db: Database, omdb: OMDbClient) -> tuple[str
     watched_seasons = [r["season_number"] for r in episodes if r["watched"] and r["season_number"] is not None]
     last_watched_season = max(watched_seasons) if watched_seasons else None
 
-    omdb_data = omdb.get_full_details(first["imdb_id"]) if first["imdb_id"] else None
+    imdb_id = _resolve_imdb_id(db, tmdb, first, "tv")
+    omdb_data = omdb.get_full_details(imdb_id) if imdb_id else None
 
     markdown = build_tv_note(
         title=first["title"],
-        imdb_id=first["imdb_id"],
+        imdb_id=imdb_id,
         tmdb_id=tmdb_id,
         watched=watched,
         episode_count=len(episodes),
@@ -190,12 +216,15 @@ def _generate_tv_note(tmdb_id: int, db: Database, omdb: OMDbClient) -> tuple[str
 
 @router.get("/tv-shows/{tmdb_id}/note")
 def download_tv_note(
-    tmdb_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
+    tmdb_id: int,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    omdb: OMDbClient = Depends(get_omdb_client),
 ) -> Response:
     """TV counterpart of download_movie_note -- one note for the whole
     show, aggregated across every archived episode sharing this tmdb_id."""
     try:
-        markdown, filename, _ = _generate_tv_note(tmdb_id, db, omdb)
+        markdown, filename, _ = _generate_tv_note(tmdb_id, db, tmdb, omdb)
     except NoteError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     return _note_download_response(markdown, filename)
@@ -203,14 +232,17 @@ def download_tv_note(
 
 @router.post("/tv-shows/{tmdb_id}/note/save", response_model=NoteSaveResponse)
 def save_tv_note(
-    tmdb_id: int, db: Database = Depends(get_database), omdb: OMDbClient = Depends(get_omdb_client)
+    tmdb_id: int,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    omdb: OMDbClient = Depends(get_omdb_client),
 ) -> NoteSaveResponse:
     """Writes the show-level note into the show's own folder -- two levels
     up from any episode's file (Show/Season NN/episode.ext), not the
     season folder itself, so it sits alongside the show as a whole rather
     than inside whichever season happened to be picked."""
     try:
-        markdown, filename, episodes = _generate_tv_note(tmdb_id, db, omdb)
+        markdown, filename, episodes = _generate_tv_note(tmdb_id, db, tmdb, omdb)
     except NoteError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
     episode_with_file = next((e for e in episodes if e["final_path"]), None)

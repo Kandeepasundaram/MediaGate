@@ -80,6 +80,7 @@ def client(tmp_path):
     # explicitly.
     fake_tmdb.get_movie_details.return_value = None
     fake_tmdb.get_tv_details.return_value = None
+    fake_tmdb.get_external_imdb_id.return_value = None
 
     app.dependency_overrides[get_config] = lambda: config
     app.dependency_overrides[get_database] = lambda: db
@@ -1615,6 +1616,44 @@ def test_download_movie_note_uses_omdb_when_configured(client, tmp_path):
     assert "omdb plot" in resp.text
     assert "A Director" in resp.text
     fake_omdb.get_full_details.assert_called_once_with("tt0000001")
+
+
+def test_rematch_tmdb_clears_stale_imdb_id_for_notes(client, tmp_path):
+    """Regression: a rematch that fixes a wrong tmdb_id must not leave the
+    old imdb_id (resolved from the previous, wrong match) behind -- the
+    note route trusts imdb_id for OMDb lookups, so a stale one would keep
+    surfacing the old match's title even after the DB's own title/tmdb_id
+    were corrected (reported live as an item titled "Kara" after a rematch
+    still downloading a note titled after the old wrong match)."""
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    video = tmp_path / "Movie.mkv"
+    video.write_bytes(b"data")
+    item_id = db.create_media_item(
+        original_path="x", final_path=str(video), title="Wrong Title", year=2026, media_type="movie",
+        tmdb_id=999, imdb_id="tt_wrong", metadata={},
+    )
+
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=1433117, title="Kara", media_type="movie", year=2026, overview="Right one"
+    )
+    fake_tmdb.get_external_imdb_id.return_value = "tt_correct"
+
+    resp = c.post("/api/library/rematch-tmdb", json={"ids": [item_id], "tmdb_id": 1433117, "media_type": "movie"})
+    assert resp.status_code == 200
+    assert db.get_media_item(item_id)["imdb_id"] is None  # stale id cleared, not carried forward
+
+    fake_omdb = MagicMock()
+    fake_omdb.enabled = True
+    fake_omdb.get_full_details.return_value = None
+    app.dependency_overrides[get_omdb_client] = lambda: fake_omdb
+
+    resp = c.get(f"/api/library/{item_id}/note")
+    assert resp.status_code == 200
+    assert "title: Kara" in resp.text
+    fake_tmdb.get_external_imdb_id.assert_called_once_with(1433117, "movie")
+    fake_omdb.get_full_details.assert_called_once_with("tt_correct")  # re-derived, not the stale "tt_wrong"
 
 
 def test_download_movie_note_handles_non_ascii_title_in_filename(client, tmp_path):
