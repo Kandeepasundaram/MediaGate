@@ -43,6 +43,16 @@ def match_one(db: Database, tmdb: TMDBClient, tvmaze: TVmazeClient) -> bool:
 
     if row["media_type"] == "movie":
         matches = tmdb.search_movie(row["title"], row["year"])
+        # search_movie already prefers an exact-year match but falls back to
+        # its full (year-unfiltered) result list when nothing matches the
+        # year exactly -- fine for a human-reviewed preview/rematch search,
+        # but this path auto-applies matches[0] with no review, so a parsed
+        # filename year with no real TMDB hit that year must leave the item
+        # unmatched (retried later, see the `else` branch below) rather than
+        # silently overwrite an already-correct title with an unrelated
+        # movie that just happened to rank first.
+        if row["year"] is not None:
+            matches = [m for m in matches if m.year is not None and abs(m.year - row["year"]) <= 1]
     else:
         matches = tmdb.search_tv(row["title"])
 

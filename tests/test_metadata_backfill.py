@@ -35,6 +35,48 @@ def test_match_one_updates_item_on_match(db):
     assert json.loads(item["metadata"])["poster_path"] == "/p.jpg"
 
 
+def test_match_one_rejects_top_result_with_wrong_year(db):
+    """An adopted movie already correctly named/sitting on disk must not
+    have its title/tmdb_id overwritten by a TMDB top hit from an unrelated
+    year -- this is the exact "Kara (2026)" bug: search_movie's own
+    exact-year filter falls back to its unfiltered list when nothing
+    matches the year, so match_one must apply its own year check before
+    trusting matches[0] since nothing reviews this match before it's saved."""
+    item_id = db.create_media_item(
+        original_path="/x", final_path="/x", title="Kara", year=2026, media_type="movie"
+    )
+    tmdb = MagicMock()
+    tmdb.search_movie.return_value = [
+        MediaResult(tmdb_id=999, title="Unrelated Movie", media_type="movie", year=1990)
+    ]
+    tvmaze = MagicMock()
+
+    found = match_one(db, tmdb, tvmaze)
+
+    assert found is True
+    item = db.get_media_item(item_id)
+    assert item["tmdb_id"] is None
+    assert item["title"] == "Kara"
+    assert item["match_attempted_at"] is not None
+
+
+def test_match_one_accepts_top_result_within_one_year(db):
+    item_id = db.create_media_item(
+        original_path="/x", final_path="/x", title="Some Movie", year=2020, media_type="movie"
+    )
+    tmdb = MagicMock()
+    tmdb.search_movie.return_value = [
+        MediaResult(tmdb_id=42, title="Some Movie", media_type="movie", year=2021)
+    ]
+    tvmaze = MagicMock()
+
+    found = match_one(db, tmdb, tvmaze)
+
+    assert found is True
+    item = db.get_media_item(item_id)
+    assert item["tmdb_id"] == 42
+
+
 def test_match_one_marks_attempted_without_match(db):
     item_id = db.create_media_item(
         original_path="/x", final_path="/x", title="Nonexistent Movie", media_type="movie"
