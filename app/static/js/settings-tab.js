@@ -4,8 +4,59 @@
 
 import { escapeAttr, showConfirm } from "./archive-tab.js";
 import { loadStatus } from "./chrome.js";
-import { $, api, formatBytes, setStoredApiToken, showToast, state } from "./core.js";
+import { $, $all, api, formatBytes, setStoredApiToken, showToast, state } from "./core.js";
 import { getActiveViewerId, loadMoviesGallery, loadTvGallery, setActiveViewerId } from "./gallery.js";
+
+// ---- Settings accordion ----
+// Each Settings section is a collapsible <details class="settings-section">
+// (Paths & TMDB open by default, the rest closed) -- persists which ones a
+// visitor has open across reloads the same way theme/font-size do, and
+// makes the .settings-nav anchor links open their target instead of just
+// scrolling to a wall of already-open text.
+const SETTINGS_OPEN_KEY = "media-manager:settings-open-sections";
+
+function loadStoredOpenSections() {
+  try { return JSON.parse(localStorage.getItem(SETTINGS_OPEN_KEY) || "null"); } catch (e) { return null; }
+}
+
+function persistOpenSections() {
+  const ids = $all("#tab-settings details.settings-section").filter((d) => d.open).map((d) => d.id);
+  try { localStorage.setItem(SETTINGS_OPEN_KEY, JSON.stringify(ids)); } catch (e) { /* private browsing / storage disabled */ }
+}
+
+export function setupSettingsAccordion() {
+  const stored = loadStoredOpenSections();
+  if (stored) {
+    $all("#tab-settings details.settings-section").forEach((d) => { d.open = stored.includes(d.id); });
+  }
+  $all("#tab-settings details.settings-section").forEach((d) => {
+    d.addEventListener("toggle", persistOpenSections);
+  });
+  $all(".settings-nav a").forEach((a) => {
+    a.addEventListener("click", () => {
+      const id = a.getAttribute("href").slice(1);
+      const target = document.getElementById(id);
+      if (target && target.tagName === "DETAILS" && !target.open) {
+        target.open = true;
+        persistOpenSections();
+      }
+      // Default anchor-jump scrolling handles the rest -- the section is
+      // now open, so the browser's own scroll lands in the right place.
+    });
+  });
+}
+
+// A handful of secret/password fields all share the same "leave blank to
+// keep current" pattern -- this renders the note under each consistently
+// instead of every caller hand-writing its own ternary. `noun` is "token",
+// "key", or "password" to match the field being described.
+function setSecretNote(selector, isSet, noun, { setExtra = "", unsetExtra = "" } = {}) {
+  const el = $(selector);
+  if (!el) return;
+  el.textContent = isSet
+    ? `A ${noun} is currently set. Leave blank to keep it.${setExtra ? ` ${setExtra}` : ""}`
+    : unsetExtra;
+}
 
 // ---- Settings tab ----
 export async function loadSettings() {
@@ -24,25 +75,26 @@ export async function loadSettings() {
         : "No key set — running in TMDB scraper fallback mode.";
     $("#setting-webhook-url").value = s.webhook_url || "";
     $("#setting-discord-webhook-url").value = s.discord_webhook_url || "";
-    $("#telegram-token-note").textContent = s.telegram_bot_token_set ? "A token is currently set. Leave blank to keep it." : "";
+    setSecretNote("#telegram-token-note", s.telegram_bot_token_set, "token");
     $("#setting-telegram-chat-id").value = s.telegram_chat_id || "";
-    $("#pushover-token-note").textContent = s.pushover_api_token_set ? "A token is currently set. Leave blank to keep it." : "";
-    $("#pushover-user-note").textContent = s.pushover_user_key_set ? "A key is currently set. Leave blank to keep it." : "";
+    setSecretNote("#pushover-token-note", s.pushover_api_token_set, "token");
+    setSecretNote("#pushover-user-note", s.pushover_user_key_set, "key");
     $("#setting-auto-track-new").checked = !!s.auto_track_new;
     $("#setting-digest-mode").checked = !!s.digest_mode;
     $("#setting-digest-interval-days").value = s.digest_interval_days || 1;
     $("#setting-watcher-enabled").checked = !!s.watcher_enabled;
-    $("#omdb-key-note").textContent = s.omdb_api_key_set
-      ? "A key is currently set. Leave blank to keep it. Powers IMDb/Rotten Tomatoes ratings in the detail pane."
-      : "Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.";
+    setSecretNote("#omdb-key-note", s.omdb_api_key_set, "key", {
+      setExtra: "Powers IMDb/Rotten Tomatoes ratings in the detail pane.",
+      unsetExtra: "Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.",
+    });
     $("#api-token-note").textContent = s.api_token_set
       ? "A token is currently set and required on every request. Leave blank to keep it."
       : "Disabled -- every request is currently allowed with no token.";
     $("#disable-api-token-btn").classList.toggle("hidden", !s.api_token_set);
     $("#setting-plex-url").value = s.plex_url || "";
-    $("#plex-token-note").textContent = s.plex_token_set ? "A token is currently set. Leave blank to keep it." : "";
+    setSecretNote("#plex-token-note", s.plex_token_set, "token");
     $("#setting-jellyfin-url").value = s.jellyfin_url || "";
-    $("#jellyfin-key-note").textContent = s.jellyfin_api_key_set ? "A key is currently set. Leave blank to keep it." : "";
+    setSecretNote("#jellyfin-key-note", s.jellyfin_api_key_set, "key");
     $("#setting-write-nfo-files").checked = s.write_nfo_files !== false;
     $("#setting-subtitle-languages").value = (s.subtitle_keep_languages || []).join(", ");
     $("#setting-subtitle-languages-movies").value = (s.subtitle_keep_languages_movies || []).join(", ");
@@ -60,11 +112,12 @@ export async function loadSettings() {
     $("#setting-backup-retention-days").value = s.backup_retention_days ?? 14;
     $("#setting-webdav-url").value = s.webdav_url || "";
     $("#setting-webdav-username").value = s.webdav_username || "";
-    $("#webdav-password-note").textContent = s.webdav_password_set ? "A password is currently set. Leave blank to keep it." : "";
+    setSecretNote("#webdav-password-note", s.webdav_password_set, "password");
     $("#setting-webdav-remote-path").value = s.webdav_remote_path || "media-manager-backups";
-    $("#opensubtitles-key-note").textContent = s.opensubtitles_api_key_set
-      ? "A key is currently set. Leave blank to keep it. Required for auto-fetch below."
-      : "Free key at opensubtitles.com/en/consumers. Required for auto-fetch below.";
+    setSecretNote("#opensubtitles-key-note", s.opensubtitles_api_key_set, "key", {
+      setExtra: "Required for auto-fetch below.",
+      unsetExtra: "Free key at opensubtitles.com/en/consumers. Required for auto-fetch below.",
+    });
     $("#setting-auto-fetch-subtitles").checked = !!s.auto_fetch_missing_subtitles;
     $("#setting-tvmaze-enabled").checked = !!s.tvmaze_enabled;
   } catch (e) {

@@ -4,19 +4,19 @@
 
 import { approveSelected, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
 import { closeBulkRematchModal, openBulkRematchModal } from "./js/bulk-rematch.js";
-import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable } from "./js/browse-tab.js";
-import { loadStatus, restoreLastTab, restoreScrollPosition, setupFontSize, setupGlobalSearch, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
+import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable, setupBrowseFilterPopover, setupLibraryHealthToggle } from "./js/browse-tab.js";
+import { loadStatus, restoreLastTab, restoreScrollPosition, setupFontSize, setupGlobalSearch, setupHeaderMoreMenu, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
 import { $, $all, api, formatBytes, showToast, state } from "./js/core.js";
 import { closeDetailPaneWithConfirm, closePersonModal, exportPersonCredits, navigateDetailPane } from "./js/detail-pane.js";
-import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, enableSwipeToToggleWatched, exportMoviesView, exportTvView, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, removeFromCollection, removeTagBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, setupGalleryViewMode, surpriseMeMovie, surpriseMeTv, toggleFocusedCardWatched, togglePinOnFocusedCard, TV_PRESET_IDS, wirePosterFallback, wireRecommendationsToggle } from "./js/gallery.js";
-import { exportHistoryView, loadHistory } from "./js/history-tab.js";
-import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackerCategoryTabs, setupUniverseTypeTabs, wireUpcomingViewToggles } from "./js/notifications-tab.js";
+import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, enableSwipeToToggleWatched, exportMoviesView, exportTvView, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, refreshSelectionBar, removeFromCollection, removeTagBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, setupFilterPopovers, setupGalleryViewMode, setupSelectionBars, surpriseMeMovie, surpriseMeTv, toggleFocusedCardWatched, togglePinOnFocusedCard, TV_PRESET_IDS, wirePosterFallback, wireRecommendationsToggle } from "./js/gallery.js";
+import { exportHistoryView, loadHistory, setupHistoryFilterPopover } from "./js/history-tab.js";
+import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackAddMenu, setupTrackerCategoryTabs, setupUniverseCreateToggle, setupUniverseTypeTabs, wireUpcomingViewToggles } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
 import { exportWatchlistCsv, renderWatchlist } from "./js/watchlist-tab.js";
 import { closeWhatsNew, maybeShowWhatsNew } from "./js/whats-new.js";
-import { checkPermissions, clearBrowserCache, createApiToken, createViewerAction, deleteTagAction, disableApiToken, exportLibrary, importLibrary, importWatchHistory, loadViewers, previewDigest, renameTagAction, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, syncWatchedFromMediaServers, testTmdbKey } from "./js/settings-tab.js";
+import { checkPermissions, clearBrowserCache, createApiToken, createViewerAction, deleteTagAction, disableApiToken, exportLibrary, importLibrary, importWatchHistory, loadViewers, previewDigest, renameTagAction, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, setupSettingsAccordion, syncWatchedFromMediaServers, testTmdbKey } from "./js/settings-tab.js";
 
 // ---- Wiring ----
 const TAB_KEYS = ["movies", "tv", "browse", "archive", "notifications", "watchlist", "tracker", "history", "reports", "settings"];
@@ -218,17 +218,21 @@ document.addEventListener("DOMContentLoaded", () => {
   enableSwipeToToggleWatched($("#tv-gallery"));
   setupUniverseTypeTabs();
   setupTrackerCategoryTabs();
+  setupUniverseCreateToggle();
+  setupTrackAddMenu();
   setupGalleryViewMode();
   wirePosterFallback();
   setupGlobalSearch();
   setupCompareModal();
   wireUpcomingViewToggles();
   setupTheme();
+  setupHeaderMoreMenu();
   setupFontSize();
   setupReducedMotion();
   setupKeyboardShortcuts();
   setupFilterPersistence();
   setupReportsTab();
+  setupSettingsAccordion();
   loadStatus();
   if (!restoreLastTab()) { loadMoviesGallery(); restoreScrollPosition("movies"); }
   loadViewers();
@@ -359,6 +363,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const boxes = $all("#movies-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
     boxes.forEach((b) => { b.checked = !allChecked; });
+    refreshSelectionBar("movies");
   });
   $("#movies-mark-watched-btn").addEventListener("click", async () => {
     const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
@@ -494,6 +499,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const boxes = $all("#tv-gallery .gallery-select");
     const allChecked = boxes.every((b) => b.checked);
     boxes.forEach((b) => { b.checked = !allChecked; });
+    refreshSelectionBar("tv");
   });
   $("#tv-mark-watched-btn").addEventListener("click", async () => {
     const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));
@@ -641,4 +647,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#compare-modal").addEventListener("click", (e) => {
     if (e.target.id === "compare-modal") closeCompareModal();
   });
+
+  setupFilterPopovers();
+  setupSelectionBars();
+  setupBrowseFilterPopover();
+  setupLibraryHealthToggle();
+  setupHistoryFilterPopover();
 });

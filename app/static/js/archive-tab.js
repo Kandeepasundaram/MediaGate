@@ -101,7 +101,7 @@ function renderArchiveTable(items) {
       <td>${item.media_type === "movie" ? renderMovieNameCell(item, i) : renderTvNameCell(item, i)}</td>
       <td>${item.media_type}</td>
       <td>${formatBytes(state.sizeByPath[item.source_path])}</td>
-      <td title="${item.overview}">${item.overview.slice(0, 80)}</td>
+      <td class="overview-cell" title="${escapeAttr(item.overview)}" tabindex="0" role="button" aria-label="Show full overview">${escapeAttr(item.overview)}</td>
       <td><button class="change-match-btn" data-index="${i}">Change Match</button></td>
     </tr>
   `;
@@ -118,6 +118,13 @@ function renderArchiveTable(items) {
   }).join("");
   $all(".change-match-btn").forEach((btn) => {
     btn.addEventListener("click", () => openMatchPicker(Number(btn.dataset.index)));
+  });
+  $all(".overview-cell").forEach((cell) => {
+    const toggle = () => cell.classList.toggle("overview-cell-expanded");
+    cell.addEventListener("click", toggle);
+    cell.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    });
   });
   $all(".season-pack-select").forEach((groupCb) => {
     groupCb.addEventListener("change", () => {

@@ -315,6 +315,19 @@ export function setupReducedMotion() {
   if (toggle) toggle.addEventListener("change", (e) => setReducedMotion(e.target.checked));
 }
 
+// ---- Header overflow ("...") menu: Compare + Theme ----
+// Native <details>/<summary>, same pattern as the Browse/Tracker row-menus --
+// closes itself after either action so it doesn't sit open over whatever it
+// triggered (the compare modal, or the now-changed theme).
+export function setupHeaderMoreMenu() {
+  const menu = $("#header-more-menu");
+  if (!menu) return;
+  const compareBtn = $("#compare-btn");
+  if (compareBtn) compareBtn.addEventListener("click", () => { menu.open = false; });
+  const themeSelect = $("#theme-select");
+  if (themeSelect) themeSelect.addEventListener("change", () => { menu.open = false; });
+}
+
 // ---- Status badge ----
 export async function loadStatus() {
   try {

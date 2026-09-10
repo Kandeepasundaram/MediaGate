@@ -78,8 +78,13 @@ function browseNoteActionsMarkup(item, mediaType, index) {
   const available = mediaType === "movie" ? item.media_id != null : item.tmdb_id != null;
   if (!available) return `<span class="hint">—</span>`;
   return `
-    <button class="browse-note-download-btn" data-index="${index}" title="Download a Media DB-style .md note">Note</button>
-    <button class="browse-note-save-btn" data-index="${index}" title="Save the .md note into the file's own folder">Save Note</button>
+    <details class="row-menu">
+      <summary title="Note actions">⋯</summary>
+      <div class="row-menu-panel">
+        <button class="browse-note-download-btn" data-index="${index}" title="Download a Media DB-style .md note">Note</button>
+        <button class="browse-note-save-btn" data-index="${index}" title="Save the .md note into the file's own folder">Save Note</button>
+      </div>
+    </details>
   `;
 }
 
@@ -133,17 +138,66 @@ async function loadLibraryHealth() {
       return;
     }
     card.classList.remove("hidden");
+    const issueCount = (orphanCount > 0 ? 1 : 0) + (duplicateCount > 0 ? 1 : 0) + (artworkCount > 0 ? 1 : 0);
     const parts = [];
     if (orphanCount > 0) parts.push(`${orphanCount} orphaned record(s) (file missing on disk)`);
     if (duplicateCount > 0) parts.push(`${duplicateCount} duplicate group(s)`);
     if (artworkCount > 0) parts.push(`${artworkCount} folder(s) with leftover artwork/subtitles`);
-    summary.textContent = parts.join(" — ");
+    summary.textContent = `${issueCount} issue${issueCount === 1 ? "" : "s"} found — ${parts.join(" — ")}`;
     cleanupBtn.classList.toggle("hidden", orphanCount === 0);
     reviewBtn.classList.toggle("hidden", duplicateCount === 0);
     artworkBtn.classList.toggle("hidden", artworkCount === 0);
   } catch (e) {
     card.classList.add("hidden");
   }
+}
+
+// ---- Filters popover (browse-filter / browse-tracked / browse-sort) ----
+const BROWSE_FILTER_IDS = ["browse-filter", "browse-tracked", "browse-sort"];
+const BROWSE_FILTER_DEFAULT = { "browse-filter": "all", "browse-tracked": "", "browse-sort": "path" };
+
+export function updateBrowseFilterBadge() {
+  const badge = $("#browse-filters-badge");
+  if (!badge) return;
+  const active = BROWSE_FILTER_IDS.filter((id) => $(`#${id}`).value !== BROWSE_FILTER_DEFAULT[id]).length;
+  badge.textContent = String(active);
+  badge.classList.toggle("hidden", active === 0);
+}
+
+export function setupBrowseFilterPopover() {
+  const btn = $("#browse-filters-btn");
+  const panel = $("#browse-filters-panel");
+  const clearBtn = $("#browse-filters-clear-btn");
+  if (!btn || !panel) return;
+  const close = () => { panel.classList.add("hidden"); btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const opening = panel.classList.contains("hidden");
+    close();
+    if (opening) { panel.classList.remove("hidden"); btn.setAttribute("aria-expanded", "true"); }
+  });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  clearBtn?.addEventListener("click", () => {
+    BROWSE_FILTER_IDS.forEach((id) => { $(`#${id}`).value = BROWSE_FILTER_DEFAULT[id]; });
+    updateBrowseFilterBadge();
+    renderBrowseTable();
+  });
+  BROWSE_FILTER_IDS.forEach((id) => $(`#${id}`).addEventListener("change", updateBrowseFilterBadge));
+  document.addEventListener("click", close);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+  updateBrowseFilterBadge();
+}
+
+// ---- Library health card: collapses to "N issue(s) found" until clicked ----
+export function setupLibraryHealthToggle() {
+  const toggle = $("#library-health-toggle");
+  const actions = $("#library-health-actions");
+  if (!toggle || !actions) return;
+  toggle.addEventListener("click", () => {
+    const opening = actions.classList.contains("hidden");
+    actions.classList.toggle("hidden", !opening);
+    toggle.setAttribute("aria-expanded", String(opening));
+  });
 }
 
 function isBrowseDryRun() {

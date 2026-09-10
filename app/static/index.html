@@ -17,20 +17,27 @@
     <div id="global-search-results" class="global-search-results hidden"></div>
   </div>
   <div class="topbar-right">
-    <button id="compare-btn" title="Compare two titles side by side">⚖ Compare</button>
     <select id="viewer-select" title="Viewer -- watched checkboxes reflect this viewer's own state">
       <option value="">All viewers</option>
     </select>
     <span id="tmdb-mode" class="badge">…</span>
-    <select id="theme-select" title="Theme">
-      <option value="auto">Auto (System)</option>
-      <option value="dark">Dark</option>
-      <option value="light">Light</option>
-      <option value="neumorphism">Neumorphism</option>
-      <option value="claymorphism">Claymorphism</option>
-      <option value="glassmorphism">Glassmorphism</option>
-      <option value="high-contrast">High Contrast</option>
-    </select>
+    <details id="header-more-menu" class="row-menu">
+      <summary title="More">⋯</summary>
+      <div class="row-menu-panel header-more-panel">
+        <button id="compare-btn" title="Compare two titles side by side">⚖ Compare</button>
+        <label class="header-more-theme-label" title="Theme">Theme
+          <select id="theme-select">
+            <option value="auto">Auto (System)</option>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="neumorphism">Neumorphism</option>
+            <option value="claymorphism">Claymorphism</option>
+            <option value="glassmorphism">Glassmorphism</option>
+            <option value="high-contrast">High Contrast</option>
+          </select>
+        </label>
+      </div>
+    </details>
   </div>
 </header>
 
@@ -64,64 +71,72 @@
           <option value="rating">Rating (highest)</option>
           <option value="watched">Recently watched</option>
         </select>
-        <select id="movies-filter">
-          <option value="all">All</option>
-          <option value="unmatched">Unmatched only</option>
-        </select>
-        <select id="movies-genre">
-          <option value="">All genres</option>
-        </select>
-        <select id="movies-tag">
-          <option value="">All tags</option>
-        </select>
-        <select id="movies-collection" title="Filter to a collection">
-          <option value="">All collections</option>
-        </select>
-        <select id="movies-resolution">
-          <option value="">All resolutions</option>
-          <option value="4K">4K</option>
-          <option value="1080p">1080p</option>
-          <option value="720p">720p</option>
-          <option value="SD">SD</option>
-          <option value="unknown">Unknown</option>
-        </select>
-        <select id="movies-watch">
-          <option value="">All watch status</option>
-          <option value="watched">Watched</option>
-          <option value="unwatched">Unwatched</option>
-        </select>
-        <select id="movies-year">
-          <option value="">All years</option>
-        </select>
-        <select id="movies-rating">
-          <option value="">All ratings</option>
-          <option value="9">9+</option>
-          <option value="8">8+</option>
-          <option value="7">7+</option>
-          <option value="6">6+</option>
-          <option value="5">5+</option>
-        </select>
-        <select id="movies-added">
-          <option value="">Any time added</option>
-          <option value="7">Last 7 days</option>
-          <option value="30">Last 30 days</option>
-          <option value="90">Last 90 days</option>
-          <option value="365">Last year</option>
-        </select>
-        <select id="movies-watched-within" title="Filter to movies watched within...">
-          <option value="">Any time watched</option>
-          <option value="7">Watched in last 7 days</option>
-          <option value="30">Watched in last 30 days</option>
-          <option value="90">Watched in last 90 days</option>
-          <option value="365">Watched in last year</option>
-        </select>
+        <div class="filter-popover-wrap">
+          <button type="button" id="movies-filters-btn" class="filter-popover-btn" aria-haspopup="true" aria-expanded="false">
+            Filters<span id="movies-filters-badge" class="filter-badge hidden"></span>
+          </button>
+          <div id="movies-filters-panel" class="filter-popover-panel hidden">
+            <select id="movies-filter">
+              <option value="all">All</option>
+              <option value="unmatched">Unmatched only</option>
+            </select>
+            <select id="movies-genre">
+              <option value="">All genres</option>
+            </select>
+            <select id="movies-tag">
+              <option value="">All tags</option>
+            </select>
+            <select id="movies-collection" title="Filter to a collection">
+              <option value="">All collections</option>
+            </select>
+            <select id="movies-resolution">
+              <option value="">All resolutions</option>
+              <option value="4K">4K</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="SD">SD</option>
+              <option value="unknown">Unknown</option>
+            </select>
+            <select id="movies-watch">
+              <option value="">All watch status</option>
+              <option value="watched">Watched</option>
+              <option value="unwatched">Unwatched</option>
+            </select>
+            <select id="movies-year">
+              <option value="">All years</option>
+            </select>
+            <select id="movies-rating">
+              <option value="">All ratings</option>
+              <option value="9">9+</option>
+              <option value="8">8+</option>
+              <option value="7">7+</option>
+              <option value="6">6+</option>
+              <option value="5">5+</option>
+            </select>
+            <select id="movies-added">
+              <option value="">Any time added</option>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last year</option>
+            </select>
+            <select id="movies-watched-within" title="Filter to movies watched within...">
+              <option value="">Any time watched</option>
+              <option value="7">Watched in last 7 days</option>
+              <option value="30">Watched in last 30 days</option>
+              <option value="90">Watched in last 90 days</option>
+              <option value="365">Watched in last year</option>
+            </select>
+            <button type="button" id="movies-filters-clear-btn" class="filter-popover-clear-btn">Clear all filters</button>
+          </div>
+        </div>
         <label class="checkbox-label" title="Show only pinned/favorited movies">
           <input type="checkbox" id="movies-pinned-only"> ★ Pinned Only
         </label>
       </div>
       <div class="toolbar-group">
         <span class="toolbar-group-label">View</span>
-        <button id="movies-view-toggle-btn" title="Toggle between grid and compact list view">☰ List View</button>
+        <button id="movies-view-toggle-btn" class="icon-btn" title="Toggle between grid and compact list view">☰</button>
         <select id="movies-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
         <button id="movies-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
         <button id="movies-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
@@ -130,17 +145,20 @@
       <div class="toolbar-group">
         <span class="toolbar-group-label">Selected items</span>
         <button id="movies-select-all-btn">Select All</button>
-        <button id="movies-mark-watched-btn">Mark Watched</button>
-        <button id="movies-mark-unwatched-btn">Mark Unwatched</button>
-        <button id="movies-rename-selected-btn">Rename Selected</button>
-        <button id="movies-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
-        <button id="movies-bulk-rematch-btn" title="Search and fix the TMDB match for every selected movie, one at a time">🔍 Fix Match (Selected)</button>
-        <button id="movies-collection-add-btn" title="Add every selected movie to a collection (type a new name to create one)">📁 Add to Collection</button>
-        <button id="movies-collection-remove-btn" title="Remove every selected movie from a collection">📁 Remove from Collection</button>
-        <input type="text" id="movies-tag-input" placeholder="Tag name…" class="tag-input">
-        <button id="movies-tag-apply-btn" title="Add this tag to every selected movie">Tag Selected</button>
-        <button id="movies-tag-remove-btn" title="Remove this tag from every selected movie">Untag Selected</button>
-        <button id="movies-delete-selected-btn" class="danger">Delete Selected</button>
+        <div id="movies-selection-bar" class="selection-bar hidden">
+          <span id="movies-selection-count" class="selection-count"></span>
+          <button id="movies-mark-watched-btn">Mark Watched</button>
+          <button id="movies-mark-unwatched-btn">Mark Unwatched</button>
+          <button id="movies-rename-selected-btn">Rename Selected</button>
+          <button id="movies-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
+          <button id="movies-bulk-rematch-btn" title="Search and fix the TMDB match for every selected movie, one at a time">🔍 Fix Match (Selected)</button>
+          <button id="movies-collection-add-btn" title="Add every selected movie to a collection (type a new name to create one)">📁 Add to Collection</button>
+          <button id="movies-collection-remove-btn" title="Remove every selected movie from a collection">📁 Remove from Collection</button>
+          <input type="text" id="movies-tag-input" placeholder="Tag name…" class="tag-input">
+          <button id="movies-tag-apply-btn" title="Add this tag to every selected movie">Tag Selected</button>
+          <button id="movies-tag-remove-btn" title="Remove this tag from every selected movie">Untag Selected</button>
+          <button id="movies-delete-selected-btn" class="danger">Delete Selected</button>
+        </div>
         <button id="movies-export-btn" title="Export the currently filtered/sorted list, not the full library">Export View (CSV)</button>
         <span id="movies-count" class="hint"></span>
       </div>
@@ -168,64 +186,72 @@
           <option value="rating">Rating (highest)</option>
           <option value="watched">Recently watched</option>
         </select>
-        <select id="tv-filter">
-          <option value="all">All</option>
-          <option value="unmatched">Unmatched only</option>
-        </select>
-        <select id="tv-genre">
-          <option value="">All genres</option>
-        </select>
-        <select id="tv-tag">
-          <option value="">All tags</option>
-        </select>
-        <select id="tv-collection" title="Filter to a collection">
-          <option value="">All collections</option>
-        </select>
-        <select id="tv-resolution">
-          <option value="">All resolutions</option>
-          <option value="4K">4K</option>
-          <option value="1080p">1080p</option>
-          <option value="720p">720p</option>
-          <option value="SD">SD</option>
-          <option value="unknown">Unknown</option>
-        </select>
-        <select id="tv-watch">
-          <option value="">All watch status</option>
-          <option value="watched">Watched</option>
-          <option value="unwatched">Unwatched</option>
-        </select>
-        <select id="tv-year">
-          <option value="">All years</option>
-        </select>
-        <select id="tv-rating">
-          <option value="">All ratings</option>
-          <option value="9">9+</option>
-          <option value="8">8+</option>
-          <option value="7">7+</option>
-          <option value="6">6+</option>
-          <option value="5">5+</option>
-        </select>
-        <select id="tv-added">
-          <option value="">Any time added</option>
-          <option value="7">Last 7 days</option>
-          <option value="30">Last 30 days</option>
-          <option value="90">Last 90 days</option>
-          <option value="365">Last year</option>
-        </select>
-        <select id="tv-watched-within" title="Filter to shows watched within...">
-          <option value="">Any time watched</option>
-          <option value="7">Watched in last 7 days</option>
-          <option value="30">Watched in last 30 days</option>
-          <option value="90">Watched in last 90 days</option>
-          <option value="365">Watched in last year</option>
-        </select>
+        <div class="filter-popover-wrap">
+          <button type="button" id="tv-filters-btn" class="filter-popover-btn" aria-haspopup="true" aria-expanded="false">
+            Filters<span id="tv-filters-badge" class="filter-badge hidden"></span>
+          </button>
+          <div id="tv-filters-panel" class="filter-popover-panel hidden">
+            <select id="tv-filter">
+              <option value="all">All</option>
+              <option value="unmatched">Unmatched only</option>
+            </select>
+            <select id="tv-genre">
+              <option value="">All genres</option>
+            </select>
+            <select id="tv-tag">
+              <option value="">All tags</option>
+            </select>
+            <select id="tv-collection" title="Filter to a collection">
+              <option value="">All collections</option>
+            </select>
+            <select id="tv-resolution">
+              <option value="">All resolutions</option>
+              <option value="4K">4K</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+              <option value="SD">SD</option>
+              <option value="unknown">Unknown</option>
+            </select>
+            <select id="tv-watch">
+              <option value="">All watch status</option>
+              <option value="watched">Watched</option>
+              <option value="unwatched">Unwatched</option>
+            </select>
+            <select id="tv-year">
+              <option value="">All years</option>
+            </select>
+            <select id="tv-rating">
+              <option value="">All ratings</option>
+              <option value="9">9+</option>
+              <option value="8">8+</option>
+              <option value="7">7+</option>
+              <option value="6">6+</option>
+              <option value="5">5+</option>
+            </select>
+            <select id="tv-added">
+              <option value="">Any time added</option>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="365">Last year</option>
+            </select>
+            <select id="tv-watched-within" title="Filter to shows watched within...">
+              <option value="">Any time watched</option>
+              <option value="7">Watched in last 7 days</option>
+              <option value="30">Watched in last 30 days</option>
+              <option value="90">Watched in last 90 days</option>
+              <option value="365">Watched in last year</option>
+            </select>
+            <button type="button" id="tv-filters-clear-btn" class="filter-popover-clear-btn">Clear all filters</button>
+          </div>
+        </div>
         <label class="checkbox-label" title="Show only pinned/favorited shows">
           <input type="checkbox" id="tv-pinned-only"> ★ Pinned Only
         </label>
       </div>
       <div class="toolbar-group">
         <span class="toolbar-group-label">View</span>
-        <button id="tv-view-toggle-btn" title="Toggle between grid and compact list view">☰ List View</button>
+        <button id="tv-view-toggle-btn" class="icon-btn" title="Toggle between grid and compact list view">☰</button>
         <select id="tv-preset-select" title="Saved filter views"><option value="">Saved views…</option></select>
         <button id="tv-preset-save-btn" title="Save the current filter/sort combo under a name">Save View</button>
         <button id="tv-preset-delete-btn" title="Delete the selected saved view">Delete View</button>
@@ -234,17 +260,20 @@
       <div class="toolbar-group">
         <span class="toolbar-group-label">Selected items</span>
         <button id="tv-select-all-btn">Select All</button>
-        <button id="tv-mark-watched-btn">Mark Watched</button>
-        <button id="tv-mark-unwatched-btn">Mark Unwatched</button>
-        <button id="tv-rename-selected-btn">Rename Selected</button>
-        <button id="tv-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
-        <button id="tv-bulk-rematch-btn" title="Search and fix the TMDB match for every selected show, one at a time">🔍 Fix Match (Selected)</button>
-        <button id="tv-collection-add-btn" title="Add every selected show to a collection (type a new name to create one)">📁 Add to Collection</button>
-        <button id="tv-collection-remove-btn" title="Remove every selected show from a collection">📁 Remove from Collection</button>
-        <input type="text" id="tv-tag-input" placeholder="Tag name…" class="tag-input">
-        <button id="tv-tag-apply-btn" title="Add this tag to every selected show's episodes">Tag Selected</button>
-        <button id="tv-tag-remove-btn" title="Remove this tag from every selected show's episodes">Untag Selected</button>
-        <button id="tv-delete-selected-btn" class="danger">Delete Selected</button>
+        <div id="tv-selection-bar" class="selection-bar hidden">
+          <span id="tv-selection-count" class="selection-count"></span>
+          <button id="tv-mark-watched-btn">Mark Watched</button>
+          <button id="tv-mark-unwatched-btn">Mark Unwatched</button>
+          <button id="tv-rename-selected-btn">Rename Selected</button>
+          <button id="tv-refresh-metadata-btn" title="Re-fetch title/poster/overview/rating/genres from TMDB, same match">Refresh Metadata</button>
+          <button id="tv-bulk-rematch-btn" title="Search and fix the TMDB match for every selected show, one at a time">🔍 Fix Match (Selected)</button>
+          <button id="tv-collection-add-btn" title="Add every selected show to a collection (type a new name to create one)">📁 Add to Collection</button>
+          <button id="tv-collection-remove-btn" title="Remove every selected show from a collection">📁 Remove from Collection</button>
+          <input type="text" id="tv-tag-input" placeholder="Tag name…" class="tag-input">
+          <button id="tv-tag-apply-btn" title="Add this tag to every selected show's episodes">Tag Selected</button>
+          <button id="tv-tag-remove-btn" title="Remove this tag from every selected show's episodes">Untag Selected</button>
+          <button id="tv-delete-selected-btn" class="danger">Delete Selected</button>
+        </div>
         <button id="tv-export-btn" title="Export the currently filtered/sorted list, not the full library">Export View (CSV)</button>
         <span id="tv-count" class="hint"></span>
       </div>
@@ -254,11 +283,16 @@
   </section>
 
   <section id="tab-browse" class="tab-panel">
-    <div id="library-health-card" class="card hidden">
-      <span id="library-health-summary"></span>
-      <button id="cleanup-orphans-btn" class="hidden">Clean Up Orphans</button>
-      <button id="review-duplicates-btn" class="hidden">Review Duplicates</button>
-      <button id="cleanup-artwork-btn" class="hidden" title="Deletes poster/nfo/subtitle files left behind in a folder whose video was renamed or moved away">Clean Up Orphaned Artwork</button>
+    <div id="library-health-card" class="card hidden library-health-card">
+      <button type="button" id="library-health-toggle" class="library-health-toggle" aria-expanded="false" aria-controls="library-health-actions">
+        <span id="library-health-summary"></span>
+        <span class="library-health-chevron" aria-hidden="true">▶</span>
+      </button>
+      <div id="library-health-actions" class="library-health-actions hidden">
+        <button id="cleanup-orphans-btn" class="hidden">Clean Up Orphans</button>
+        <button id="review-duplicates-btn" class="hidden">Review Duplicates</button>
+        <button id="cleanup-artwork-btn" class="hidden" title="Deletes poster/nfo/subtitle files left behind in a folder whose video was renamed or moved away">Clean Up Orphaned Artwork</button>
+      </div>
     </div>
     <div class="toolbar">
       <input type="text" id="browse-search" placeholder="Search filename or parsed title…" class="search-input">
@@ -266,30 +300,37 @@
         <option value="movie">Movies</option>
         <option value="tv">TV</option>
       </select>
-      <select id="browse-filter">
-        <option value="all">All</option>
-        <option value="unmatched">Unmatched only</option>
-      </select>
-      <select id="browse-tracked">
-        <option value="">All tracking status</option>
-        <option value="tracked">Tracked only</option>
-        <option value="untracked">Untracked only</option>
-      </select>
-      <select id="browse-sort">
-        <option value="path">Path (A-Z)</option>
-        <option value="size">Size (largest)</option>
-        <option value="title">Parsed title (A-Z)</option>
-      </select>
+      <div class="filter-popover-wrap">
+        <button type="button" id="browse-filters-btn" class="filter-popover-btn" aria-haspopup="true" aria-expanded="false">
+          Filters<span id="browse-filters-badge" class="filter-badge hidden"></span>
+        </button>
+        <div id="browse-filters-panel" class="filter-popover-panel hidden">
+          <select id="browse-filter">
+            <option value="all">All</option>
+            <option value="unmatched">Unmatched only</option>
+          </select>
+          <select id="browse-tracked">
+            <option value="">All tracking status</option>
+            <option value="tracked">Tracked only</option>
+            <option value="untracked">Untracked only</option>
+          </select>
+          <select id="browse-sort">
+            <option value="path">Path (A-Z)</option>
+            <option value="size">Size (largest)</option>
+            <option value="title">Parsed title (A-Z)</option>
+          </select>
+          <button type="button" id="browse-filters-clear-btn" class="filter-popover-clear-btn">Clear all filters</button>
+        </div>
+      </div>
       <button id="browse-refresh-btn">Refresh</button>
       <button id="browse-select-all-btn">Select All</button>
-      <button id="browse-organize-btn">Organize Selected</button>
+      <button id="browse-organize-btn" title="Organize re-runs TMDB matching and moves each selected file to its correct name/folder in place — it does not copy, so there's no duplicate left behind.">Organize Selected <span class="info-icon" aria-hidden="true">ⓘ</span></button>
       <button id="browse-delete-selected-btn" class="danger">Delete Selected</button>
       <label title="Preview delete/cleanup actions on this tab without touching anything on disk or in the database">
         <input type="checkbox" id="browse-dry-run-toggle"> Dry run
       </label>
       <span id="browse-status" class="hint"></span>
     </div>
-    <p class="hint">Organize re-runs TMDB matching and moves each selected file to its correct name/folder in place — it does not copy, so there's no duplicate left behind.</p>
     <table id="browse-table">
       <thead>
         <tr>
@@ -307,18 +348,22 @@
   </section>
 
   <section id="tab-archive" class="tab-panel">
-    <div class="toolbar">
-      <button id="scan-btn">Scan Library</button>
-      <span id="new-files-badge" class="hint hidden"></span>
-      <button id="select-all-btn">Select All</button>
-      <button id="bulk-change-match-btn">Change Match for Selected</button>
-      <label class="checkbox-label" title="Check what would happen without copying, moving, or writing anything">
-        <input type="checkbox" id="dry-run-toggle">
-        Dry run
-      </label>
-      <button id="approve-btn" class="primary">Approve &amp; Archive</button>
-      <span id="scan-status"></span>
-      <div id="scan-progress-bar" class="progress-bar-indeterminate hidden"><div class="progress-bar-fill"></div></div>
+    <div class="toolbar toolbar-split">
+      <div class="toolbar-group">
+        <button id="scan-btn">Scan Library</button>
+        <span id="new-files-badge" class="hint hidden"></span>
+        <span id="scan-status"></span>
+        <div id="scan-progress-bar" class="progress-bar-indeterminate hidden"><div class="progress-bar-fill"></div></div>
+      </div>
+      <div class="toolbar-group">
+        <button id="select-all-btn">Select All</button>
+        <button id="bulk-change-match-btn">Change Match for Selected</button>
+        <label class="checkbox-label" title="Check what would happen without copying, moving, or writing anything">
+          <input type="checkbox" id="dry-run-toggle">
+          Dry run
+        </label>
+        <button id="approve-btn" class="primary">Approve &amp; Archive</button>
+      </div>
     </div>
     <table id="archive-table">
       <thead>
@@ -340,26 +385,32 @@
   <section id="tab-notifications" class="tab-panel">
     <h3>Pending</h3>
     <div id="notifications-list"></div>
-    <h3>Upcoming Releases</h3>
-    <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
-    <div class="upcoming-widget" data-upcoming-base="upcoming-releases">
-      <div class="season-tabs">
-        <button class="season-tab-btn active" data-upcoming-view="list">📋 List</button>
-        <button class="season-tab-btn" data-upcoming-view="calendar">🗓 Calendar</button>
+
+    <details class="recommendations-row">
+      <summary>Upcoming Releases</summary>
+      <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
+      <div class="upcoming-widget" data-upcoming-base="upcoming-releases">
+        <div class="season-tabs">
+          <button class="season-tab-btn active" data-upcoming-view="list">📋 List</button>
+          <button class="season-tab-btn" data-upcoming-view="calendar">🗓 Calendar</button>
+        </div>
+        <div id="upcoming-releases-list"></div>
+        <div id="upcoming-releases-calendar" class="hidden"></div>
       </div>
-      <div id="upcoming-releases-list"></div>
-      <div id="upcoming-releases-calendar" class="hidden"></div>
-    </div>
-    <h3>Recent Notification History</h3>
-    <p class="hint">RSS feed: <a href="/api/tracker/feed.rss" target="_blank">/api/tracker/feed.rss</a></p>
-    <div id="notification-history-list"></div>
+    </details>
+
+    <details class="recommendations-row">
+      <summary>Recent Notification History</summary>
+      <p class="hint">RSS feed: <a href="/api/tracker/feed.rss" target="_blank">/api/tracker/feed.rss</a></p>
+      <div id="notification-history-list"></div>
+    </details>
   </section>
 
   <section id="tab-watchlist" class="tab-panel">
-    <div class="toolbar">
-      <button id="watchlist-export-btn">Export CSV</button>
+    <div class="section-heading-row">
+      <h3>New / Not Yet Archived</h3>
+      <button id="watchlist-export-btn" class="btn-sm">Export CSV</button>
     </div>
-    <h3>New / Not Yet Archived</h3>
     <p class="hint">Tracked titles with a new season or sequel detected -- see the Tracker tab to mute, snooze, or check now.</p>
     <div id="watchlist-needs-download" class="gallery"></div>
 
@@ -380,23 +431,28 @@
       <button class="season-tab-btn" data-universe-type="tv">TV</button>
     </div>
 
-    <h3>Upcoming</h3>
-    <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
-    <div class="upcoming-widget" data-upcoming-base="tracker-upcoming">
-      <div class="season-tabs">
-        <button class="season-tab-btn active" data-upcoming-view="list">📋 List</button>
-        <button class="season-tab-btn" data-upcoming-view="calendar">🗓 Calendar</button>
+    <details class="recommendations-row">
+      <summary>Upcoming</summary>
+      <p class="hint">Requires a TMDB API key in Settings — release/air dates aren't available in scraper mode.</p>
+      <div class="upcoming-widget" data-upcoming-base="tracker-upcoming">
+        <div class="season-tabs">
+          <button class="season-tab-btn active" data-upcoming-view="list">📋 List</button>
+          <button class="season-tab-btn" data-upcoming-view="calendar">🗓 Calendar</button>
+        </div>
+        <div id="tracker-upcoming-list"></div>
+        <div id="tracker-upcoming-calendar" class="hidden"></div>
       </div>
-      <div id="tracker-upcoming-list"></div>
-      <div id="tracker-upcoming-calendar" class="hidden"></div>
-    </div>
+    </details>
 
     <h3>Universes</h3>
     <p class="hint">Group related titles (a franchise, a shared universe) so a new season, sequel, or spinoff in any of them is flagged together.</p>
     <div class="toolbar">
-      <input type="text" id="new-universe-name" placeholder="New universe name…" class="search-input">
-      <button id="create-universe-btn">+ New Universe</button>
+      <button id="universe-create-toggle-btn" type="button">+ New Universe</button>
       <span id="universe-status" class="hint"></span>
+      <div id="universe-create-form" class="inline-reveal-form hidden">
+        <input type="text" id="new-universe-name" placeholder="New universe name…" class="search-input">
+        <button id="create-universe-btn">Create</button>
+      </div>
     </div>
     <div id="universes-list"></div>
 
@@ -408,11 +464,16 @@
       <button class="season-tab-btn" data-tracker-category="watched">Watched / History</button>
     </div>
     <div class="toolbar">
-      <button id="track-add-movie-btn">+ Track New Movie</button>
-      <button id="track-add-tv-btn">+ Track New TV Show</button>
-      <button id="track-add-recommend-movie-btn">+ Add Recommendation (Movie)</button>
-      <button id="track-add-recommend-tv-btn">+ Add Recommendation (TV)</button>
-      <button id="track-add-bulk-btn">+ Bulk Add</button>
+      <details class="row-menu" id="track-add-menu">
+        <summary title="Track a new title">+ Track</summary>
+        <div class="row-menu-panel">
+          <button id="track-add-movie-btn">Track New Movie</button>
+          <button id="track-add-tv-btn">Track New TV Show</button>
+          <button id="track-add-recommend-movie-btn">Add Recommendation (Movie)</button>
+          <button id="track-add-recommend-tv-btn">Add Recommendation (TV)</button>
+          <button id="track-add-bulk-btn">Bulk Add</button>
+        </div>
+      </details>
       <span id="track-add-status" class="hint"></span>
     </div>
     <div id="tracked-list" class="gallery"></div>
@@ -420,21 +481,29 @@
 
   <section id="tab-history" class="tab-panel">
     <div class="toolbar">
-      <select id="history-type-filter">
-        <option value="">All types</option>
-        <option value="archive">Archive</option>
-        <option value="rename">Rename / Organize</option>
-        <option value="purge">Purge</option>
-        <option value="tracker_check">Tracker Check</option>
-        <option value="delete">Delete</option>
-      </select>
-      <select id="history-status-filter">
-        <option value="">All statuses</option>
-        <option value="success">Success</option>
-        <option value="failed">Failed</option>
-      </select>
-      <label>From <input type="date" id="history-since-filter"></label>
-      <label>To <input type="date" id="history-until-filter"></label>
+      <div class="filter-popover-wrap">
+        <button type="button" id="history-filters-btn" class="filter-popover-btn" aria-haspopup="true" aria-expanded="false">
+          Filters<span id="history-filters-badge" class="filter-badge hidden"></span>
+        </button>
+        <div id="history-filters-panel" class="filter-popover-panel hidden">
+          <select id="history-type-filter">
+            <option value="">All types</option>
+            <option value="archive">Archive</option>
+            <option value="rename">Rename / Organize</option>
+            <option value="purge">Purge</option>
+            <option value="tracker_check">Tracker Check</option>
+            <option value="delete">Delete</option>
+          </select>
+          <select id="history-status-filter">
+            <option value="">All statuses</option>
+            <option value="success">Success</option>
+            <option value="failed">Failed</option>
+          </select>
+          <label>From <input type="date" id="history-since-filter"></label>
+          <label>To <input type="date" id="history-until-filter"></label>
+          <button type="button" id="history-filters-clear-btn" class="filter-popover-clear-btn">Clear all filters</button>
+        </div>
+      </div>
       <button id="history-export-btn" title="Export everything matching the current filters, not just what's on screen">Export View (CSV)</button>
       <span id="history-status" class="hint"></span>
     </div>
@@ -447,53 +516,62 @@
   </section>
 
   <section id="tab-reports" class="tab-panel">
-    <div class="toolbar">
-      <select id="report-view-select">
-        <option value="summary">Period Summary</option>
-        <option value="catalog">Catalog</option>
-        <option value="watched-list">Watched List</option>
-        <option value="watch-history">Watch History</option>
-        <option value="tracking">Tracking List</option>
-        <option value="show-progress">Show Progress</option>
-        <option value="show-progress-unwatched">Show Progress — Unwatched Only</option>
-        <option value="show-progress-unwatched-detailed">Show Progress — Unwatched Episode List</option>
-      </select>
-      <select id="report-catalog-type" class="hidden">
-        <option value="all">Movies + TV</option>
-        <option value="movie">Movies Only</option>
-        <option value="tv">TV Only</option>
-      </select>
-      <span id="report-period-group">
-        <select id="report-period">
-          <option value="this-quarter">This Quarter</option>
-          <option value="last-quarter">Last Quarter</option>
-          <option value="this-half">This Half-Year</option>
-          <option value="last-half">Last Half-Year</option>
-          <option value="this-year">This Year</option>
-          <option value="last-year">Last Year</option>
-          <option value="all-time">All Time</option>
-          <option value="custom">Custom Range</option>
+    <div class="toolbar toolbar-split">
+      <div class="toolbar-group">
+        <span class="toolbar-group-label">Report</span>
+        <select id="report-view-select">
+          <option value="summary">Period Summary</option>
+          <option value="catalog">Catalog</option>
+          <option value="watched-list">Watched List</option>
+          <option value="watch-history">Watch History</option>
+          <option value="tracking">Tracking List</option>
+          <option value="show-progress">Show Progress</option>
+          <option value="show-progress-unwatched">Show Progress — Unwatched Only</option>
+          <option value="show-progress-unwatched-detailed">Show Progress — Unwatched Episode List</option>
         </select>
-        <span id="report-custom-range" class="hidden">
-          <label>From <input type="date" id="report-start-date"></label>
-          <label>To <input type="date" id="report-end-date"></label>
+        <select id="report-catalog-type" class="hidden">
+          <option value="all">Movies + TV</option>
+          <option value="movie">Movies Only</option>
+          <option value="tv">TV Only</option>
+        </select>
+        <span id="report-period-group">
+          <select id="report-period">
+            <option value="this-quarter">This Quarter</option>
+            <option value="last-quarter">Last Quarter</option>
+            <option value="this-half">This Half-Year</option>
+            <option value="last-half">Last Half-Year</option>
+            <option value="this-year">This Year</option>
+            <option value="last-year">Last Year</option>
+            <option value="all-time">All Time</option>
+            <option value="custom">Custom Range</option>
+          </select>
+          <span id="report-custom-range" class="hidden">
+            <label>From <input type="date" id="report-start-date"></label>
+            <label>To <input type="date" id="report-end-date"></label>
+          </span>
         </span>
-      </span>
-      <button id="report-generate-btn" class="primary">Generate Report</button>
-      <button id="report-export-csv-btn" class="hidden">Export CSV</button>
-      <button id="report-print-btn" class="hidden">Print / Save PDF</button>
-      <select id="report-preset-select" title="Saved report periods"><option value="">Saved periods…</option></select>
-      <button id="report-preset-save-btn" title="Save the current period selection under a name">Save Period</button>
-      <button id="report-preset-delete-btn" title="Delete the selected saved period">Delete Period</button>
+        <select id="report-preset-select" title="Saved report periods"><option value="">Saved periods…</option></select>
+        <button id="report-preset-save-btn" title="Save the current period selection under a name">Save Period</button>
+        <button id="report-preset-delete-btn" title="Delete the selected saved period">Delete Period</button>
+      </div>
+      <div class="toolbar-group">
+        <span class="toolbar-group-label">Actions</span>
+        <button id="report-generate-btn" class="primary">Generate Report</button>
+        <button id="report-export-csv-btn" class="hidden">Export CSV</button>
+        <button id="report-print-btn" class="hidden">Print / Save PDF</button>
+      </div>
     </div>
     <div id="report-output"></div>
   </section>
 
   <section id="tab-settings" class="tab-panel">
-    <div id="stats-card" class="card"></div>
-    <div id="insights-card" class="card"></div>
-    <div id="background-tasks-card" class="card"></div>
-    <div id="storage-card" class="card"></div>
+    <details id="settings-stats" class="settings-section" open>
+      <summary>Library Stats</summary>
+      <div id="stats-card" class="card"></div>
+      <div id="insights-card" class="card"></div>
+      <div id="background-tasks-card" class="card"></div>
+      <div id="storage-card" class="card"></div>
+    </details>
 
     <nav class="settings-nav">
       <a href="#settings-accessibility">Accessibility</a>
@@ -505,14 +583,16 @@
       <a href="#settings-media-server">Media Server</a>
       <a href="#settings-watch-sync">Watch Sync</a>
       <a href="#settings-permissions">Permissions</a>
+      <a href="#settings-browser-cache">Browser Cache</a>
       <a href="#settings-config-history">Config History</a>
       <a href="#settings-backup">Backup</a>
       <a href="#settings-watch-import">Watch Import</a>
       <a href="#settings-webdav">WebDAV</a>
     </nav>
 
-    <h3 id="settings-accessibility">Accessibility</h3>
-    <div class="card">
+    <details id="settings-accessibility" class="settings-section">
+      <summary>Accessibility</summary>
+      <div class="card">
       <p class="hint">Per-browser display preferences (like the theme picker up top) -- stored locally, not in config.yaml.</p>
       <label>Text size
         <select id="font-size-select">
@@ -526,9 +606,11 @@
         <input type="checkbox" id="reduced-motion-toggle">
         Reduce motion (disables toasts/progress-bar/skeleton animations and transitions)
       </label>
-    </div>
+      </div>
+    </details>
 
-    <h3 id="settings-paths">Media Paths &amp; TMDB Key</h3>
+    <details id="settings-paths" class="settings-section" open>
+      <summary>Media Paths &amp; TMDB Key</summary>
     <form id="settings-form" class="card settings-form">
       <h5>Paths</h5>
       <label>Movies incoming directory
@@ -657,8 +739,10 @@
       <span id="settings-status"></span>
       <p class="hint">A backup of the previous config.yaml is kept as config.yaml.bak on every save.</p>
     </form>
+    </details>
 
-    <h3 id="settings-api-tokens">API Tokens (per-device, individually revocable)</h3>
+    <details id="settings-api-tokens" class="settings-section">
+      <summary>API Tokens (per-device, individually revocable)</summary>
     <div class="card">
       <p class="hint">An alternative to the single shared token above: create a named token per device/client and revoke just that one later, without breaking the others. Either kind of token is enough on its own to satisfy the API token check.</p>
       <div class="toolbar">
@@ -672,8 +756,10 @@
       <div id="new-api-token-reveal" class="hint hidden"></div>
       <div id="api-tokens-list"></div>
     </div>
+    </details>
 
-    <h3 id="settings-viewers">Viewers (per-viewer watch state)</h3>
+    <details id="settings-viewers" class="settings-section">
+      <summary>Viewers (per-viewer watch state)</summary>
     <div class="card">
       <p class="hint">No password -- named profiles for a household sharing this dashboard, so "has Alex watched this" can differ from "has Sam watched this". Pick a viewer from the top-right selector to make the Watched checkboxes reflect their own state instead of the shared one.</p>
       <div class="toolbar">
@@ -682,8 +768,10 @@
       </div>
       <div id="viewers-list"></div>
     </div>
+    </details>
 
-    <h3 id="settings-tags">Manage Tags</h3>
+    <details id="settings-tags" class="settings-section">
+      <summary>Manage Tags</summary>
     <div class="card danger-zone">
       <p class="hint">Renaming or deleting a tag applies to every movie/TV episode that has it -- unlike the per-item tag editor in the detail pane, or the gallery's "Tag Selected" toolbar (which only adds a tag to what's checked).</p>
       <div class="toolbar">
@@ -694,8 +782,10 @@
         <span id="manage-tags-status" class="hint"></span>
       </div>
     </div>
+    </details>
 
-    <h3 id="settings-naming">Naming Templates</h3>
+    <details id="settings-naming" class="settings-section">
+      <summary>Naming Templates</summary>
     <form id="naming-templates-form" class="card settings-form">
       <p class="hint">Blank resets to the default. A bad template (unknown token, bad format spec) silently falls back to the default for that file rather than failing the archive.</p>
       <label>Movie folder &amp; file name
@@ -719,8 +809,10 @@
       <button type="submit" class="primary">Save Naming Templates</button>
       <span id="naming-templates-status"></span>
     </form>
+    </details>
 
-    <h3 id="settings-media-server">Media Server Refresh (optional)</h3>
+    <details id="settings-media-server" class="settings-section">
+      <summary>Media Server Refresh (optional)</summary>
     <form id="media-server-form" class="card settings-form">
       <p class="hint">Best-effort "rescan library" ping after archiving or organizing a file. Leave a section blank to skip it.</p>
       <label>Plex URL
@@ -744,34 +836,44 @@
       <button type="submit" class="primary">Save Media Server Settings</button>
       <span id="media-server-status"></span>
     </form>
+    </details>
 
-    <h3 id="settings-watch-sync">Watch Status Sync</h3>
+    <details id="settings-watch-sync" class="settings-section">
+      <summary>Watch Status Sync</summary>
     <div class="card">
       <p class="hint">Pulls "watched" status back from Plex/Jellyfin for movies (matched by IMDb id). One-directional — only ever marks something watched, never unwatched, so a manual unwatch here is never overwritten.</p>
       <button id="sync-watched-btn">Sync Watch Status Now</button>
       <span id="sync-watched-status" class="hint"></span>
     </div>
+    </details>
 
-    <h3 id="settings-permissions">Storage Permissions</h3>
+    <details id="settings-permissions" class="settings-section">
+      <summary>Storage Permissions</summary>
     <div class="card">
       <button id="check-permissions-btn">Test Permissions</button>
       <div id="permissions-result"></div>
     </div>
+    </details>
 
-    <h3 id="settings-browser-cache">Browser Cache</h3>
+    <details id="settings-browser-cache" class="settings-section">
+      <summary>Browser Cache</summary>
     <div class="card">
       <p class="hint">If this browser is showing stale or missing items (e.g. a recently re-matched title not appearing) that show up fine elsewhere, clear this browser's cached app data and reload. Your settings, filters, and login token are kept.</p>
       <button id="clear-cache-btn">Clear Cache &amp; Reload</button>
       <span id="clear-cache-status" class="hint"></span>
     </div>
+    </details>
 
-    <h3 id="settings-config-history">Config Version History</h3>
+    <details id="settings-config-history" class="settings-section">
+      <summary>Config Version History</summary>
     <div class="card">
       <p class="hint">Every settings save keeps a copy of the previous config.yaml -- pick a version to view what changed or roll back to it.</p>
       <div id="config-history-list"></div>
     </div>
+    </details>
 
-    <h3 id="settings-backup">Backup &amp; Restore</h3>
+    <details id="settings-backup" class="settings-section">
+      <summary>Backup &amp; Restore</summary>
     <div class="card">
       <p class="hint">Exports/imports the library database (titles, watch state, matches) as JSON -- not the media files themselves.</p>
       <button id="export-library-btn">Export Library (JSON)</button>
@@ -780,8 +882,10 @@
       </label>
       <span id="backup-status" class="hint"></span>
     </div>
+    </details>
 
-    <h3 id="settings-watch-import">Import Watched History (Letterboxd)</h3>
+    <details id="settings-watch-import" class="settings-section">
+      <summary>Import Watched History (Letterboxd)</summary>
     <div class="card">
       <p class="hint">Marks movies watched (with the date and star rating) from a Letterboxd diary export -- Profile &gt; Export Data &gt; diary.csv. Movies only, matched by title + year against what's already in your library; anything unmatched is listed so you can fix it up manually.</p>
       <label>diary.csv
@@ -789,8 +893,10 @@
       </label>
       <span id="watch-history-import-status" class="hint"></span>
     </div>
+    </details>
 
-    <h3 id="settings-webdav">Scheduled Backup &amp; Remote Backup (WebDAV)</h3>
+    <details id="settings-webdav" class="settings-section">
+      <summary>Scheduled Backup &amp; Remote Backup (WebDAV)</summary>
     <form id="webdav-backup-form" class="card settings-form">
       <p class="hint">A daily backup of config.yaml + the database always runs locally on this schedule; setting a WebDAV URL below also pushes each one to a remote (Nextcloud, NAS, etc). Leave URL blank to keep local-only.</p>
       <label class="checkbox-label">
@@ -818,12 +924,14 @@
       <button type="submit" class="primary">Save WebDAV Settings</button>
       <span id="webdav-backup-status"></span>
     </form>
+    </details>
   </section>
 </main>
 
 <div id="duplicates-modal" class="modal hidden">
   <div class="modal-content duplicates-modal-content">
-    <p>Duplicate groups (same TMDB title/season/episode tracked by more than one file). Keep the copy you want and delete the rest.</p>
+    <h4>Review Duplicates</h4>
+    <p class="hint">Duplicate groups (same TMDB title/season/episode tracked by more than one file). Keep the copy you want and delete the rest.</p>
     <div id="duplicates-list"></div>
     <button id="duplicates-close-btn">Close</button>
   </div>
@@ -839,7 +947,8 @@
 
 <div id="bulk-track-modal" class="modal hidden">
   <div class="modal-content bulk-track-modal-content">
-    <p>Paste one title per line, pick the type, then preview TMDB matches before confirming.</p>
+    <h4>Bulk Add</h4>
+    <p class="hint">Paste one title per line, pick the type, then preview TMDB matches before confirming.</p>
     <select id="bulk-track-media-type">
       <option value="movie">Movies</option>
       <option value="tv">TV Shows</option>
@@ -862,7 +971,8 @@
 
 <div id="match-modal" class="modal hidden">
   <div class="modal-content match-modal-content">
-    <p>Choose the correct match:</p>
+    <h4>Change Match</h4>
+    <p class="hint">Choose the correct match:</p>
     <div class="match-search-row">
       <input type="text" id="match-search-input" placeholder="Search by name...">
       <button id="match-search-btn">Search</button>

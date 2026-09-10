@@ -61,6 +61,41 @@ export async function exportHistoryView() {
   }
 }
 
+// ---- Filters popover (type / status / since / until) ----
+const HISTORY_FILTER_IDS = ["history-type-filter", "history-status-filter", "history-since-filter", "history-until-filter"];
+
+function updateHistoryFilterBadge() {
+  const badge = $("#history-filters-badge");
+  if (!badge) return;
+  const active = HISTORY_FILTER_IDS.filter((id) => $(`#${id}`).value !== "").length;
+  badge.textContent = String(active);
+  badge.classList.toggle("hidden", active === 0);
+}
+
+export function setupHistoryFilterPopover() {
+  const btn = $("#history-filters-btn");
+  const panel = $("#history-filters-panel");
+  const clearBtn = $("#history-filters-clear-btn");
+  if (!btn || !panel) return;
+  const close = () => { panel.classList.add("hidden"); btn.setAttribute("aria-expanded", "false"); };
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const opening = panel.classList.contains("hidden");
+    close();
+    if (opening) { panel.classList.remove("hidden"); btn.setAttribute("aria-expanded", "true"); }
+  });
+  panel.addEventListener("click", (e) => e.stopPropagation());
+  clearBtn?.addEventListener("click", () => {
+    HISTORY_FILTER_IDS.forEach((id) => { $(`#${id}`).value = ""; });
+    updateHistoryFilterBadge();
+    loadHistory();
+  });
+  HISTORY_FILTER_IDS.forEach((id) => $(`#${id}`).addEventListener("change", updateHistoryFilterBadge));
+  document.addEventListener("click", close);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+  updateHistoryFilterBadge();
+}
+
 async function undoOperation(opId) {
   const ok = await showConfirm("Undo this operation? This moves/deletes the file on disk.");
   if (!ok) return;

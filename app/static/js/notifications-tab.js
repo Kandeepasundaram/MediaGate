@@ -305,6 +305,36 @@ export function trackerCategoryLabel(category) {
   return TRACKER_CATEGORIES.find((c) => c.value === category)?.label || category;
 }
 
+// "+ New Universe" starts collapsed to a single button; clicking it reveals
+// the name input + Create button inline, and focuses the input.
+export function setupUniverseCreateToggle() {
+  const toggleBtn = $("#universe-create-toggle-btn");
+  const form = $("#universe-create-form");
+  if (!toggleBtn || !form) return;
+  toggleBtn.addEventListener("click", () => {
+    form.classList.remove("hidden");
+    toggleBtn.classList.add("hidden");
+    $("#new-universe-name").focus();
+  });
+}
+
+// Collapses the reveal-form back to just the toggle button once a universe
+// is actually created, so the tab returns to its default (collapsed) state.
+function collapseUniverseCreateForm() {
+  $("#universe-create-form")?.classList.add("hidden");
+  $("#universe-create-toggle-btn")?.classList.remove("hidden");
+}
+
+// Closes the "+ Track" dropdown as soon as one of its options is clicked,
+// so the menu doesn't stay open behind the modal that action opens.
+export function setupTrackAddMenu() {
+  const menu = $("#track-add-menu");
+  if (!menu) return;
+  menu.querySelectorAll("button").forEach((btn) => {
+    btn.addEventListener("click", () => { menu.open = false; });
+  });
+}
+
 export function setupTrackerCategoryTabs() {
   $all("#tracker-category-tabs .season-tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -415,6 +445,7 @@ export async function createUniverseAction() {
     });
     input.value = "";
     $("#universe-status").textContent = "";
+    collapseUniverseCreateForm();
     loadTrackerTab();
   } catch (e) {
     $("#universe-status").textContent = `Error: ${e.message}`;

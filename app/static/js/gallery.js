@@ -531,6 +531,101 @@ export function setupFilterPersistence() {
   populatePresetSelect("tv");
 }
 
+// ---- Filters popover (Movies/TV toolbars) ----
+// Collapses the long tail of secondary selects (everything but search/sort/
+// pinned-only) behind one "Filters" button instead of showing 9-10 selects
+// at all times -- app.js still wires each select's own change listener
+// directly by id, this only adds show/hide + an active-count badge + reset.
+const FILTER_POPOVER_SELECT_IDS = {
+  movies: ["movies-filter", "movies-genre", "movies-tag", "movies-collection", "movies-resolution", "movies-watch", "movies-year", "movies-rating", "movies-added", "movies-watched-within"],
+  tv: ["tv-filter", "tv-genre", "tv-tag", "tv-collection", "tv-resolution", "tv-watch", "tv-year", "tv-rating", "tv-added", "tv-watched-within"],
+};
+
+// Every popover select's "no filter applied" value is "" except the
+// All/Unmatched-only select, whose default is "all".
+function filterDefaultFor(id) {
+  return id.endsWith("-filter") ? "all" : "";
+}
+
+export function updateFilterBadge(prefix) {
+  const badge = $(`#${prefix}-filters-badge`);
+  if (!badge) return;
+  const active = FILTER_POPOVER_SELECT_IDS[prefix].filter((id) => {
+    const el = document.getElementById(id);
+    return el && el.value !== filterDefaultFor(id);
+  }).length;
+  if (active > 0) {
+    badge.textContent = String(active);
+    badge.classList.remove("hidden");
+  } else {
+    badge.classList.add("hidden");
+  }
+}
+
+function closeAllFilterPopovers() {
+  document.querySelectorAll(".filter-popover-panel").forEach((p) => p.classList.add("hidden"));
+  document.querySelectorAll(".filter-popover-btn").forEach((b) => b.setAttribute("aria-expanded", "false"));
+}
+
+export function setupFilterPopovers() {
+  ["movies", "tv"].forEach((prefix) => {
+    const btn = $(`#${prefix}-filters-btn`);
+    const panel = $(`#${prefix}-filters-panel`);
+    const clearBtn = $(`#${prefix}-filters-clear-btn`);
+    if (!btn || !panel) return;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const opening = panel.classList.contains("hidden");
+      closeAllFilterPopovers();
+      if (opening) {
+        panel.classList.remove("hidden");
+        btn.setAttribute("aria-expanded", "true");
+      }
+    });
+    panel.addEventListener("click", (e) => e.stopPropagation());
+    clearBtn?.addEventListener("click", () => {
+      FILTER_POPOVER_SELECT_IDS[prefix].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.value = filterDefaultFor(id);
+      });
+      (prefix === "tv" ? renderTvGallery : renderMoviesGallery)();
+    });
+    updateFilterBadge(prefix);
+  });
+  document.addEventListener("click", closeAllFilterPopovers);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllFilterPopovers(); });
+}
+
+// ---- Selection bar (Movies/TV toolbars) ----
+// The batch-action buttons (mark watched, tag, rematch, delete, ...) only
+// make sense once at least one card is checked -- shown as one contextual
+// bar instead of a dozen permanently-visible-but-inert buttons. Select All
+// and Export stay outside the bar since neither depends on a selection.
+export function refreshSelectionBar(prefix) {
+  const bar = $(`#${prefix}-selection-bar`);
+  if (!bar) return;
+  const count = document.querySelectorAll(`#${prefix}-gallery .gallery-select:checked`).length;
+  bar.classList.toggle("hidden", count === 0);
+  const countEl = $(`#${prefix}-selection-count`);
+  if (countEl) countEl.textContent = count > 0 ? `${count} selected` : "";
+}
+
+// Individual checkbox clicks fire a native "change" event that bubbles, so
+// one delegated listener on the gallery container (which survives every
+// re-render -- only its innerHTML is replaced) catches those. Bulk toggles
+// that set .checked directly without dispatching "change" (Select All in
+// app.js, drag-select above) call refreshSelectionBar() themselves instead.
+export function setupSelectionBars() {
+  ["movies", "tv"].forEach((prefix) => {
+    const gallery = $(`#${prefix}-gallery`);
+    if (!gallery) return;
+    gallery.addEventListener("change", (e) => {
+      if (e.target.classList.contains("gallery-select")) refreshSelectionBar(prefix);
+    });
+    refreshSelectionBar(prefix);
+  });
+}
+
 function distinctGenres(items) {
   return Array.from(new Set(items.flatMap((i) => i.genres || []))).sort();
 }
@@ -592,7 +687,8 @@ function applyGalleryViewMode(prefix) {
   const btn = $(`#${prefix}-view-toggle-btn`);
   if (!gallery || !btn) return;
   gallery.classList.toggle("gallery-list-mode", mode === "list");
-  btn.textContent = mode === "list" ? "🔳 Grid View" : "☰ List View";
+  btn.textContent = mode === "list" ? "🔳" : "☰";
+  btn.title = mode === "list" ? "Switch to grid view" : "Switch to list view";
 }
 
 export function setupGalleryViewMode() {
@@ -724,6 +820,7 @@ export function renderMoviesGallery() {
   const addedFilter = $("#movies-added").value;
   const watchedFilter = $("#movies-watched-within").value;
   const pinnedOnly = $("#movies-pinned-only").checked;
+  updateFilterBadge("movies");
   const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly }));
   populateAzRail("movies", items);
   const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly]);
@@ -919,6 +1016,8 @@ export function enableGalleryDragSelect(container) {
           if (cb) cb.checked = true;
         }
       });
+      const prefix = container.id === "tv-gallery" ? "tv" : "movies";
+      refreshSelectionBar(prefix);
     };
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
@@ -1421,6 +1520,7 @@ export function renderTvGallery() {
   const addedFilter = $("#tv-added").value;
   const watchedFilter = $("#tv-watched-within").value;
   const pinnedOnly = $("#tv-pinned-only").checked;
+  updateFilterBadge("tv");
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
   const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly }));
