@@ -175,6 +175,35 @@ def test_set_watched_404_for_missing_item(client):
     assert resp.status_code == 404
 
 
+def test_set_watched_pushes_to_jellyfin_for_movie_with_imdb_id(client):
+    c, db = client
+    media_id = _seed_movie(db, imdb_id="tt0000001")
+
+    with patch("app.api.routes.library.push_watched_to_media_servers") as mock_push:
+        c.post(f"/api/library/{media_id}/watched", json={"watched": True})
+    mock_push.assert_called_once()
+    assert mock_push.call_args.args[1:] == ("tt0000001", True)
+
+
+def test_set_watched_skips_push_for_tv(client):
+    c, db = client
+    media_id = _seed_movie(db, media_type="tv", imdb_id="tt0000001", final_path="/archive/Show/S01E01.mkv")
+
+    with patch("app.api.routes.library.push_watched_to_media_servers") as mock_push:
+        c.post(f"/api/library/{media_id}/watched", json={"watched": True})
+    mock_push.assert_not_called()
+
+
+def test_set_watched_batch_pushes_to_jellyfin_for_movies(client):
+    c, db = client
+    media_id = _seed_movie(db, imdb_id="tt0000001")
+
+    with patch("app.api.routes.library.push_watched_to_media_servers") as mock_push:
+        c.post("/api/library/watched-batch", json={"ids": [media_id], "watched": True})
+    mock_push.assert_called_once()
+    assert mock_push.call_args.args[1:] == ("tt0000001", True)
+
+
 def test_list_handles_missing_metadata_gracefully(client):
     c, db = client
     _seed_movie(db, metadata=None)

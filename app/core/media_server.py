@@ -178,25 +178,34 @@ def play_on_jellyfin_session(url: str, api_key: str, session_id: str, item_id: s
         return False
 
 
+def _jellyfin_first_user_id(url: str, api_key: str) -> str | None:
+    """First account /Users returns -- Jellyfin's played state is per-user
+    and has no "any user" query, so this is the only account on most
+    single-user homelab installs anyway. Shared by the watched-status pull
+    below and the push path (push_watched_to_jellyfin)."""
+    try:
+        resp = requests.get(f"{url.rstrip('/')}/Users", headers={"X-Emby-Token": api_key}, timeout=_TIMEOUT_SECONDS)
+        resp.raise_for_status()
+        users = resp.json()
+        return users[0]["Id"] if users else None
+    except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+        logger.warning("Jellyfin user lookup failed: %s", exc)
+        return None
+
+
 def _jellyfin_watched_imdb_ids(url: str, api_key: str) -> set[str]:
-    """IMDb ids of every movie Jellyfin's first user has marked played.
-    Jellyfin's played state is per-user (unlike Plex's per-token view), and
-    the API has no "any user" query -- best-effort picks whichever account
-    /Users returns first, which is the only account on most single-user
-    homelab installs anyway."""
+    """IMDb ids of every movie Jellyfin's first user has marked played."""
     watched: set[str] = set()
     headers = {"X-Emby-Token": api_key}
+    user_id = _jellyfin_first_user_id(url, api_key)
+    if not user_id:
+        return watched
     try:
-        users_resp = requests.get(f"{url.rstrip('/')}/Users", headers=headers, timeout=_TIMEOUT_SECONDS)
-        users_resp.raise_for_status()
-        users = users_resp.json()
-        if not users:
-            return watched
         items_resp = requests.get(
             f"{url.rstrip('/')}/Items",
             headers=headers,
             params={
-                "userId": users[0]["Id"],
+                "userId": user_id,
                 "IncludeItemTypes": "Movie",
                 "Recursive": "true",
                 "Fields": "ProviderIds",
@@ -209,9 +218,46 @@ def _jellyfin_watched_imdb_ids(url: str, api_key: str) -> set[str]:
             imdb_id = (item.get("ProviderIds") or {}).get("Imdb")
             if imdb_id:
                 watched.add(imdb_id)
-    except (requests.RequestException, ValueError, KeyError, IndexError) as exc:
+    except (requests.RequestException, ValueError, KeyError) as exc:
         logger.warning("Jellyfin watched-status fetch failed: %s", exc)
     return watched
+
+
+def push_watched_to_jellyfin(url: str, api_key: str, imdb_id: str, watched: bool) -> bool:
+    """Marks (watched=True) or unmarks (False) a movie played on Jellyfin's
+    first user account -- the reverse direction of
+    _jellyfin_watched_imdb_ids/sync_watched_from_media_servers, same
+    imdb_id matching and same first-account assumption. False (not raised)
+    if Jellyfin doesn't know this title yet, has no reachable user, or the
+    request itself fails -- same "just doesn't sync" tolerance as this
+    file's other Plex/Jellyfin calls."""
+    item_id = jellyfin_item_id_for_imdb(url, api_key, imdb_id)
+    user_id = _jellyfin_first_user_id(url, api_key)
+    if not item_id or not user_id:
+        return False
+    try:
+        method = requests.post if watched else requests.delete
+        resp = method(
+            f"{url.rstrip('/')}/Users/{user_id}/PlayedItems/{item_id}",
+            headers={"X-Emby-Token": api_key},
+            timeout=_TIMEOUT_SECONDS,
+        )
+        return resp.ok
+    except requests.RequestException as exc:
+        logger.warning("Jellyfin push watched-state failed: %s", exc)
+        return False
+
+
+def push_watched_to_media_servers(config: AppConfig, imdb_id: str | None, watched: bool) -> None:
+    """Pushes a manual watched-state toggle from this app's own UI out to
+    Jellyfin -- the reverse of sync_watched_from_media_servers's pull.
+    Movies only (imdb_id is only ever set for movies in media_items);
+    no-ops silently if Jellyfin isn't configured or the item has no
+    imdb_id, same config-presence gating as notify_media_servers."""
+    if not imdb_id:
+        return
+    if config.media_server.jellyfin_url and config.media_server.jellyfin_api_key:
+        push_watched_to_jellyfin(config.media_server.jellyfin_url, config.media_server.jellyfin_api_key, imdb_id, watched)
 
 
 def sync_watched_from_media_servers(config: AppConfig, db: Database) -> int:

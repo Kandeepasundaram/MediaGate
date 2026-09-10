@@ -30,6 +30,7 @@ from app.core.media_server import (
     jellyfin_item_id_for_imdb,
     list_jellyfin_sessions,
     play_on_jellyfin_session,
+    push_watched_to_media_servers,
     sync_watched_from_media_servers,
 )
 from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, resolve_season_episodes, season_episode_counts, vote_average_for
@@ -726,21 +727,31 @@ def import_watch_history(payload: WatchHistoryImportRequest, db: Database = Depe
 
 
 @router.post("/{item_id}/watched", response_model=LibraryItemOut)
-def set_watched(item_id: int, payload: WatchedUpdateRequest, db: Database = Depends(get_database)) -> LibraryItemOut:
-    if db.get_media_item(item_id) is None:
+def set_watched(
+    item_id: int, payload: WatchedUpdateRequest, db: Database = Depends(get_database), config: AppConfig = Depends(get_config)
+) -> LibraryItemOut:
+    item = db.get_media_item(item_id)
+    if item is None:
         raise HTTPException(status_code=404, detail="Media item not found")
     db.update_media_item(item_id, watched=1 if payload.watched else 0, watched_at=_watched_at_for(payload.watched))
+    if item["media_type"] == "movie":
+        push_watched_to_media_servers(config, item["imdb_id"], payload.watched)
     return _to_out(db.get_media_item(item_id))
 
 
 @router.post("/watched-batch", response_model=WatchedBatchResponse)
-def set_watched_batch(payload: WatchedBatchRequest, db: Database = Depends(get_database)) -> WatchedBatchResponse:
+def set_watched_batch(
+    payload: WatchedBatchRequest, db: Database = Depends(get_database), config: AppConfig = Depends(get_config)
+) -> WatchedBatchResponse:
     updated = 0
     watched_at = _watched_at_for(payload.watched)
     for item_id in payload.ids:
-        if db.get_media_item(item_id) is None:
+        item = db.get_media_item(item_id)
+        if item is None:
             continue
         db.update_media_item(item_id, watched=1 if payload.watched else 0, watched_at=watched_at)
+        if item["media_type"] == "movie":
+            push_watched_to_media_servers(config, item["imdb_id"], payload.watched)
         updated += 1
     return WatchedBatchResponse(updated=updated)
 

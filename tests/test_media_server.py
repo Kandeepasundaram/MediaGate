@@ -8,6 +8,8 @@ from app.core.media_server import (
     list_jellyfin_sessions,
     notify_media_servers,
     play_on_jellyfin_session,
+    push_watched_to_jellyfin,
+    push_watched_to_media_servers,
     sync_watched_from_media_servers,
 )
 
@@ -205,3 +207,85 @@ def test_play_on_jellyfin_session_swallows_request_errors():
     with patch("app.core.media_server.requests.post", side_effect=requests.RequestException("down")):
         success = play_on_jellyfin_session("http://jf.local:8096", "key", "session-1", "item-1")  # must not raise
     assert success is False
+
+
+def _mock_item_and_user_lookups(item_id="abc123", user_id="user-1"):
+    items_resp = MagicMock()
+    items_resp.json.return_value = {"Items": [{"Id": item_id, "ProviderIds": {"Imdb": "tt0000001"}}]}
+    users_resp = MagicMock()
+    users_resp.json.return_value = [{"Id": user_id}]
+    return [items_resp, users_resp]
+
+
+def test_push_watched_to_jellyfin_posts_played_item_when_watched():
+    post_resp = MagicMock(ok=True)
+    with patch("app.core.media_server.requests.get", side_effect=_mock_item_and_user_lookups()), patch(
+        "app.core.media_server.requests.post", return_value=post_resp
+    ) as mock_post:
+        result = push_watched_to_jellyfin("http://jf.local:8096", "key", "tt0000001", True)
+
+    assert result is True
+    assert mock_post.call_args.args[0] == "http://jf.local:8096/Users/user-1/PlayedItems/abc123"
+    assert mock_post.call_args.kwargs["headers"]["X-Emby-Token"] == "key"
+
+
+def test_push_watched_to_jellyfin_deletes_played_item_when_unwatched():
+    delete_resp = MagicMock(ok=True)
+    with patch("app.core.media_server.requests.get", side_effect=_mock_item_and_user_lookups()), patch(
+        "app.core.media_server.requests.delete", return_value=delete_resp
+    ) as mock_delete:
+        result = push_watched_to_jellyfin("http://jf.local:8096", "key", "tt0000001", False)
+
+    assert result is True
+    assert mock_delete.call_args.args[0] == "http://jf.local:8096/Users/user-1/PlayedItems/abc123"
+
+
+def test_push_watched_to_jellyfin_returns_false_when_item_not_found():
+    items_resp = MagicMock()
+    items_resp.json.return_value = {"Items": []}
+    users_resp = MagicMock()
+    users_resp.json.return_value = [{"Id": "user-1"}]
+    with patch("app.core.media_server.requests.get", side_effect=[items_resp, users_resp]), patch(
+        "app.core.media_server.requests.post"
+    ) as mock_post:
+        result = push_watched_to_jellyfin("http://jf.local:8096", "key", "tt9999999", True)
+
+    assert result is False
+    mock_post.assert_not_called()
+
+
+def test_push_watched_to_jellyfin_swallows_request_errors():
+    import requests
+
+    with patch("app.core.media_server.requests.get", side_effect=_mock_item_and_user_lookups()), patch(
+        "app.core.media_server.requests.post", side_effect=requests.RequestException("down")
+    ):
+        result = push_watched_to_jellyfin("http://jf.local:8096", "key", "tt0000001", True)  # must not raise
+    assert result is False
+
+
+def test_push_watched_to_media_servers_noop_when_unconfigured():
+    config = _FakeConfig()
+    with patch("app.core.media_server.requests.get") as mock_get, patch(
+        "app.core.media_server.requests.post"
+    ) as mock_post:
+        push_watched_to_media_servers(config, "tt0000001", True)
+    mock_get.assert_not_called()
+    mock_post.assert_not_called()
+
+
+def test_push_watched_to_media_servers_noop_when_no_imdb_id():
+    config = _FakeConfig(jellyfin_url="http://jf.local:8096", jellyfin_api_key="key")
+    with patch("app.core.media_server.requests.get") as mock_get:
+        push_watched_to_media_servers(config, None, True)
+    mock_get.assert_not_called()
+
+
+def test_push_watched_to_media_servers_calls_jellyfin_when_configured():
+    config = _FakeConfig(jellyfin_url="http://jf.local:8096", jellyfin_api_key="key")
+    post_resp = MagicMock(ok=True)
+    with patch("app.core.media_server.requests.get", side_effect=_mock_item_and_user_lookups()), patch(
+        "app.core.media_server.requests.post", return_value=post_resp
+    ) as mock_post:
+        push_watched_to_media_servers(config, "tt0000001", True)
+    mock_post.assert_called_once()
