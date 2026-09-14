@@ -1342,6 +1342,30 @@ def test_sync_watched_route_returns_updated_count(client):
     assert db.get_media_item(item_id)["watched"] == 1
 
 
+def test_push_watched_jellyfin_route_returns_pushed_count(client):
+    c, db = client
+    _seed_movie(db, title="Movie", final_path="/archive/m.mkv", imdb_id="tt0000001", watched=1)
+
+    from app.config_loader import MediaServerConfig
+    from app.dependencies import get_config
+
+    base_config = app.dependency_overrides[get_config]()
+    base_config.media_server = MediaServerConfig(jellyfin_url="http://jf.local:8096", jellyfin_api_key="key")
+
+    items_resp = MagicMock()
+    items_resp.json.return_value = {"Items": [{"Id": "abc123", "ProviderIds": {"Imdb": "tt0000001"}}]}
+    users_resp = MagicMock()
+    users_resp.json.return_value = [{"Id": "user-1"}]
+    post_resp = MagicMock(ok=True)
+
+    with patch("app.core.media_server.requests.get", side_effect=[items_resp, users_resp]), patch(
+        "app.core.media_server.requests.post", return_value=post_resp
+    ):
+        resp = c.post("/api/library/push-watched-jellyfin")
+    assert resp.status_code == 200
+    assert resp.json()["pushed"] == 1
+
+
 def test_refresh_metadata_updates_title_and_metadata_keeping_tmdb_id(client):
     c, db = client
     item_id = _seed_movie(

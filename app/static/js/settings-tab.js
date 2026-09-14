@@ -691,6 +691,23 @@ export async function syncWatchedFromMediaServers() {
   }
 }
 
+export async function pushWatchedToJellyfin() {
+  const btn = $("#push-watched-jellyfin-btn");
+  const status = $("#push-watched-jellyfin-status");
+  btn.disabled = true;
+  status.textContent = "Pushing…";
+  try {
+    const data = await api("/api/library/push-watched-jellyfin", { method: "POST" });
+    status.textContent = data.pushed > 0
+      ? `Pushed watched status for ${data.pushed} movie(s) to Jellyfin.`
+      : "Nothing pushed — no watched movies with an IMDb id, or Jellyfin isn't configured.";
+  } catch (e) {
+    status.textContent = `Push failed: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // Clears the two things that can make this browser keep showing stale data
 // after the server's already moved on: the PWA service worker's Cache
 // Storage entries (sw.js is network-first, but a browser that installed an

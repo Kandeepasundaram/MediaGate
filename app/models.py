@@ -310,6 +310,10 @@ class SyncWatchedResponse(BaseModel):
     updated: int
 
 
+class PushWatchedResponse(BaseModel):
+    pushed: int
+
+
 class ViewerOut(BaseModel):
     id: int
     name: str

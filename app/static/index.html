@@ -862,6 +862,10 @@
       <p class="hint">Pulls "watched" status back from Plex/Jellyfin for movies (matched by IMDb id). One-directional — only ever marks something watched, never unwatched, so a manual unwatch here is never overwritten.</p>
       <button id="sync-watched-btn">Sync Watch Status Now</button>
       <span id="sync-watched-status" class="hint"></span>
+      <hr>
+      <p class="hint">Pushes every movie already marked watched here out to Jellyfin, in one go — for catching a Jellyfin server up on this app's watch history (e.g. right after connecting it here). Movies only, matched by IMDb id.</p>
+      <button id="push-watched-jellyfin-btn">Push Watch Status to Jellyfin</button>
+      <span id="push-watched-jellyfin-status" class="hint"></span>
     </div>
     </details>
 

@@ -31,6 +31,7 @@ from app.core.media_server import (
     jellyfin_item_id_for_imdb,
     list_jellyfin_sessions,
     play_on_jellyfin_session,
+    push_all_watched_to_jellyfin,
     push_watched_to_media_servers,
     sync_watched_from_media_servers,
 )
@@ -57,6 +58,7 @@ from app.models import (
     PersonalRatingUpdateRequest,
     PersonCreditItemOut,
     PersonCreditsResponse,
+    PushWatchedResponse,
     RatingsOut,
     RecommendationOut,
     RecommendationsResponse,
@@ -326,6 +328,14 @@ def sync_watched(config: AppConfig = Depends(get_config), db: Database = Depends
     see sync_watched_from_media_servers for the matching rules and the
     movies-only, one-directional scope."""
     return SyncWatchedResponse(updated=sync_watched_from_media_servers(config, db))
+
+
+@router.post("/push-watched-jellyfin", response_model=PushWatchedResponse)
+def push_watched_jellyfin(config: AppConfig = Depends(get_config), db: Database = Depends(get_database)) -> PushWatchedResponse:
+    """Manual trigger for the reverse direction of /sync-watched: pushes
+    every movie this app has marked watched out to Jellyfin in one go --
+    see push_all_watched_to_jellyfin."""
+    return PushWatchedResponse(pushed=push_all_watched_to_jellyfin(config, db))
 
 
 @router.get("/tags", response_model=TagsListResponse)

@@ -8,6 +8,7 @@ from app.core.media_server import (
     list_jellyfin_sessions,
     notify_media_servers,
     play_on_jellyfin_session,
+    push_all_watched_to_jellyfin,
     push_watched_to_jellyfin,
     push_watched_to_media_servers,
     sync_watched_from_media_servers,
@@ -289,3 +290,61 @@ def test_push_watched_to_media_servers_calls_jellyfin_when_configured():
     ) as mock_post:
         push_watched_to_media_servers(config, "tt0000001", True)
     mock_post.assert_called_once()
+
+
+def test_push_all_watched_to_jellyfin_noop_when_unconfigured(db):
+    config = _FakeConfig()
+    _seed_movie(db, imdb_id="tt0000001", watched=1)
+    with patch("app.core.media_server.requests.get") as mock_get, patch(
+        "app.core.media_server.requests.post"
+    ) as mock_post:
+        pushed = push_all_watched_to_jellyfin(config, db)
+    mock_get.assert_not_called()
+    mock_post.assert_not_called()
+    assert pushed == 0
+
+
+def test_push_all_watched_to_jellyfin_skips_unwatched_and_no_imdb_id(db):
+    config = _FakeConfig(jellyfin_url="http://jf.local:8096", jellyfin_api_key="key")
+    _seed_movie(db, imdb_id="tt0000001", watched=0, title="Unwatched")
+    _seed_movie(db, imdb_id=None, watched=1, title="NoImdb")
+    with patch("app.core.media_server.requests.get") as mock_get, patch(
+        "app.core.media_server.requests.post"
+    ) as mock_post:
+        pushed = push_all_watched_to_jellyfin(config, db)
+    mock_get.assert_not_called()
+    mock_post.assert_not_called()
+    assert pushed == 0
+
+
+def test_push_all_watched_to_jellyfin_pushes_each_watched_movie(db):
+    config = _FakeConfig(jellyfin_url="http://jf.local:8096", jellyfin_api_key="key")
+    _seed_movie(db, imdb_id="tt0000001", watched=1, title="A")
+    _seed_movie(db, imdb_id="tt0000002", watched=1, title="B")
+    _seed_movie(db, imdb_id="tt0000003", watched=0, title="C")
+
+    # Both watched movies' items in every /Items response, and one shared
+    # /Users response -- order-independent, since list_media_items (ORDER BY
+    # created_at DESC) doesn't guarantee which of same-second-created rows
+    # this test seeds comes first.
+    def _fake_get(url, **kwargs):
+        resp = MagicMock()
+        if url.endswith("/Items"):
+            resp.json.return_value = {
+                "Items": [
+                    {"Id": "item-1", "ProviderIds": {"Imdb": "tt0000001"}},
+                    {"Id": "item-2", "ProviderIds": {"Imdb": "tt0000002"}},
+                ]
+            }
+        else:
+            resp.json.return_value = [{"Id": "user-1"}]
+        return resp
+
+    post_resp = MagicMock(ok=True)
+    with patch("app.core.media_server.requests.get", side_effect=_fake_get), patch(
+        "app.core.media_server.requests.post", return_value=post_resp
+    ) as mock_post:
+        pushed = push_all_watched_to_jellyfin(config, db)
+
+    assert pushed == 2
+    assert mock_post.call_count == 2

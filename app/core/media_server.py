@@ -260,6 +260,29 @@ def push_watched_to_media_servers(config: AppConfig, imdb_id: str | None, watche
         push_watched_to_jellyfin(config.media_server.jellyfin_url, config.media_server.jellyfin_api_key, imdb_id, watched)
 
 
+def push_all_watched_to_jellyfin(config: AppConfig, db: Database) -> int:
+    """One-click bulk push, the reverse of sync_watched_from_media_servers:
+    every movie this app already has marked watched gets pushed to
+    Jellyfin's PlayedItems, in one pass -- unlike push_watched_to_media_servers
+    (fired automatically per-item off a single watched-toggle), this is for
+    getting a Jellyfin server that's never seen this app's watch history
+    caught up in one click, e.g. after a fresh Jellyfin install or first
+    connecting Jellyfin here. Movies only, same imdb_id matching as the rest
+    of this file; unwatched-here movies are left alone -- this only ever
+    pushes True, mirroring sync's only-ever-True pull direction. 0 (not
+    raised) if Jellyfin isn't configured.
+    """
+    if not (config.media_server.jellyfin_url and config.media_server.jellyfin_api_key):
+        return 0
+    pushed = 0
+    for row in db.list_media_items(media_type="movie"):
+        if not row["watched"] or not row["imdb_id"]:
+            continue
+        if push_watched_to_jellyfin(config.media_server.jellyfin_url, config.media_server.jellyfin_api_key, row["imdb_id"], True):
+            pushed += 1
+    return pushed
+
+
 def sync_watched_from_media_servers(config: AppConfig, db: Database) -> int:
     """Pulls "watched" status back from Plex/Jellyfin into media_items --
     movies only, matched by imdb_id (already stored on the row for
