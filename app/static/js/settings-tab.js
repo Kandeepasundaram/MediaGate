@@ -183,8 +183,6 @@ export async function saveSettings(e) {
   };
   const keyValue = $("#setting-tmdb-key").value;
   if (keyValue) payload.tmdb_api_key = keyValue;
-  const omdbKeyValue = $("#setting-omdb-key").value;
-  if (omdbKeyValue) payload.omdb_api_key = omdbKeyValue;
   const apiTokenValue = $("#setting-api-token").value;
   if (apiTokenValue) payload.api_token = apiTokenValue;
   const telegramTokenValue = $("#setting-telegram-bot-token").value;
@@ -200,7 +198,6 @@ export async function saveSettings(e) {
   try {
     await api("/api/settings", { method: "POST", body: JSON.stringify(payload) });
     $("#setting-tmdb-key").value = "";
-    $("#setting-omdb-key").value = "";
     $("#setting-api-token").value = "";
     $("#setting-telegram-bot-token").value = "";
     $("#setting-pushover-api-token").value = "";
@@ -238,6 +235,24 @@ export async function saveNamingTemplates(e) {
     loadSettings();
   } catch (e) {
     $("#naming-templates-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+export async function saveOmdbKey(e) {
+  e.preventDefault();
+  const keyValue = $("#setting-omdb-key").value;
+  if (!keyValue) {
+    $("#omdb-status").textContent = "Type a key above to save it.";
+    return;
+  }
+  $("#omdb-status").textContent = "Saving...";
+  try {
+    await api("/api/settings", { method: "POST", body: JSON.stringify({ omdb_api_key: keyValue }) });
+    $("#setting-omdb-key").value = "";
+    $("#omdb-status").textContent = "Saved.";
+    loadSettings();
+  } catch (e) {
+    $("#omdb-status").textContent = `Error: ${e.message}`;
   }
 }
 

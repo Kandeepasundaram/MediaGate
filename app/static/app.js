@@ -16,7 +16,7 @@ import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificat
 import { setupReportsTab } from "./js/reports-tab.js";
 import { exportWatchlistCsv, renderWatchlist } from "./js/watchlist-tab.js";
 import { closeWhatsNew, maybeShowWhatsNew } from "./js/whats-new.js";
-import { checkPermissions, clearBrowserCache, createApiToken, createViewerAction, deleteTagAction, disableApiToken, exportLibrary, importLibrary, importWatchHistory, loadViewers, previewDigest, renameTagAction, saveMediaServerSettings, saveNamingTemplates, saveSettings, saveWebdavBackupSettings, setupSettingsAccordion, syncWatchedFromMediaServers, testTmdbKey } from "./js/settings-tab.js";
+import { checkPermissions, clearBrowserCache, createApiToken, createViewerAction, deleteTagAction, disableApiToken, exportLibrary, importLibrary, importWatchHistory, loadViewers, previewDigest, renameTagAction, saveMediaServerSettings, saveNamingTemplates, saveOmdbKey, saveSettings, saveWebdavBackupSettings, setupSettingsAccordion, syncWatchedFromMediaServers, testTmdbKey } from "./js/settings-tab.js";
 
 // ---- Wiring ----
 const TAB_KEYS = ["movies", "tv", "browse", "archive", "notifications", "watchlist", "tracker", "history", "reports", "settings"];
@@ -280,6 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#disable-api-token-btn").addEventListener("click", disableApiToken);
   $("#create-api-token-btn").addEventListener("click", createApiToken);
   $("#naming-templates-form").addEventListener("submit", saveNamingTemplates);
+  $("#omdb-form").addEventListener("submit", saveOmdbKey);
   $("#media-server-form").addEventListener("submit", saveMediaServerSettings);
   $("#sync-watched-btn").addEventListener("click", syncWatchedFromMediaServers);
   $("#webdav-backup-form").addEventListener("submit", saveWebdavBackupSettings);

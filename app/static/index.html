@@ -580,6 +580,7 @@
       <a href="#settings-viewers">Viewers</a>
       <a href="#settings-tags">Tags</a>
       <a href="#settings-naming">Naming</a>
+      <a href="#settings-omdb">Ratings (OMDb)</a>
       <a href="#settings-media-server">Media Server</a>
       <a href="#settings-watch-sync">Watch Sync</a>
       <a href="#settings-permissions">Permissions</a>
@@ -688,11 +689,6 @@
         <input type="text" id="setting-reports-cron-time" placeholder="08:00">
       </label>
       <p class="hint">Sent once per completed period (e.g. the whole previous month) -- covers the same data as the Reports tab.</p>
-      <h5>Ratings &amp; metadata</h5>
-      <label>OMDb API key (optional)
-        <input type="password" id="setting-omdb-key" placeholder="leave blank to keep current">
-      </label>
-      <p id="omdb-key-note" class="hint">Powers IMDb/Rotten Tomatoes ratings in the detail pane. Free key at omdbapi.com/apikey.aspx.</p>
       <h5>Automation</h5>
       <label class="checkbox-label">
         <input type="checkbox" id="setting-auto-track-new">
@@ -815,6 +811,18 @@
       </label>
       <button type="submit" class="primary">Save Naming Templates</button>
       <span id="naming-templates-status"></span>
+    </form>
+    </details>
+
+    <details id="settings-omdb" class="settings-section">
+      <summary>Ratings (OMDb, optional)</summary>
+    <form id="omdb-form" class="card settings-form">
+      <label>OMDb API key (optional)
+        <input type="password" id="setting-omdb-key" placeholder="leave blank to keep current">
+      </label>
+      <p id="omdb-key-note" class="hint">Powers IMDb/Rotten Tomatoes ratings in the detail pane, and the IMDb-id rematch fallback when TMDB has no match. Free key at omdbapi.com/apikey.aspx.</p>
+      <button type="submit" class="primary">Save OMDb Key</button>
+      <span id="omdb-status"></span>
     </form>
     </details>
 
