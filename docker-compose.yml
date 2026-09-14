@@ -1,6 +1,7 @@
 services:
   media-manager:
     build: .
+    image: media-manager:latest
     container_name: media-manager
     restart: unless-stopped
     ports:
