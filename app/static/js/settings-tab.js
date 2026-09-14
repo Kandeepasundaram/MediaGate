@@ -73,6 +73,7 @@ export async function loadSettings() {
       : s.tmdb_api_key_set
         ? "A key is currently set. Leave blank to keep it."
         : "No key set — running in TMDB scraper fallback mode.";
+    $("#setting-tmdb-language").value = s.tmdb_language || "en-US";
     $("#setting-webhook-url").value = s.webhook_url || "";
     $("#setting-discord-webhook-url").value = s.discord_webhook_url || "";
     setSecretNote("#telegram-token-note", s.telegram_bot_token_set, "token");
@@ -161,6 +162,7 @@ export async function saveSettings(e) {
     incoming_tv: $("#setting-incoming-tv").value.trim(),
     archive_movies: $("#setting-archive-movies").value.trim(),
     archive_tv: $("#setting-archive-tv").value.trim(),
+    tmdb_language: $("#setting-tmdb-language").value,
     webhook_url: $("#setting-webhook-url").value.trim(),
     discord_webhook_url: $("#setting-discord-webhook-url").value.trim(),
     telegram_chat_id: $("#setting-telegram-chat-id").value.trim(),

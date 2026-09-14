@@ -633,6 +633,13 @@
       <button type="button" id="test-tmdb-key-btn">Test Key</button>
       <span id="tmdb-key-test-status" class="hint"></span>
       <p id="tmdb-key-note" class="hint"></p>
+      <label>TMDB result language
+        <select id="setting-tmdb-language">
+          <option value="en-US">English</option>
+          <option value="ta-IN">Tamil</option>
+        </select>
+      </label>
+      <p class="hint">Titles, overviews, and posters are fetched in this language. Applies to both the TMDB API and the no-key scraper fallback, which otherwise geo-detects a locale from the server's IP.</p>
       <h5>Notification channels</h5>
       <label>Notification webhook URL (optional)
         <input type="text" id="setting-webhook-url" placeholder="https://example.com/hook">

@@ -867,6 +867,7 @@ class SettingsOut(BaseModel):
     cors_origins: list[str]
     tmdb_api_key_set: bool
     tmdb_api_key_locked_by_env: bool
+    tmdb_language: str = "en-US"
     webhook_url: str = ""
     discord_webhook_url: str = ""
     telegram_bot_token_set: bool = False
@@ -914,6 +915,7 @@ class SettingsUpdateRequest(BaseModel):
     archive_tv: str | None = None
     cors_origins: list[str] | None = None
     tmdb_api_key: str | None = None
+    tmdb_language: str | None = None
     webhook_url: str | None = None
     discord_webhook_url: str | None = None
     telegram_bot_token: str | None = None

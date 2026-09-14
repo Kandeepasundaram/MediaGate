@@ -230,7 +230,7 @@ class TMDBClient:
     def __init__(self, api_key: str = "", language: str = "en-US", *, scraper: TMDBScraper | None = None):
         self.api_key = api_key
         self.language = language
-        self.scraper = scraper or TMDBScraper()
+        self.scraper = scraper or TMDBScraper(language=language)
         self._cache: dict[tuple, Any] = {}
         self._api = None
         if api_key:

@@ -332,7 +332,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
 
 _EDITABLE_KEYS = {
     "paths": {"incoming_movies", "incoming_tv", "archive_movies", "archive_tv"},
-    "tmdb": {"api_key"},
+    "tmdb": {"api_key", "language"},
     "server": {"cors_origins", "api_token"},
     "notifications": {
         "webhook_url", "discord_webhook_url", "telegram_bot_token", "telegram_chat_id",

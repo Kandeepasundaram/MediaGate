@@ -54,6 +54,7 @@ def _to_out(config: AppConfig) -> SettingsOut:
         cors_origins=config.server.cors_origins,
         tmdb_api_key_set=bool(config.tmdb.api_key),
         tmdb_api_key_locked_by_env=config.tmdb_api_key_from_env,
+        tmdb_language=config.tmdb.language,
         webhook_url=config.notifications.webhook_url,
         discord_webhook_url=config.notifications.discord_webhook_url,
         telegram_bot_token_set=bool(config.notifications.telegram_bot_token),
@@ -119,6 +120,8 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         updates["server"]["cors_origins"] = payload.cors_origins
     if payload.tmdb_api_key is not None and not config.tmdb_api_key_from_env:
         updates["tmdb"]["api_key"] = payload.tmdb_api_key
+    if payload.tmdb_language is not None:
+        updates["tmdb"]["language"] = payload.tmdb_language.strip() or "en-US"
     if payload.webhook_url is not None:
         updates["notifications"]["webhook_url"] = payload.webhook_url
     if payload.discord_webhook_url is not None:

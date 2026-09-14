@@ -37,14 +37,29 @@ class ScrapedResult:
 
 
 class TMDBScraper:
-    def __init__(self, *, rate_limit_seconds: float = 2.0, max_retries: int = 3, session: requests.Session | None = None):
+    def __init__(
+        self,
+        *,
+        language: str = "en-US",
+        rate_limit_seconds: float = 2.0,
+        max_retries: int = 3,
+        session: requests.Session | None = None,
+    ):
+        self.language = language
         self.rate_limit_seconds = rate_limit_seconds
         self.max_retries = max_retries
         self.session = session or requests.Session()
         self._last_request_ts = 0.0
 
     def _headers(self) -> dict:
-        return {"User-Agent": random.choice(_USER_AGENTS)}
+        return {"User-Agent": random.choice(_USER_AGENTS), "Accept-Language": self.language}
+
+    def _params(self, params: dict | None = None) -> dict:
+        """themoviedb.org otherwise geo-detects a locale from the request's
+        source IP (e.g. a homelab with an India-based egress IP gets Hindi
+        copy back), regardless of Accept-Language -- ?language= on the page
+        request itself is what actually pins it."""
+        return {"language": self.language, **(params or {})}
 
     def _get(self, url: str, params: dict | None = None) -> requests.Response | None:
         elapsed = time.monotonic() - self._last_request_ts
@@ -66,13 +81,13 @@ class TMDBScraper:
         return None
 
     def search_movie(self, title: str, year: int | None = None) -> list[ScrapedResult]:
-        resp = self._get(f"{BASE_URL}/search/movie", params={"query": title, "year": year})
+        resp = self._get(f"{BASE_URL}/search/movie", params=self._params({"query": title, "year": year}))
         if resp is None:
             return []
         return self._parse_search_results(resp.text, "movie")
 
     def search_tv(self, title: str) -> list[ScrapedResult]:
-        resp = self._get(f"{BASE_URL}/search/tv", params={"query": title})
+        resp = self._get(f"{BASE_URL}/search/tv", params=self._params({"query": title}))
         if resp is None:
             return []
         return self._parse_search_results(resp.text, "tv")
@@ -98,13 +113,13 @@ class TMDBScraper:
         return results
 
     def get_movie_details(self, tmdb_id: int) -> ScrapedResult | None:
-        resp = self._get(f"{BASE_URL}/movie/{tmdb_id}")
+        resp = self._get(f"{BASE_URL}/movie/{tmdb_id}", params=self._params())
         if resp is None:
             return None
         return self._parse_detail(resp.text, tmdb_id)
 
     def get_tv_details(self, tmdb_id: int) -> ScrapedResult | None:
-        resp = self._get(f"{BASE_URL}/tv/{tmdb_id}")
+        resp = self._get(f"{BASE_URL}/tv/{tmdb_id}", params=self._params())
         if resp is None:
             return None
         return self._parse_detail(resp.text, tmdb_id)
@@ -119,7 +134,7 @@ class TMDBScraper:
         digits after the "tt" prefix, so digit-extraction alone would give
         a false positive on a 404/no-match response.
         """
-        resp = self._get(f"{BASE_URL}/{media_type}/{imdb_id}")
+        resp = self._get(f"{BASE_URL}/{media_type}/{imdb_id}", params=self._params())
         if resp is None or not resp.history:
             return None
         tmdb_id = self._extract_id(str(resp.url))
@@ -131,7 +146,7 @@ class TMDBScraper:
         """Scrapes the IMDb id back out of a TMDB detail page's external-links
         sidebar -- used for ratings lookups (OMDb needs an imdb_id, TMDB's own
         search results don't carry one)."""
-        resp = self._get(f"{BASE_URL}/{media_type}/{tmdb_id}")
+        resp = self._get(f"{BASE_URL}/{media_type}/{tmdb_id}", params=self._params())
         if resp is None:
             return None
         soup = BeautifulSoup(resp.text, "lxml")
@@ -142,7 +157,7 @@ class TMDBScraper:
         return match.group(1) if match else None
 
     def get_collection_movies(self, collection_id: int) -> list[ScrapedResult]:
-        resp = self._get(f"{BASE_URL}/collection/{collection_id}")
+        resp = self._get(f"{BASE_URL}/collection/{collection_id}", params=self._params())
         if resp is None:
             return []
         return self._parse_search_results(resp.text, "movie")
