@@ -14,6 +14,7 @@ refresh), and library_browse.py (raw-filesystem browse/organize/delete).
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -761,6 +762,7 @@ def rematch_by_imdb_id(
     payload: RematchImdbRequest,
     db: Database = Depends(get_database),
     tmdb: TMDBClient = Depends(get_tmdb_client),
+    omdb: OMDbClient = Depends(get_omdb_client),
 ) -> RematchResponse:
     """Manual-match path for the detail pane: a title the automatic
     search/backfill couldn't identify (tmdb_id null) or matched wrong. One
@@ -769,10 +771,21 @@ def rematch_by_imdb_id(
     for that show, not just one. The imdb_id is already known here (the
     user typed it), so it's persisted directly -- no need for the ratings
     endpoint to later re-derive it via a TMDB external_ids call.
+
+    TMDB's find-by-imdb-id only works for titles TMDB has already indexed
+    under that exact imdb_id -- a title too new (or never added) 404s here
+    even though it's a perfectly real, correct IMDb id. OMDb wraps IMDb's
+    own data directly (keyed by imdb_id, no TMDB-side indexing needed), so
+    it's used as a fallback when TMDB has nothing and an OMDb key is
+    configured -- tmdb_id stays None on the resulting row (no TMDB record
+    to point at), everything else (title/year/poster/overview) still gets
+    filled in from IMDb.
     """
     media = tmdb.find_by_imdb_id(payload.imdb_id.strip(), payload.media_type)
     if media is None:
-        raise HTTPException(status_code=404, detail=f"No TMDB match found for IMDb id {payload.imdb_id!r}")
+        media = _media_from_omdb(omdb, payload.imdb_id.strip(), payload.media_type)
+    if media is None:
+        raise HTTPException(status_code=404, detail=f"No TMDB or IMDb match found for IMDb id {payload.imdb_id!r}")
 
     now = datetime.now(timezone.utc).isoformat()
     updated = _apply_rematch(db, payload.ids, media, now, imdb_id=payload.imdb_id.strip())
@@ -812,6 +825,32 @@ def rematch_by_tmdb_id(
         year=media.year,
         poster_path=media.poster_path,
         overview=media.overview,
+    )
+
+
+def _media_from_omdb(omdb: OMDbClient, imdb_id: str, media_type: str) -> MediaResult | None:
+    """OMDb-backed MediaResult for the rematch-imdb TMDB-miss fallback --
+    genres/vote_average packed into `raw` in the exact shape genres_for()/
+    vote_average_for() already expect from a TMDB response, so _apply_rematch's
+    metadata build below doesn't need an OMDb-specific branch."""
+    if not omdb.enabled:
+        return None
+    details = omdb.get_full_details(imdb_id)
+    if details is None:
+        return None
+    year_match = re.search(r"\d{4}", details.year)
+    return MediaResult(
+        tmdb_id=None,
+        title=details.title,
+        media_type=media_type,
+        year=int(year_match.group()) if year_match else None,
+        overview=details.plot if details.plot != "N/A" else "",
+        poster_path=details.poster_url if details.poster_url and details.poster_url != "N/A" else None,
+        source="omdb",
+        raw={
+            "genres": [{"name": g} for g in details.genres if g and g != "N/A"],
+            "vote_average": details.imdb_rating,
+        },
     )
 
 
