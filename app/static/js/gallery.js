@@ -646,6 +646,40 @@ function populateTagOptions(selectEl, items, previousValue) {
   if (previousValue && tags.includes(previousValue)) selectEl.value = previousValue;
 }
 
+// Quick genre chips above the gallery -- a one-click shortcut for the same
+// #<prefix>-genre <select> already buried in the Filters popover; setting
+// its value and firing "change" runs through the exact same
+// renderMoviesGallery/renderTvGallery filter pipeline those selects already
+// trigger (see app.js), no separate filtering logic needed here.
+const GENRE_CHIP_LIMIT = 8;
+
+function topGenresByFrequency(items, limit) {
+  const counts = new Map();
+  items.forEach((i) => (i.genres || []).forEach((g) => counts.set(g, (counts.get(g) || 0) + 1)));
+  return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, limit).map(([g]) => g);
+}
+
+function renderGenreChips(prefix, items) {
+  const container = $(`#${prefix}-genre-chips`);
+  const genreSelect = $(`#${prefix}-genre`);
+  if (!container || !genreSelect) return;
+  const active = genreSelect.value;
+  const genres = topGenresByFrequency(items, GENRE_CHIP_LIMIT);
+  if (genres.length === 0) {
+    container.innerHTML = "";
+    return;
+  }
+  container.innerHTML = genres.map((g) =>
+    `<button type="button" class="quick-filter-chip${g === active ? " active" : ""}" data-genre="${escapeAttr(g)}">${escapeAttr(g)}</button>`
+  ).join("");
+  container.querySelectorAll(".quick-filter-chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      genreSelect.value = genreSelect.value === chip.dataset.genre ? "" : chip.dataset.genre;
+      genreSelect.dispatchEvent(new Event("change"));
+    });
+  });
+}
+
 function populateCollectionOptions(selectEl, items, previousValue) {
   if (!selectEl) return;
   const names = collectionNamesOf(items);
@@ -821,6 +855,7 @@ export function renderMoviesGallery() {
   const watchedFilter = $("#movies-watched-within").value;
   const pinnedOnly = $("#movies-pinned-only").checked;
   updateFilterBadge("movies");
+  renderGenreChips("movies", state.movieItems);
   const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly }));
   populateAzRail("movies", items);
   const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly]);
@@ -1523,6 +1558,7 @@ export function renderTvGallery() {
   updateFilterBadge("tv");
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
+  renderGenreChips("tv", allShows);
   const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly }));
   populateAzRail("tv", shows);
   const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly]);

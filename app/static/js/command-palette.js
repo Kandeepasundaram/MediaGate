@@ -34,6 +34,24 @@ const COMMANDS = [
 const PALETTE_CATEGORY_ORDER = ["Recently Viewed", "Navigate", "Library", "Titles", "View"];
 const TITLE_MATCH_LIMIT = 6;
 
+// Most-recently-used fixed commands sort first within their own category
+// (Array.sort is stable, so this doesn't fight the category grouping below)
+// -- only the fixed COMMANDS list is tracked, not per-title/recently-viewed
+// entries, which would just grow the key forever for no benefit.
+const RECENCY_KEY = "media-manager:palette-recency";
+
+function loadCommandRecency() {
+  try { return JSON.parse(localStorage.getItem(RECENCY_KEY) || "{}"); } catch (e) { return {}; }
+}
+
+function recordCommandUse(label) {
+  try {
+    const recency = loadCommandRecency();
+    recency[label] = Date.now();
+    localStorage.setItem(RECENCY_KEY, JSON.stringify(recency));
+  } catch (e) { /* private browsing / storage disabled -- recency just won't persist */ }
+}
+
 // Only shown on the empty (just-opened) palette -- once the user starts
 // typing, the fuzzy Titles search below already covers "jump to a title".
 function recentlyViewedCommands() {
@@ -69,7 +87,9 @@ function matchingTitleCommands(q) {
 
 export function filterCommands(query) {
   const q = query.trim().toLowerCase();
+  const recency = loadCommandRecency();
   const matches = q ? COMMANDS.filter((c) => c.label.toLowerCase().includes(q)) : COMMANDS.slice();
+  matches.sort((a, b) => (recency[b.label] || 0) - (recency[a.label] || 0));
   const titleMatches = q ? matchingTitleCommands(q) : [];
   const recentMatches = q ? [] : recentlyViewedCommands();
   return [...recentMatches, ...matches, ...titleMatches].sort(
@@ -106,6 +126,7 @@ export function renderPalette() {
 export function runPaletteCommand(index) {
   const cmd = state.paletteVisible[index];
   if (!cmd) return;
+  if (COMMANDS.includes(cmd)) recordCommandUse(cmd.label);
   closeCommandPalette();
   cmd.run();
 }

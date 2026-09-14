@@ -28,6 +28,7 @@ export async function previewPaths(paths, sizeByPath = {}) {
   }
 
   $("#scan-status").textContent = "Fetching metadata...";
+  $("#scan-status-history-link").classList.add("hidden");
   setScanProgressVisible(true);
   try {
     const preview = await api("/api/archive/preview", {
@@ -536,6 +537,7 @@ export async function approveSelected() {
   }
 
   $("#scan-status").textContent = dryRun ? "Checking (dry run, nothing will change)..." : (isOrganize ? "Organizing..." : "Archiving...");
+  $("#scan-status-history-link").classList.add("hidden");
   try {
     const result = await api(endpoint, { method: "POST", body: JSON.stringify(body) });
     const failures = result.results.filter((r) => r.status === "failed");
@@ -555,6 +557,13 @@ export async function approveSelected() {
     if (isOrganize) {
       $("#archive-table tbody").innerHTML = "";
       state.previewItems = [];
+      // Organize doesn't rescan afterward (unlike the archive/copy path below,
+      // which immediately overwrites this status with "Scanning..." anyway --
+      // no point showing a link there, it'd vanish before anyone could click
+      // it), so the status message actually stays put long enough for this
+      // link to History (where Undo already lives -- see history-tab.js) to
+      // be useful.
+      if (result.results.some((r) => r.status === "success")) $("#scan-status-history-link").classList.remove("hidden");
     } else {
       scanAndPreview();
     }

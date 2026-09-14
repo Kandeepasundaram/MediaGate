@@ -46,7 +46,7 @@
   <button class="tab-btn" data-tab="tv">TV</button>
   <button class="tab-btn" data-tab="browse">Browse &amp; Clean Up</button>
   <button class="tab-btn" data-tab="archive">Ready to Archive</button>
-  <button class="tab-btn" data-tab="notifications">Notifications</button>
+  <button class="tab-btn" data-tab="notifications">Notifications<span id="notifications-tab-badge" class="filter-badge hidden" title="Pending notifications">0</span></button>
   <button class="tab-btn" data-tab="watchlist">Watchlist</button>
   <button class="tab-btn" data-tab="tracker">Tracker</button>
   <button class="tab-btn" data-tab="history">History</button>
@@ -163,6 +163,7 @@
         <span id="movies-count" class="hint"></span>
       </div>
     </div>
+    <div id="movies-genre-chips" class="quick-filter-chips"></div>
     <div class="az-rail" id="movies-az-rail"></div>
     <div id="movies-gallery" class="gallery"></div>
   </section>
@@ -278,6 +279,7 @@
         <span id="tv-count" class="hint"></span>
       </div>
     </div>
+    <div id="tv-genre-chips" class="quick-filter-chips"></div>
     <div class="az-rail" id="tv-az-rail"></div>
     <div id="tv-gallery" class="gallery"></div>
   </section>
@@ -353,6 +355,7 @@
         <button id="scan-btn">Scan Library</button>
         <span id="new-files-badge" class="hint hidden"></span>
         <span id="scan-status"></span>
+        <button id="scan-status-history-link" class="link-btn hidden">View in History →</button>
         <div id="scan-progress-bar" class="progress-bar-indeterminate hidden"><div class="progress-bar-fill"></div></div>
       </div>
       <div class="toolbar-group">
@@ -509,7 +512,7 @@
     </div>
     <table id="history-table">
       <thead>
-        <tr><th>Time</th><th>Type</th><th>Status</th><th>Details</th><th></th></tr>
+        <tr><th class="sortable" data-sort="created_at" title="Sort by time">Time</th><th class="sortable" data-sort="operation_type" title="Sort by type">Type</th><th class="sortable" data-sort="status" title="Sort by status">Status</th><th>Details</th><th></th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -1062,6 +1065,8 @@
 </aside>
 
 <div id="toast-container" class="toast-container"></div>
+
+<button id="back-to-top-btn" class="back-to-top-btn hidden" title="Back to top" aria-label="Back to top">↑</button>
 
 <div id="install-banner" class="install-banner hidden">
   <span>📲 Install MediAerie for quicker access and offline support.</span>

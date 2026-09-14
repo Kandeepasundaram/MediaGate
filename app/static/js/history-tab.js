@@ -20,24 +20,66 @@ function currentHistoryFilterParams() {
   return params;
 }
 
+// Kept sorted client-side (re-sorting on a header click needs no refetch) --
+// the server's own order (newest first) is just the initial "created_at desc".
+let historyOperations = [];
+let historySort = { key: "created_at", dir: "desc" };
+
+function sortedHistoryOperations() {
+  const { key, dir } = historySort;
+  const sign = dir === "asc" ? 1 : -1;
+  return [...historyOperations].sort((a, b) => {
+    const av = a[key] ?? "";
+    const bv = b[key] ?? "";
+    if (av < bv) return -sign;
+    if (av > bv) return sign;
+    return 0;
+  });
+}
+
+function updateHistorySortIndicators() {
+  $all("#history-table th[data-sort]").forEach((th) => {
+    th.classList.toggle("sorted-asc", th.dataset.sort === historySort.key && historySort.dir === "asc");
+    th.classList.toggle("sorted-desc", th.dataset.sort === historySort.key && historySort.dir === "desc");
+  });
+}
+
+function renderHistoryTable() {
+  const tbody = $("#history-table tbody");
+  tbody.innerHTML = sortedHistoryOperations().map((op) => `
+    <tr>
+      <td>${new Date(op.created_at).toLocaleString()}</td>
+      <td>${op.operation_type}</td>
+      <td class="status-${op.status}">${op.status}</td>
+      <td>${op.error_message || (op.details ? JSON.stringify(op.details) : "")}</td>
+      <td>${op.status === "success" && (op.operation_type === "archive" || op.operation_type === "rename")
+        ? `<button class="danger undo-btn" data-id="${op.id}">Undo</button>` : ""}</td>
+    </tr>
+  `).join("") || "<tr><td colspan=5>No history yet.</td></tr>";
+  $all(".undo-btn").forEach((btn) => {
+    btn.addEventListener("click", () => undoOperation(Number(btn.dataset.id)));
+  });
+  updateHistorySortIndicators();
+}
+
+export function setupHistorySort() {
+  $all("#history-table th[data-sort]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      if (historySort.key === key) historySort.dir = historySort.dir === "asc" ? "desc" : "asc";
+      else historySort = { key, dir: "asc" };
+      renderHistoryTable();
+    });
+  });
+}
+
 export async function loadHistory() {
   const tbody = $("#history-table tbody");
   tbody.innerHTML = "<tr><td colspan=5>Loading...</td></tr>";
   try {
     const data = await api(`/api/archive/history?${currentHistoryFilterParams().toString()}`);
-    tbody.innerHTML = data.operations.map((op) => `
-      <tr>
-        <td>${new Date(op.created_at).toLocaleString()}</td>
-        <td>${op.operation_type}</td>
-        <td class="status-${op.status}">${op.status}</td>
-        <td>${op.error_message || (op.details ? JSON.stringify(op.details) : "")}</td>
-        <td>${op.status === "success" && (op.operation_type === "archive" || op.operation_type === "rename")
-          ? `<button class="danger undo-btn" data-id="${op.id}">Undo</button>` : ""}</td>
-      </tr>
-    `).join("") || "<tr><td colspan=5>No history yet.</td></tr>";
-    $all(".undo-btn").forEach((btn) => {
-      btn.addEventListener("click", () => undoOperation(Number(btn.dataset.id)));
-    });
+    historyOperations = data.operations;
+    renderHistoryTable();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan=5>Error: ${e.message}</td></tr>`;
   }

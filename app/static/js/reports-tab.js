@@ -98,6 +98,14 @@ export function setupReportsTab() {
   $("#report-export-csv-btn").addEventListener("click", exportReportCsv);
   $("#report-print-btn").addEventListener("click", () => window.print());
 
+  $("#report-output").addEventListener("click", (e) => {
+    const th = e.target.closest(".catalog-table th.sortable");
+    if (!th || !lastReport || lastReport.viewType !== "catalog") return;
+    const key = th.dataset.sort;
+    catalogSort = catalogSort.key === key ? { key, dir: catalogSort.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" };
+    $("#report-output").innerHTML = renderCatalog(lastReport.movies, lastReport.shows, lastReport.typeFilter);
+  });
+
   $("#report-preset-select").addEventListener("change", (e) => {
     if (!e.target.value) return;
     applyFilterPreset("report", e.target.value, REPORT_PRESET_IDS);
@@ -221,6 +229,22 @@ function personalStarsText(rating) {
   return rating ? "★".repeat(rating) : "";
 }
 
+// Client-side re-sort of the Catalog table on header click -- the rows are
+// already fetched/cached in lastReport, so this just re-renders, no refetch.
+let catalogSort = { key: "title", dir: "asc" };
+
+function sortCatalogRows(rows) {
+  const { key, dir } = catalogSort;
+  const sign = dir === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    let av = a[key], bv = b[key];
+    if (av == null) av = "";
+    if (bv == null) bv = "";
+    if (typeof av === "number" || typeof bv === "number") return ((Number(av) || 0) - (Number(bv) || 0)) * sign;
+    return String(av).localeCompare(String(bv)) * sign;
+  });
+}
+
 function catalogRows(movies, shows, typeFilter = "all") {
   const movieRows = typeFilter === "tv" ? [] : movies.map((m) => ({
     title: m.title, type: "Movie", year: m.year ?? "", genres: m.genres || [],
@@ -239,14 +263,19 @@ function catalogRows(movies, shows, typeFilter = "all") {
   return [...movieRows, ...showRows].sort((a, b) => a.title.localeCompare(b.title));
 }
 
+function catalogSortHeader(label, key) {
+  const active = catalogSort.key === key;
+  return `<th class="sortable${active ? ` sorted-${catalogSort.dir}` : ""}" data-sort="${key}" title="Sort by ${label}">${label}</th>`;
+}
+
 function renderCatalog(movies, shows, typeFilter = "all") {
-  const rows = catalogRows(movies, shows, typeFilter);
+  const rows = sortCatalogRows(catalogRows(movies, shows, typeFilter));
   if (rows.length === 0) return `<p class="hint">Nothing matches this filter.</p>`;
   return `
     <h4>Catalog — ${rows.length} title(s)</h4>
     <div class="card">
       <table class="insights-table catalog-table">
-        <thead><tr><th></th><th>Title</th><th>Type</th><th>Year</th><th>Genres</th><th>Resolution</th><th>Watched</th><th>My Rating</th><th>TMDB Rating</th><th>Tags</th></tr></thead>
+        <thead><tr><th></th>${catalogSortHeader("Title", "title")}${catalogSortHeader("Type", "type")}${catalogSortHeader("Year", "year")}<th>Genres</th>${catalogSortHeader("Resolution", "resolution")}${catalogSortHeader("Watched", "watchedLabel")}${catalogSortHeader("My Rating", "personalRating")}${catalogSortHeader("TMDB Rating", "voteAverage")}<th>Tags</th></tr></thead>
         <tbody>${rows.map((r) => `
           <tr>
             <td class="catalog-poster-cell">${posterMarkup(r.title, r.posterPath)}</td>

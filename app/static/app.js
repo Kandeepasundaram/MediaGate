@@ -5,13 +5,13 @@
 import { approveSelected, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
 import { closeBulkRematchModal, openBulkRematchModal } from "./js/bulk-rematch.js";
 import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable, setupBrowseFilterPopover, setupLibraryHealthToggle } from "./js/browse-tab.js";
-import { loadStatus, restoreLastTab, restoreScrollPosition, setupFontSize, setupGlobalSearch, setupHeaderMoreMenu, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
+import { loadStatus, restoreLastTab, restoreScrollPosition, setupBackToTop, setupFontSize, setupGlobalSearch, setupHeaderMoreMenu, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
 import { $, $all, api, formatBytes, showToast, state } from "./js/core.js";
 import { closeDetailPaneWithConfirm, closePersonModal, exportPersonCredits, navigateDetailPane } from "./js/detail-pane.js";
 import { activateGalleryFocus, activeGalleryContext, addToCollection, applyFilterPreset, applyTagBatch, deleteFilterPreset, enableGalleryDragSelect, enableSwipeToToggleWatched, exportMoviesView, exportTvView, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, markWatchedBatch, MOVIE_PRESET_IDS, moveGalleryFocus, refreshMetadataBatch, refreshSelectionBar, removeFromCollection, removeTagBatch, renderMoviesGallery, renderTvGallery, saveFilterPreset, setActiveViewerId, setupFilterPersistence, setupFilterPopovers, setupGalleryViewMode, setupSelectionBars, surpriseMeMovie, surpriseMeTv, toggleFocusedCardWatched, togglePinOnFocusedCard, TV_PRESET_IDS, wirePosterFallback, wireRecommendationsToggle } from "./js/gallery.js";
-import { exportHistoryView, loadHistory, setupHistoryFilterPopover } from "./js/history-tab.js";
+import { exportHistoryView, loadHistory, setupHistoryFilterPopover, setupHistorySort } from "./js/history-tab.js";
 import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificationPermission, setupTrackAddMenu, setupTrackerCategoryTabs, setupUniverseCreateToggle, setupUniverseTypeTabs, wireUpcomingViewToggles } from "./js/notifications-tab.js";
 import { setupReportsTab } from "./js/reports-tab.js";
 import { exportWatchlistCsv, renderWatchlist } from "./js/watchlist-tab.js";
@@ -47,6 +47,36 @@ function trapTabKey(e, modal) {
     e.preventDefault();
     first.focus();
   }
+}
+
+// ---- Modal focus return ----
+// Every modal's open/close function lives in its own file and just toggles
+// the shared "hidden" class (see getOpenModal above) -- rather than touching
+// every one of them individually, a single MutationObserver per modal
+// catches every open/close in one place: whatever had focus right before a
+// modal opens (its trigger button, still focused synchronously at that
+// point) gets it back once that same modal closes, instead of focus
+// silently dropping to <body>.
+let modalTriggerElement = null;
+let modalCurrentlyOpen = null;
+
+function setupModalFocusReturn() {
+  $all(".modal").forEach((modal) => {
+    const observer = new MutationObserver(() => {
+      const isHidden = modal.classList.contains("hidden");
+      if (!isHidden && modalCurrentlyOpen !== modal) {
+        modalCurrentlyOpen = modal;
+        modalTriggerElement = document.activeElement;
+      } else if (isHidden && modalCurrentlyOpen === modal) {
+        modalCurrentlyOpen = null;
+        if (modalTriggerElement && document.body.contains(modalTriggerElement) && typeof modalTriggerElement.focus === "function") {
+          modalTriggerElement.focus();
+        }
+        modalTriggerElement = null;
+      }
+    });
+    observer.observe(modal, { attributes: true, attributeFilter: ["class"] });
+  });
 }
 
 function movePaletteSelection(delta) {
@@ -250,6 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
     boxes.forEach((b) => { b.checked = !allChecked; });
   });
   $("#approve-btn").addEventListener("click", approveSelected);
+  $("#scan-status-history-link").addEventListener("click", () => switchToTab("history"));
   $("#bulk-change-match-btn").addEventListener("click", openBulkMatchPicker);
   $("#track-add-movie-btn").addEventListener("click", () => openTrackAddModal("movie"));
   $("#track-add-tv-btn").addEventListener("click", () => openTrackAddModal("tv"));
@@ -654,4 +685,7 @@ document.addEventListener("DOMContentLoaded", () => {
   setupBrowseFilterPopover();
   setupLibraryHealthToggle();
   setupHistoryFilterPopover();
+  setupHistorySort();
+  setupModalFocusReturn();
+  setupBackToTop();
 });

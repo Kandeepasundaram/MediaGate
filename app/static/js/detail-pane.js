@@ -3,46 +3,13 @@
  */
 
 import { escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
-import { $, api, formatBytes, showToast, state } from "./core.js";
+import { $, api, copyToClipboard, formatBytes, showToast, state } from "./core.js";
 import { TV_SHOW_STATUSES, downloadCsv, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, rowsToCsv, saveMovieNote, saveTvNote, setTvShowStatus, syncShowStatusIntoState, toggleWatched } from "./gallery.js";
 import { loadNotifications, loadTrackerTab, TRACKER_CATEGORIES } from "./notifications-tab.js";
 import { formatDuration } from "./stats-tab.js";
 
 // ---- Detail pane ----
 state.detailPane = null; // { kind: "movie"|"tv", data }
-
-// ---- Copy shareable info to clipboard ----
-// navigator.clipboard needs a secure context (https, or localhost) -- this
-// is a LAN homelab dashboard typically reached over plain http, where it's
-// simply undefined, so the execCommand fallback is the common path here,
-// not a rare edge case.
-function legacyCopy(text) {
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.style.position = "fixed";
-  ta.style.opacity = "0";
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  try {
-    document.execCommand("copy");
-    showToast("Copied to clipboard.", "success");
-  } catch (e) {
-    showToast("Copy failed -- select and copy manually.", "error");
-  }
-  ta.remove();
-}
-
-function copyShareText(text) {
-  if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(
-      () => showToast("Copied to clipboard.", "success"),
-      () => legacyCopy(text),
-    );
-  } else {
-    legacyCopy(text);
-  }
-}
 
 function shareTextForTitle(title, year, voteAverage, personalRating, overview) {
   const ratingBits = [];
@@ -136,7 +103,7 @@ export function renderDetailPane() {
     `;
     $("#detail-note-download-btn").addEventListener("click", () => downloadMovieNote(item.id));
     $("#detail-note-save-btn").addEventListener("click", () => saveMovieNote(item.id));
-    $("#detail-share-btn").addEventListener("click", () => copyShareText(shareTextForTitle(item.title, item.year, item.vote_average, item.personal_rating, item.overview)));
+    $("#detail-share-btn").addEventListener("click", () => copyToClipboard(shareTextForTitle(item.title, item.year, item.vote_average, item.personal_rating, item.overview)));
     $("#detail-watched-toggle").addEventListener("change", async (e) => {
       try {
         await toggleWatched(item.id, e.target.checked);
@@ -301,7 +268,7 @@ export function renderDetailPane() {
       ` : `<p class="hint">Notes need a TMDB match first.</p>`}
       ${detailFixMarkup()}
     `;
-    $("#detail-share-btn").addEventListener("click", () => copyShareText(shareTextForTitle(show.title, show.year, show.vote_average, show.personal_rating, show.overview)));
+    $("#detail-share-btn").addEventListener("click", () => copyToClipboard(shareTextForTitle(show.title, show.year, show.vote_average, show.personal_rating, show.overview)));
     if (show.tmdb_id != null) {
       $("#detail-note-download-btn").addEventListener("click", () => downloadTvNote(show.tmdb_id));
       $("#detail-note-save-btn").addEventListener("click", () => saveTvNote(show.tmdb_id));

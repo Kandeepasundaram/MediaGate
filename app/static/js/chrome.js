@@ -51,6 +51,23 @@ export function setupScrollPersistence() {
   });
 }
 
+// ---- Back to top ----
+// Window-level scroll (the page itself scrolls, not the gallery/table
+// containers -- see saveScrollPosition/restoreScrollPosition above), so one
+// fixed button works the same on every tab, not just the galleries.
+const BACK_TO_TOP_THRESHOLD = 600;
+
+export function setupBackToTop() {
+  const btn = $("#back-to-top-btn");
+  if (!btn) return;
+  window.addEventListener("scroll", () => {
+    btn.classList.toggle("hidden", window.scrollY < BACK_TO_TOP_THRESHOLD);
+  }, { passive: true });
+  btn.addEventListener("click", () => {
+    window.scrollTo({ top: 0, behavior: document.body.dataset.reducedMotion === "true" ? "auto" : "smooth" });
+  });
+}
+
 function activateTab(tabName) {
   const previous = $(".tab-btn.active");
   if (previous) saveScrollPosition(previous.dataset.tab);

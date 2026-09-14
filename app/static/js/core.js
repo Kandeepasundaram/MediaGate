@@ -53,6 +53,39 @@ export function showToast(message, type = "info", duration = 4000) {
   return id;
 }
 
+// ---- Clipboard ----
+// navigator.clipboard needs a secure context (https, or localhost) -- this
+// is a LAN homelab dashboard typically reached over plain http, where it's
+// simply undefined, so the execCommand fallback is the common path here,
+// not a rare edge case.
+function legacyCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand("copy");
+    showToast("Copied to clipboard.", "success");
+  } catch (e) {
+    showToast("Copy failed -- select and copy manually.", "error");
+  }
+  ta.remove();
+}
+
+export function copyToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(
+      () => showToast("Copied to clipboard.", "success"),
+      () => legacyCopy(text),
+    );
+  } else {
+    legacyCopy(text);
+  }
+}
+
 export function formatBytes(bytes) {
   if (!bytes) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

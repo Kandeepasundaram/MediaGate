@@ -9,11 +9,27 @@ import { posterMarkup } from "./gallery.js";
 import { switchToTab } from "../app.js";
 
 // ---- Notifications tab ----
+// The tab button's own count badge and the browser tab title (so a pending
+// notification is visible even when the dashboard is a background tab) --
+// both piggyback on whichever call already fetched /api/tracker/notifications
+// rather than polling separately.
+const BASE_TITLE = document.title;
+
+export function updateNotificationsBadge(count) {
+  const badge = $("#notifications-tab-badge");
+  if (badge) {
+    badge.textContent = String(count);
+    badge.classList.toggle("hidden", count === 0);
+  }
+  document.title = count > 0 ? `(${count}) ${BASE_TITLE}` : BASE_TITLE;
+}
+
 export async function loadNotifications() {
   const container = $("#notifications-list");
   container.innerHTML = "Loading...";
   try {
     const data = await api("/api/tracker/notifications");
+    updateNotificationsBadge(data.notifications.length);
     if (data.notifications.length === 0) {
       container.innerHTML = "<p>No pending notifications.</p>";
       return;
@@ -579,6 +595,7 @@ export function pollNotifications() {
   const tick = async () => {
     try {
       const data = await api("/api/tracker/notifications");
+      updateNotificationsBadge(data.notifications.length);
       firePendingBrowserNotifications(data.notifications, notifiedIds);
       if ($("#tab-notifications").classList.contains("active")) loadNotifications();
     } catch (e) { /* offline or server restarting, retry on next tick */ }

@@ -3,7 +3,7 @@
  */
 
 import { escapeAttr, previewPaths, setPreviewMode, showConfirm } from "./archive-tab.js";
-import { $, $all, api, formatBytes, state } from "./core.js";
+import { $, $all, api, copyToClipboard, formatBytes, state } from "./core.js";
 import { downloadMovieNote, downloadTvNote, loadMoviesGallery, loadTvGallery, saveMovieNote, saveTvNote } from "./gallery.js";
 
 // ---- Browse & Clean Up tab ----
@@ -46,7 +46,7 @@ export function renderBrowseTable() {
   tbody.innerHTML = items.map((item, i) => `
     <tr>
       <td><input type="checkbox" class="browse-check" data-index="${i}" aria-label="Select ${escapeAttr(item.path.split(/[\\/]/).pop())}"></td>
-      <td title="${item.path}">${item.path.split(/[\\/]/).pop()}</td>
+      <td title="${item.path}"><button class="row-copy-btn" data-index="${i}" title="Copy full path" aria-label="Copy full path">⧉</button>${item.path.split(/[\\/]/).pop()}</td>
       <td>${item.parsed_title}${item.year ? ` (${item.year})` : ""}${
         item.season != null ? ` S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}` : ""
       }</td>
@@ -58,6 +58,9 @@ export function renderBrowseTable() {
   `).join("");
   $all(".browse-delete-btn").forEach((btn) => {
     btn.addEventListener("click", () => deleteBrowseItem(Number(btn.dataset.index)));
+  });
+  $all(".row-copy-btn").forEach((btn) => {
+    btn.addEventListener("click", () => copyToClipboard(state.browseFiltered[Number(btn.dataset.index)].path));
   });
   $all(".browse-note-download-btn").forEach((btn) => {
     btn.addEventListener("click", () => downloadBrowseNote(Number(btn.dataset.index)));
