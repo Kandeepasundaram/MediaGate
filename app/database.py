@@ -476,6 +476,27 @@ class Database:
             (cutoff, limit),
         )
 
+    def list_movies_missing_imdb_id(self, retry_cooldown_hours: float = 6.0, limit: int = 1) -> list[dict[str, Any]]:
+        """Already-matched movies (tmdb_id set) with no imdb_id yet -- so the
+        Jellyfin watched-status push (movies only, matched by imdb_id, see
+        push_all_watched_to_jellyfin) doesn't depend on the user having
+        opened every movie's detail pane first (the only other place
+        imdb_id gets backfilled, lazily, in get_ratings). Same cooldown
+        pattern as list_items_missing_vote_average, reusing
+        match_attempted_at, so a title TMDB has no external_ids for isn't
+        re-queried every backfill cycle. TV is excluded -- imdb_id on
+        media_items is only ever used for movie matching (see
+        push_watched_to_media_servers)."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=retry_cooldown_hours)).isoformat()
+        return self.fetch_all(
+            "SELECT * FROM media_items "
+            "WHERE media_type = 'movie' AND tmdb_id IS NOT NULL AND imdb_id IS NULL "
+            "AND (match_attempted_at IS NULL OR match_attempted_at < ?) "
+            "ORDER BY (match_attempted_at IS NULL) DESC, created_at ASC "
+            "LIMIT ?",
+            (cutoff, limit),
+        )
+
     def count_unmatched_media_items(self, media_type: str | None = None) -> int:
         if media_type:
             row = self.fetch_one(

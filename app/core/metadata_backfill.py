@@ -181,6 +181,29 @@ def refresh_episode_title_one(db: Database, tmdb: TMDBClient, tvmaze: TVmazeClie
     return True
 
 
+def refresh_imdb_id_one(db: Database, tmdb: TMDBClient) -> bool:
+    """Backfills imdb_id onto one already-matched movie row that doesn't
+    have one yet (see list_movies_missing_imdb_id) -- covers the whole
+    library instead of only movies whose detail pane a user has happened to
+    open (the only other place imdb_id gets set, lazily, in get_ratings),
+    so "Push Watch Status to Jellyfin" (imdb_id-matched, movies only) works
+    without that manual step first. Returns True if there was a row to
+    process, False if the queue is empty."""
+    rows = db.list_movies_missing_imdb_id(limit=1)
+    if not rows:
+        return False
+    row = rows[0]
+
+    now = datetime.now(timezone.utc).isoformat()
+    imdb_id = tmdb.get_external_imdb_id(row["tmdb_id"], "movie")
+    db.update_media_item(row["id"], imdb_id=imdb_id, match_attempted_at=now)
+    if imdb_id:
+        logger.info("Backfilled imdb_id for %r (tmdb_id=%s) -> %s", row["title"], row["tmdb_id"], imdb_id)
+    else:
+        logger.info("No imdb_id available yet for %r (tmdb_id=%s); will retry later", row["title"], row["tmdb_id"])
+    return True
+
+
 async def run_metadata_backfill() -> None:
     while True:
         try:
@@ -190,6 +213,8 @@ async def run_metadata_backfill() -> None:
                 found = await asyncio.to_thread(refresh_vote_average_one, db, tmdb)
             if not found:
                 found = await asyncio.to_thread(refresh_episode_title_one, db, tmdb, tvmaze)
+            if not found:
+                found = await asyncio.to_thread(refresh_imdb_id_one, db, tmdb)
             if not found:
                 await asyncio.sleep(IDLE_SLEEP_SECONDS)
         except asyncio.CancelledError:
