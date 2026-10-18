@@ -13,7 +13,7 @@ let lastWatchlistData = null;
 
 function needsDownloadCard(n) {
   const detail = n.media_type === "tv"
-    ? `Season ${n.latest_known_season} now available`
+    ? (n.latest_known_season != null ? `Season ${n.latest_known_season} now available` : "New season available")
     : (n.movie_release_status || "New release detected");
   return `
     <div class="gallery-card">
@@ -110,7 +110,7 @@ export function exportWatchlistCsv() {
   const rows = [
     ...lastWatchlistData.needs_download.map((n) => [
       "New / Not Yet Archived", n.title, n.media_type === "tv" ? "TV" : "Movie",
-      n.media_type === "tv" ? `Season ${n.latest_known_season} available` : (n.movie_release_status || "New release detected"),
+      n.media_type === "tv" ? (n.latest_known_season != null ? `Season ${n.latest_known_season} available` : "New season available") : (n.movie_release_status || "New release detected"),
     ]),
     ...sortedNeedsWatching(lastWatchlistData.needs_watching).map((s) => [
       "Owned, Unwatched", s.title, "TV", `${s.unwatched_count} of ${s.total_count} unwatched`,

@@ -97,14 +97,20 @@ def check_tv_show(
             if show_info:
                 next_episode_air_date = show_info.next_episode_air_date
 
+    fields: dict = {}
+    # A failed/scraper-fallback lookup has no number_of_seasons -- keep the
+    # last known value rather than overwriting it with NULL (which made a
+    # still-pending notification render as "Season null now available").
+    if latest_known_season is not None:
+        fields["latest_known_season"] = latest_known_season
     db.upsert_tracker(
         tmdb_id=tracker_row["tmdb_id"],
         media_type="tv",
         title=tracker_row["title"],
-        latest_known_season=latest_known_season,
         last_checked=_now(),
         pending_notification=1 if pending else tracker_row["pending_notification"],
         next_episode_air_date=next_episode_air_date,
+        **fields,
     )
     if pending:
         logger.info("New season detected for %s: season %s", tracker_row["title"], latest_known_season)

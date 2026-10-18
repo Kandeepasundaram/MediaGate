@@ -132,7 +132,7 @@ export function renderDetailPane() {
     const item = pane.data;
     const statusLine = item.media_type === "tv"
       ? (item.pending_notification
-          ? `⚡ Season ${item.latest_known_season} available`
+          ? (item.latest_known_season != null ? `⚡ Season ${item.latest_known_season} available` : "⚡ New season available")
           : (item.latest_known_season != null ? `Up to date through season ${item.latest_known_season}` : "Not checked yet"))
       : (item.pending_notification ? `⚡ ${item.movie_release_status || "New release detected"}` : (item.movie_release_status || "Watching for a new release"));
     content.innerHTML = `

@@ -39,7 +39,7 @@ export async function loadNotifications() {
         <div>
           <strong>${n.title}</strong>
           <div>${n.media_type === "tv"
-            ? `Season ${n.latest_known_season} now available`
+            ? (n.latest_known_season != null ? `Season ${n.latest_known_season} now available` : "New season available")
             : (n.movie_release_status || "New release detected")}</div>
           ${n.next_episode_air_date ? `<div class="hint">📅 Next episode: ${n.next_episode_air_date}</div>` : ""}
         </div>
@@ -262,7 +262,7 @@ export async function loadTrackedList() {
     container.innerHTML = filtered.map((t) => `
       <div class="gallery-card">
         <div class="gallery-badges">
-          ${t.pending_notification ? `<span class="badge badge-new" title="${t.media_type === "tv" ? `Season ${t.latest_known_season} available` : (t.movie_release_status || "New release detected")}">⚡</span>` : ""}
+          ${t.pending_notification ? `<span class="badge badge-new" title="${t.media_type === "tv" ? (t.latest_known_season != null ? `Season ${t.latest_known_season} available` : "New season available") : (t.movie_release_status || "New release detected")}">⚡</span>` : ""}
           ${t.muted ? `<span class="badge" title="Muted">🔇</span>` : ""}
           ${t.category === "watched" ? `<span class="badge" title="Deleted from the archive">🗑</span>` : ""}
         </div>
@@ -392,7 +392,7 @@ async function loadUniverses() {
               <div class="tracked-item-thumb">${posterMarkup(m.title, m.poster_path)}</div>
               <div class="tracked-item-text">
                 <strong>${escapeAttr(m.title)}</strong>
-                ${m.pending_notification ? `<span class="hint">⚡ ${mediaType === "tv" ? `Season ${m.latest_known_season} available` : (m.movie_release_status || "New release detected")}</span>` : ""}
+                ${m.pending_notification ? `<span class="hint">⚡ ${mediaType === "tv" ? (m.latest_known_season != null ? `Season ${m.latest_known_season} available` : "New season available") : (m.movie_release_status || "New release detected")}</span>` : ""}
               </div>
               <div class="tracked-item-actions">
                 ${m.tracker_id != null ? `
@@ -571,7 +571,7 @@ export function requestNotificationPermission() {
 
 function notificationBody(n) {
   return n.media_type === "tv"
-    ? `Season ${n.latest_known_season} of ${n.title} is out!`
+    ? (n.latest_known_season != null ? `Season ${n.latest_known_season} of ${n.title} is out!` : `New season of ${n.title} is out!`)
     : `${n.title}: ${n.movie_release_status || "new release detected"}`;
 }
 
