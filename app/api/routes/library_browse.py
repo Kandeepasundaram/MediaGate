@@ -15,7 +15,7 @@ from app.api.routes.archive import _dry_run_result
 from app.api.routes.library_common import _metadata_dict
 from app.config_loader import AppConfig
 from app.core.orphan_artwork import ARTWORK_NAMES
-from app.core.organizer import OrganizeError, organize_file
+from app.core.organizer import OrganizeError, OrganizeScope, effective_dest, organize_file
 from app.core.renamer import RenamePlan
 from app.core.scanner import SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS, scan_directory
 from app.core.media_server import notify_media_servers
@@ -23,7 +23,6 @@ from app.core.tracker import maybe_auto_track
 from app.database import Database
 from app.dependencies import get_config, get_database
 from app.models import (
-    ArchiveConfirmRequest,
     ArchiveConfirmResponse,
     ArchiveConfirmResult,
     BrowseItemOut,
@@ -33,6 +32,7 @@ from app.models import (
     DeleteFileRequest,
     DeletePreviewOut,
     MediaType,
+    OrganizeConfirmRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ router = APIRouter(prefix="/api/library", tags=["library"])
 
 @router.post("/organize", response_model=ArchiveConfirmResponse)
 def organize_selected(
-    payload: ArchiveConfirmRequest, config: AppConfig = Depends(get_config), db: Database = Depends(get_database)
+    payload: OrganizeConfirmRequest, config: AppConfig = Depends(get_config), db: Database = Depends(get_database)
 ) -> ArchiveConfirmResponse:
     """Stage 2 of the manual library browser: given TMDB-matched preview
     items (from the same /api/archive/preview used by "Ready to Archive"),
@@ -51,11 +51,14 @@ def organize_selected(
     copies to a new location and always inserts a new row. Reuses the
     archive preview/confirm request-response shapes since the data is
     identical; only what happens to the filesystem and the DB differs.
+    `payload.scope` picks which parts of the rename apply: the file name,
+    the folder name(s), and/or the subtitles/NFO/artwork named after it.
     """
+    scope = OrganizeScope(**payload.scope.model_dump())
     results: list[ArchiveConfirmResult] = []
     for item in payload.items:
         source = Path(item.source_path)
-        dest = Path(item.dest_path)
+        dest = effective_dest(source, Path(item.dest_path), scope)
 
         if payload.dry_run:
             results.append(_dry_run_result(source, dest))
@@ -78,7 +81,10 @@ def organize_selected(
             genres=item.genres,
         )
         try:
-            media_id = organize_file(db, plan, write_nfo_files=config.media_server.write_nfo_files)
+            media_id = organize_file(
+                db, plan, write_nfo_files=config.media_server.write_nfo_files,
+                scope=scope, protected_roots=_protected_roots(config),
+            )
             maybe_auto_track(
                 db, config.tracker.auto_track_new, item.tmdb_id, item.media_type, item.title, item.season
             )

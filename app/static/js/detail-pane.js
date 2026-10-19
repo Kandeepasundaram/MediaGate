@@ -3,6 +3,7 @@
  */
 
 import { escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
+import { organizePaths } from "./browse-tab.js";
 import { $, api, copyToClipboard, formatBytes, showToast, state } from "./core.js";
 import { TV_SHOW_STATUSES, downloadCsv, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, rowsToCsv, saveMovieNote, saveTvNote, setTvShowStatus, syncShowStatusIntoState, toggleWatched } from "./gallery.js";
 import { loadNotifications, loadTrackerTab, TRACKER_CATEGORIES } from "./notifications-tab.js";
@@ -545,6 +546,7 @@ export function renderTvBody() {
             Watched
           </label>
           <button class="ep-details-btn" data-id="${ep.id}">Details</button>
+          ${ep.final_path ? `<button class="ep-rename-btn" data-id="${ep.id}" title="Preview a TMDB-based rename for just this episode file">Rename</button>` : ""}
         </div>
         <div class="detail-ep-extra hint" id="detail-ep-extra-${ep.id}" hidden></div>
       `).join("") : (show.tmdb_id != null
@@ -638,6 +640,19 @@ export function renderTvBody() {
       } catch (err) {
         input.checked = !input.checked;
       }
+    });
+  });
+
+  // One episode only: defaults to file + its subtitles/NFO, folder off --
+  // the Season/show folder is shared with every other episode, so renaming
+  // it is a separate, deliberate choice (tick Folder in the preview).
+  container.querySelectorAll(".ep-rename-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const ep = show.episodes.find((x) => x.id === Number(btn.dataset.id));
+      if (!ep?.final_path) return;
+      closeDetailPane();
+      organizePaths([ep.final_path], { [ep.final_path]: ep.size_bytes }, { file: true, folder: false, sidecars: true });
     });
   });
 

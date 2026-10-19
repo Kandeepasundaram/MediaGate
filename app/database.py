@@ -7,6 +7,7 @@ a context manager rather than holding one connection open across requests.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -294,6 +295,18 @@ class Database:
             (tmdb_id, media_type),
         )
         return row["n"]
+
+    def rebase_final_paths(self, old_dir: str, new_dir: str) -> int:
+        """Rewrites final_path for every media_items row under `old_dir`
+        after that folder was renamed on disk, so renaming a folder doesn't
+        orphan the rows of the other files it carried along."""
+        prefix = old_dir.rstrip("\\/") + os.sep
+        changed = 0
+        for row in self.fetch_all("SELECT id, final_path FROM media_items WHERE final_path IS NOT NULL"):
+            if row["final_path"].startswith(prefix):
+                self.update_media_item(row["id"], final_path=new_dir.rstrip("\\/") + os.sep + row["final_path"][len(prefix):])
+                changed += 1
+        return changed
 
     def get_media_item_by_final_path(self, path: str) -> dict[str, Any] | None:
         return self.fetch_one("SELECT * FROM media_items WHERE final_path = ?", (path,))

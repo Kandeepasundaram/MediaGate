@@ -97,6 +97,19 @@ class ArchiveConfirmRequest(BaseModel):
     dry_run: bool = False
 
 
+class OrganizeScopeIn(BaseModel):
+    """Which parts of each item's rename to apply -- see
+    organizer.OrganizeScope. Omitted means everything."""
+
+    file: bool = True
+    folder: bool = True
+    sidecars: bool = True
+
+
+class OrganizeConfirmRequest(ArchiveConfirmRequest):
+    scope: OrganizeScopeIn = Field(default_factory=OrganizeScopeIn)
+
+
 class ArchiveConfirmResult(BaseModel):
     source_path: str
     dest_path: str | None = None

@@ -9,6 +9,17 @@ import { loadTrackedList, refreshNewFilesBadge } from "./notifications-tab.js";
 export function setPreviewMode(mode) {
   state.previewMode = mode;
   $("#approve-btn").textContent = mode === "organize" ? "Approve & Organize (Move)" : "Approve & Archive";
+  $("#organize-scope").classList.toggle("hidden", mode !== "organize");
+}
+
+export function setOrganizeScope({ file = true, folder = true, sidecars = true } = {}) {
+  $("#scope-file").checked = file;
+  $("#scope-folder").checked = folder;
+  $("#scope-sidecars").checked = sidecars;
+}
+
+function organizeScope() {
+  return { file: $("#scope-file").checked, folder: $("#scope-folder").checked, sidecars: $("#scope-sidecars").checked };
 }
 
 function setScanProgressVisible(visible) {
@@ -526,11 +537,17 @@ export async function approveSelected() {
   const isOrganize = state.previewMode === "organize";
   const dryRun = $("#dry-run-toggle").checked;
   const endpoint = isOrganize ? "/api/library/organize" : "/api/archive/confirm";
-  const body = isOrganize ? { items, dry_run: dryRun } : { items, purge_subtitles: true, dry_run: dryRun };
+  const scope = organizeScope();
+  if (isOrganize && !scope.file && !scope.folder && !scope.sidecars) {
+    $("#scan-status").textContent = "Tick at least one of File, Folder, or Subtitles/NFO/artwork to rename.";
+    return;
+  }
+  const body = isOrganize ? { items, dry_run: dryRun, scope } : { items, purge_subtitles: true, dry_run: dryRun };
 
   if (!dryRun) {
+    const parts = [scope.file && "file names", scope.folder && "folder names", scope.sidecars && "subtitles/NFO/artwork"].filter(Boolean);
     const confirmMsg = isOrganize
-      ? `Organize ${items.length} file(s)? This moves them to their correct name/folder in place — no duplicate is created.`
+      ? `Organize ${items.length} file(s)? This renames their ${parts.join(", ")} in place — no duplicate is created.`
       : `Archive ${items.length} file(s)? This copies them to the archive location.`;
     const ok = await showConfirm(confirmMsg);
     if (!ok) return;

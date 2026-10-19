@@ -368,6 +368,18 @@
         <button id="approve-btn" class="primary">Approve &amp; Archive</button>
       </div>
     </div>
+    <div id="organize-scope" class="toolbar hidden">
+      <span class="hint">Rename:</span>
+      <label class="checkbox-label" title="Rename the video file itself">
+        <input type="checkbox" id="scope-file" checked> File
+      </label>
+      <label class="checkbox-label" title="Rename the movie folder, or the show and Season folders. Everything inside the folder comes along.">
+        <input type="checkbox" id="scope-folder" checked> Folder
+      </label>
+      <label class="checkbox-label" title="Rename subtitles, NFO and artwork named after the video so they keep matching it, and refresh the NFO">
+        <input type="checkbox" id="scope-sidecars" checked> Subtitles, NFO &amp; artwork
+      </label>
+    </div>
     <table id="archive-table">
       <thead>
         <tr>

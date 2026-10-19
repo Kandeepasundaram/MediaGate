@@ -2,7 +2,7 @@
  * Browse & Clean Up tab: raw-filesystem table, library health (orphans/duplicates/orphaned artwork), and delete/organize actions.
  */
 
-import { escapeAttr, previewPaths, setPreviewMode, showConfirm } from "./archive-tab.js";
+import { escapeAttr, previewPaths, setOrganizeScope, setPreviewMode, showConfirm } from "./archive-tab.js";
 import { $, $all, api, copyToClipboard, formatBytes, state } from "./core.js";
 import { downloadMovieNote, downloadTvNote, loadMoviesGallery, loadTvGallery, saveMovieNote, saveTvNote } from "./gallery.js";
 
@@ -416,8 +416,9 @@ export async function organizeSelected() {
 // preview-then-organize flow (moves files in place, updates existing
 // media_items rows) -- shared by Browse's "Organize Selected" and the
 // Movies/TV galleries' "Rename Selected".
-export async function organizePaths(paths, sizeByPath) {
+export async function organizePaths(paths, sizeByPath, scope = {}) {
   if (paths.length === 0) return;
+  setOrganizeScope(scope);
 
   $all(".tab-btn").forEach((b) => b.classList.remove("active"));
   $all(".tab-panel").forEach((p) => p.classList.remove("active"));
