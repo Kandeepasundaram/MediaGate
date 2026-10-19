@@ -1505,6 +1505,28 @@ def test_rematch_tmdb_updates_item(client):
     assert updated["title"] == "Correct Title"
 
 
+def test_rematch_stores_both_tmdb_and_imdb_ids(client):
+    c, incoming_movies = client
+    video = incoming_movies / "Both.Ids.2020.mkv"
+    video.write_bytes(b"data")
+    preview = c.post("/api/archive/preview", json={"paths": [str(video)]}).json()
+    c.post("/api/archive/confirm", json={"items": preview["items"], "purge_subtitles": False})
+    item_id = c.get("/api/library/movies").json()["items"][0]["id"]
+
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    fake_tmdb.get_movie_details.return_value = MediaResult(
+        tmdb_id=550, title="Fight Club", media_type="movie", year=1999, overview="x"
+    )
+    for url, body in [
+        ("/api/library/rematch-tmdb", {"tmdb_id": 550, "imdb_id": "tt0137523"}),
+        ("/api/library/rematch-imdb", {"tmdb_id": 550, "imdb_id": "tt0137523"}),
+    ]:
+        resp = c.post(url, json={"ids": [item_id], "media_type": "movie", **body})
+        assert resp.status_code == 200
+        row = app.dependency_overrides[get_database]().get_media_item(item_id)
+        assert (row["tmdb_id"], row["imdb_id"]) == (550, "tt0137523")
+
+
 def test_rematch_tmdb_404_when_not_found(client):
     c, _ = client
     fake_tmdb = app.dependency_overrides[get_tmdb_client]()

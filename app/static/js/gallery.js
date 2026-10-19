@@ -879,6 +879,7 @@ export function renderMoviesGallery() {
       ${pinButtonMarkup(isPinned(item), i)}
       <div class="gallery-badges" data-movie-badges="${item.tmdb_id ?? ""}">
         ${(item.tmdb_id == null && !item.manual_override) ? `<span class="badge badge-warn" title="Unidentified — no TMDB match yet">⚠</span>` : ""}
+        ${item.in_archive === false ? `<span class="badge badge-warn" title="Not in archive — file removed from disk">🗑</span>` : ""}
         ${effectiveWatched(item) ? `<span class="badge badge-ok" title="Watched">✓</span>` : ""}
         ${mediaBadges(item)}
       </div>

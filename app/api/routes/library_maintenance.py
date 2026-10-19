@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.routes.library_common import _metadata_dict, _to_out
 from app.config_loader import AppConfig
+from app.core.library_adopt import adopt_new_files
 from app.core.orphan_artwork import cleanup_orphaned_artwork, find_orphaned_artwork
 from app.core.tmdb_client import MediaResult, TMDBClient, genres_for, resolve_season_episodes, vote_average_for
 from app.core.tvmaze_client import TVmazeClient
@@ -131,6 +132,22 @@ def library_health(config: AppConfig = Depends(get_config), db: Database = Depen
     ]
 
     return LibraryHealthOut(orphans=orphans, duplicates=duplicates, orphaned_artwork=orphaned_artwork)
+
+
+@router.post("/rescan")
+def rescan_library(config: AppConfig = Depends(get_config), db: Database = Depends(get_database)) -> dict:
+    """Forces the adopt scan for both libraries right now instead of waiting
+    for the next gallery load or Radarr/Sonarr webhook. Adopt only ever
+    adds rows, so `stale` just reports how many tracked files have since
+    vanished from disk -- removing those is the separate (explicit)
+    /orphans/cleanup action, not something a rescan should do silently.
+    """
+    adopted = {
+        "movie": adopt_new_files(db, config, "movie"),
+        "tv": adopt_new_files(db, config, "tv"),
+    }
+    stale = sum(1 for row in db.list_media_items() if row["final_path"] and not Path(row["final_path"]).exists())
+    return {"adopted": adopted, "stale": stale}
 
 
 @router.post("/orphans/cleanup", response_model=OrphanCleanupResponse)

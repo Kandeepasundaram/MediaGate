@@ -73,6 +73,7 @@ export function renderDetailPane() {
       <div id="detail-backdrop-banner" class="detail-backdrop-banner no-backdrop"></div>
       <div id="detail-movie-status"></div>
       ${(item.tmdb_id == null && !item.manual_override) ? `<p class="unidentified-badge">⚠ Unidentified — no TMDB match yet</p>` : ""}
+      ${item.in_archive === false ? `<p class="unidentified-badge">🗑 Not in archive — file removed from disk</p>` : ""}
       ${posterMarkupLarge(item.title, item.poster_path)}
       <div class="detail-title">${item.title}</div>
       <div class="detail-year">${item.year || ""}</div>
@@ -1278,6 +1279,10 @@ async function loadFileInfo(itemId, selector) {
   el.textContent = "Loading file details…";
   try {
     const info = await api(`/api/library/${itemId}/file-info`);
+    if (!info.in_archive) {
+      el.innerHTML = `<span class="hint">🗑 Not in archive — file removed from disk. Info above is kept.</span>`;
+      return;
+    }
     if (!info.probe_available) {
       el.innerHTML = `<span class="hint">Duration/codec info unavailable — ffprobe not installed on the server.</span>`;
       return;
@@ -1542,10 +1547,13 @@ function detailFixMarkup() {
   return `
     <div class="detail-fix">
       <button id="detail-change-match-btn">Change Match (search TMDB)</button>
+      <label>TMDB ID
+        <input type="number" id="detail-tmdb-input" placeholder="603">
+      </label>
       <label>IMDb ID
         <input type="text" id="detail-imdb-input" placeholder="tt1234567">
       </label>
-      <button id="detail-fetch-btn">Fetch Metadata from IMDb ID</button>
+      <button id="detail-fetch-btn" title="Enter either id, or both to store both">Fetch Metadata from IDs</button>
       <span id="detail-fetch-status" class="hint"></span>
       <details class="detail-custom-title">
         <summary>Not on TMDB? Set a custom title</summary>
@@ -1626,16 +1634,18 @@ function wireDetailFix() {
     const pane = state.detailPane;
     if (!pane) return;
     const imdbId = $("#detail-imdb-input").value.trim();
-    if (!imdbId) return;
+    const tmdbRaw = $("#detail-tmdb-input").value.trim();
+    const tmdbId = tmdbRaw ? Number(tmdbRaw) : null;
+    if (!imdbId && tmdbId == null) return;
 
     const ids = pane.kind === "movie" ? [pane.data.id] : pane.data.episodes.map((e) => e.id);
     const mediaType = pane.kind === "movie" ? "movie" : "tv";
 
     $("#detail-fetch-status").textContent = "Fetching...";
     try {
-      await api("/api/library/rematch-imdb", {
+      await api(imdbId ? "/api/library/rematch-imdb" : "/api/library/rematch-tmdb", {
         method: "POST",
-        body: JSON.stringify({ ids, imdb_id: imdbId, media_type: mediaType }),
+        body: JSON.stringify({ ids, imdb_id: imdbId || null, tmdb_id: tmdbId, media_type: mediaType }),
       });
       $("#detail-fetch-status").textContent = "Updated.";
       await reopenDetailPaneAfterRematch(pane, ids);

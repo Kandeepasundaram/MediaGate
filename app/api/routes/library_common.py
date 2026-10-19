@@ -40,13 +40,14 @@ def _to_out(
 
     file_name = None
     size_bytes = None
+    in_archive = True
     if row["final_path"]:
         final_path = Path(row["final_path"])
         file_name = final_path.name
         try:
             size_bytes = final_path.stat().st_size
         except OSError:
-            pass  # file moved/deleted since archiving; name still worth showing
+            in_archive = False  # file moved/deleted since archiving; name still worth showing
 
     return LibraryItemOut(
         id=row["id"],
@@ -64,6 +65,7 @@ def _to_out(
         archived_at=row["archived_at"],
         file_name=file_name,
         size_bytes=size_bytes,
+        in_archive=in_archive,
         episode_title=meta.get("episode_title"),
         air_date=meta.get("air_date"),
         manual_override=bool(row["manual_override"]),

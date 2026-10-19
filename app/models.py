@@ -455,6 +455,9 @@ class LibraryItemOut(BaseModel):
     archived_at: str | None = None
     file_name: str | None = None
     size_bytes: int | None = None
+    # False when final_path is set but the file is gone from disk -- the row
+    # (and its metadata) is kept, this just lets the UI say so.
+    in_archive: bool = True
     episode_title: str | None = None
     air_date: str | None = None
     manual_override: bool = False
@@ -542,7 +545,8 @@ class MovieStatusOut(BaseModel):
 class FileInfoOut(BaseModel):
     file_name: str
     path: str
-    size_bytes: int
+    size_bytes: int | None = None
+    in_archive: bool = True
     duration_seconds: float | None = None
     width: int | None = None
     height: int | None = None
@@ -620,12 +624,14 @@ class RematchImdbRequest(BaseModel):
     ids: list[int]
     imdb_id: str
     media_type: MediaType
+    tmdb_id: int | None = None  # when given too, TMDB is looked up by this id and imdb_id is stored alongside it
 
 
 class RematchTmdbRequest(BaseModel):
     ids: list[int]
     tmdb_id: int
     media_type: MediaType
+    imdb_id: str | None = None  # stored as-is when the caller already knows it
 
 
 class RematchResponse(BaseModel):

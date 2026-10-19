@@ -752,12 +752,16 @@ def test_file_info_works_without_ffprobe(client, monkeypatch):
     assert body["probe_available"] is False
 
 
-def test_file_info_404_when_file_missing(client):
+def test_file_info_flags_not_in_archive_when_file_missing(client):
     c, db = client
     media_id = _seed_movie(db, final_path=str(_archive_movies_dir(c) / "Gone.mkv"))
 
     resp = c.get(f"/api/library/{media_id}/file-info")
-    assert resp.status_code == 404
+    assert resp.status_code == 200
+    assert resp.json()["in_archive"] is False
+
+    items = c.get("/api/library/movies").json()["items"]
+    assert [i["in_archive"] for i in items if i["id"] == media_id] == [False]
 
 
 def test_file_info_404_for_unknown_item(client):

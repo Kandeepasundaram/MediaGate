@@ -791,6 +791,13 @@ def rematch_by_imdb_id(
     to point at), everything else (title/year/poster/overview) still gets
     filled in from IMDb.
     """
+    if payload.tmdb_id is not None:
+        # Both ids supplied: trust the TMDB id for metadata, keep the IMDb id as given.
+        return rematch_by_tmdb_id(
+            RematchTmdbRequest(ids=payload.ids, tmdb_id=payload.tmdb_id, media_type=payload.media_type, imdb_id=payload.imdb_id),
+            db, tmdb,
+        )
+
     media = tmdb.find_by_imdb_id(payload.imdb_id.strip(), payload.media_type)
     if media is None:
         media = _media_from_omdb(omdb, payload.imdb_id.strip(), payload.media_type)
@@ -826,7 +833,7 @@ def rematch_by_tmdb_id(
         raise HTTPException(status_code=404, detail=f"No TMDB details found for tmdb_id {payload.tmdb_id}")
 
     now = datetime.now(timezone.utc).isoformat()
-    updated = _apply_rematch(db, payload.ids, media, now, imdb_id=None)
+    updated = _apply_rematch(db, payload.ids, media, now, imdb_id=(payload.imdb_id or "").strip() or None)
 
     return RematchResponse(
         updated=updated,
@@ -1098,7 +1105,16 @@ def get_file_info(item_id: int, db: Database = Depends(get_database)) -> FileInf
 
     path = Path(item["final_path"])
     if not path.exists():
-        raise HTTPException(status_code=404, detail=f"File no longer exists at {path}")
+        # Row + metadata are kept after the file leaves the archive; report
+        # that (and whatever probe data was cached while it existed) instead
+        # of erroring.
+        meta = _metadata_dict(item)
+        return FileInfoOut(
+            file_name=path.name, path=str(path), in_archive=False,
+            duration_seconds=meta.get("duration_seconds"), width=meta.get("width"), height=meta.get("height"),
+            video_codec=meta.get("video_codec"), hdr=bool(meta.get("hdr", False)),
+            audio_channels=meta.get("audio_channels"), probe_available=media_probe.ffprobe_available(),
+        )
 
     size_bytes = path.stat().st_size
     probe = media_probe.probe_file(path)

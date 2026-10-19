@@ -443,6 +443,23 @@ document.addEventListener("DOMContentLoaded", () => {
       showToast(`Delete failed: ${e.message}`, "error");
     }
   });
+  for (const [prefix, reload] of [["movies", loadMoviesGallery], ["tv", loadTvGallery]]) {
+    $(`#${prefix}-rescan-btn`).addEventListener("click", async (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        const data = await api("/api/library/rescan", { method: "POST" });
+        const added = data.adopted.movie + data.adopted.tv;
+        const stale = data.stale ? ` ${data.stale} tracked file(s) missing from disk (see Library Health).` : "";
+        showToast(`Rescan done: ${added} new file(s) found.${stale}`, "success");
+        reload();
+      } catch (err) {
+        showToast(`Rescan failed: ${err.message}`, "error");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
   $("#movies-refresh-metadata-btn").addEventListener("click", async () => {
     const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
     await refreshMetadataBatch(ids, $("#movies-count"));
