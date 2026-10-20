@@ -2,9 +2,9 @@
  * Entry point: wires up every tab's event listeners and kicks off the initial load. Imports from every other module below -- see app/static/js/.
  */
 
-import { approveSelected, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
+import { approveSelected, cancelConfirm, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
 import { closeBulkRematchModal, openBulkRematchModal } from "./js/bulk-rematch.js";
-import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable, setupBrowseFilterPopover, setupLibraryHealthToggle } from "./js/browse-tab.js";
+import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable, setupBrowseFilterPopover, setupLibraryHealthToggle, setupTrashPanel } from "./js/browse-tab.js";
 import { loadStatus, restoreLastTab, restoreScrollPosition, setupBackToTop, setupFontSize, setupGlobalSearch, setupHeaderMoreMenu, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
@@ -16,6 +16,7 @@ import { createUniverseAction, pollNewFiles, pollNotifications, requestNotificat
 import { setupReportsTab } from "./js/reports-tab.js";
 import { exportWatchlistCsv, renderWatchlist } from "./js/watchlist-tab.js";
 import { closeWhatsNew, maybeShowWhatsNew } from "./js/whats-new.js";
+import { setupSetupWizard } from "./js/setup-wizard.js";
 import { checkPermissions, clearBrowserCache, createApiToken, createViewerAction, deleteTagAction, disableApiToken, exportLibrary, importLibrary, importWatchHistory, loadViewers, previewDigest, pushWatchedToJellyfin, renameTagAction, saveMediaServerSettings, saveNamingTemplates, saveOmdbKey, saveSettings, saveWebdavBackupSettings, setupSettingsAccordion, syncWatchedFromMediaServers, testTmdbKey } from "./js/settings-tab.js";
 
 // ---- Wiring ----
@@ -261,6 +262,8 @@ document.addEventListener("DOMContentLoaded", () => {
   setupReducedMotion();
   setupKeyboardShortcuts();
   setupFilterPersistence();
+  setupTrashPanel();
+  setupSetupWizard();
   setupReportsTab();
   setupSettingsAccordion();
   loadStatus();
@@ -280,6 +283,7 @@ document.addEventListener("DOMContentLoaded", () => {
     boxes.forEach((b) => { b.checked = !allChecked; });
   });
   $("#approve-btn").addEventListener("click", approveSelected);
+  $("#approve-cancel-btn").addEventListener("click", cancelConfirm);
   $("#scan-status-history-link").addEventListener("click", () => switchToTab("history"));
   $("#bulk-change-match-btn").addEventListener("click", openBulkMatchPicker);
   $("#track-add-movie-btn").addEventListener("click", () => openTrackAddModal("movie"));

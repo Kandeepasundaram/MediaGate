@@ -28,6 +28,15 @@ EXTRAS_DIR_NAMES = {
 _SAMPLE_PATTERN = re.compile(r"[.\s_-]sample$", re.IGNORECASE)
 
 
+# Soft-delete folder (see app/core/trash.py) -- never scanned, adopted or
+# surfaced as a library file.
+TRASH_DIR_NAME = ".mediagate-trash"
+
+
+def is_in_trash(path: Path) -> bool:
+    return TRASH_DIR_NAME in path.parts
+
+
 def is_extra_or_sample(path: Path) -> bool:
     if path.parent.name.lower() in EXTRAS_DIR_NAMES:
         return True
@@ -60,9 +69,12 @@ def scan_directory(root: Path | str) -> list[ScannedFile]:
 
     video_paths = [
         p for p in root.rglob("*")
-        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS and not is_extra_or_sample(p)
+        if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS and not is_extra_or_sample(p) and not is_in_trash(p)
     ]
-    subtitle_paths = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in SUBTITLE_EXTENSIONS]
+    subtitle_paths = [
+        p for p in root.rglob("*")
+        if p.is_file() and p.suffix.lower() in SUBTITLE_EXTENSIONS and not is_in_trash(p)
+    ]
 
     results: list[ScannedFile] = []
     for video in sorted(video_paths):

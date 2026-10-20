@@ -43,8 +43,20 @@ class ScanDirectoryRequest(BaseModel):
     directory: str
 
 
+class ParseOverrideIn(BaseModel):
+    """Manual correction to what parse_filename() guessed for one file --
+    any field left None keeps the parsed value."""
+
+    season: int | None = Field(default=None, ge=0)
+    episode: int | None = Field(default=None, ge=0)
+    year: int | None = Field(default=None, ge=1800, le=2200)
+
+
 class ArchivePreviewRequest(BaseModel):
     paths: list[str] = Field(default_factory=list)
+    # path -> corrected season/episode/year, applied on top of the filename
+    # parse before the TMDB lookup and rename plan are built.
+    parse_overrides: dict[str, ParseOverrideIn] = Field(default_factory=dict)
     # Manual TMDB match override/disambiguation: path -> chosen tmdb_id,
     # used instead of the automatic top search result for that file.
     tmdb_overrides: dict[str, int] = Field(default_factory=dict)
@@ -791,11 +803,34 @@ class BrowseItemOut(BaseModel):
     media_id: int | None = None
     tmdb_id: int | None = None
     watched: bool = False
+    # False when the path (relative to the archive root) doesn't follow this
+    # app's folder/file layout -- a candidate for "Organize Selected".
+    organized: bool = True
 
 
 class BrowseResponse(BaseModel):
     directory: str
     items: list[BrowseItemOut]
+    free_bytes: int | None = None
+    total_bytes: int | None = None
+    used_by_library_bytes: int = 0
+
+
+class TrashItemOut(BaseModel):
+    trash_path: str
+    original_path: str
+    size_bytes: int
+    deleted_at: str
+
+
+class TrashListResponse(BaseModel):
+    enabled: bool
+    retention_days: int
+    items: list[TrashItemOut]
+
+
+class TrashRestoreRequest(BaseModel):
+    trash_path: str
 
 
 class DeleteFileRequest(BaseModel):

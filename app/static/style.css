@@ -2336,3 +2336,12 @@ textarea:focus-visible,
 }
 
 .install-banner-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+
+.dest-episode-fix { display: flex; align-items: center; gap: 0.25rem; font-size: 0.85em; }
+.dest-episode-fix input { width: 3.5rem; }
+
+.trash-panel { margin-top: 1rem; }
+.trash-panel summary { cursor: pointer; font-weight: 600; }
+
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 0.5rem; }
+.settings-grid label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.9em; }

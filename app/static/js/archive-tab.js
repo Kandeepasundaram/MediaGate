@@ -178,6 +178,25 @@ function renderArchiveTable(items) {
     });
   });
 
+  // TV: a corrected season/episode re-runs the preview for just that row
+  // (keeping its current TMDB match) so the folder/file name, episode title
+  // and air date are rebuilt from the new numbers, not just patched in text.
+  $all(".dest-season-input, .dest-episode-input").forEach((input) => {
+    input.addEventListener("change", () => {
+      const idx = Number(input.dataset.index);
+      const cell = input.closest(".dest-episode-fix");
+      const season = parseInt(cell.querySelector(".dest-season-input").value, 10);
+      const episode = parseInt(cell.querySelector(".dest-episode-input").value, 10);
+      if (Number.isNaN(season) || Number.isNaN(episode) || season < 0 || episode < 0) {
+        const item = state.previewItems[idx];
+        cell.querySelector(".dest-season-input").value = item.season ?? "";
+        cell.querySelector(".dest-episode-input").value = item.episode ?? "";
+        return;
+      }
+      applyParseOverride(idx, { season, episode });
+    });
+  });
+
   // TV: the "Season NN" folder is independent of the episode's file name --
   // only the file itself is ever renamed here.
   $all(".dest-name-input").forEach((input) => {
@@ -242,6 +261,10 @@ function renderMovieNameCell(item, i) {
 function renderTvNameCell(item, i) {
   return `
     <div class="dest-name-cell">
+      <div class="dest-episode-fix" title="Wrong season/episode guessed from the filename? Fix it here and the name is rebuilt.">
+        S<input type="number" min="0" class="dest-season-input" data-index="${i}" value="${item.season ?? ""}" aria-label="Season number">
+        E<input type="number" min="0" class="dest-episode-input" data-index="${i}" value="${item.episode ?? ""}" aria-label="Episode number">
+      </div>
       <input type="text" class="dest-name-input" data-index="${i}" title="${item.dest_path}" value="${escapeAttr(item.dest_path.split(/[\\/]/).pop())}">
       ${destDiffMarkup(item, i)}
     </div>
@@ -356,6 +379,30 @@ async function applyMatchOverride(index, candidate) {
   } catch (e) {
     $("#scan-status").textContent = `Error: ${e.message}`;
     throw e; // keeps the match popup open on this error instead of closing -- see applyPickerChoice
+  }
+}
+
+async function applyParseOverride(index, fix) {
+  const item = state.previewItems[index];
+  $("#scan-status").textContent = "Rebuilding name...";
+  try {
+    const preview = await api("/api/archive/preview", {
+      method: "POST",
+      body: JSON.stringify({
+        paths: [item.source_path],
+        parse_overrides: { [item.source_path]: fix },
+        tmdb_overrides: item.tmdb_id != null ? { [item.source_path]: item.tmdb_id } : {},
+      }),
+    });
+    if (preview.items.length > 0) {
+      state.previewItems[index] = preview.items[0];
+      renderArchiveTable(state.previewItems);
+      $("#scan-status").textContent = `${state.previewItems.length} file(s) ready`;
+    } else {
+      $("#scan-status").textContent = `Error: ${preview.errors.join("; ") || "no preview returned"}`;
+    }
+  } catch (e) {
+    $("#scan-status").textContent = `Error: ${e.message}`;
   }
 }
 
@@ -530,6 +577,37 @@ export function showConfirm(text) {
   });
 }
 
+// Real (non-dry-run) archive/organize sends one file per request so the
+// status line can show real progress ("Archiving 3/20") and the Cancel
+// button can stop between files -- a file already being copied still
+// finishes (no safe way to abort a copy mid-write), but nothing after it
+// starts. Results from every request are merged into one response shape.
+async function runConfirmInChunks(endpoint, body, items, verb) {
+  const cancelBtn = $("#approve-cancel-btn");
+  state.confirmCancelled = false;
+  cancelBtn.classList.remove("hidden");
+  const results = [];
+  try {
+    for (let i = 0; i < items.length; i++) {
+      if (state.confirmCancelled) break;
+      $("#scan-status").textContent = `${verb} ${i + 1}/${items.length}…`;
+      const part = await api(endpoint, { method: "POST", body: JSON.stringify({ ...body, items: [items[i]] }) });
+      results.push(...part.results);
+    }
+  } finally {
+    cancelBtn.classList.add("hidden");
+  }
+  if (state.confirmCancelled && results.length < items.length) {
+    const skipped = items.length - results.length;
+    state.confirmSkipped = skipped;
+  }
+  return { results };
+}
+
+export function cancelConfirm() {
+  state.confirmCancelled = true;
+}
+
 export async function approveSelected() {
   const items = selectedItems();
   if (items.length === 0) return;
@@ -556,7 +634,9 @@ export async function approveSelected() {
   $("#scan-status").textContent = dryRun ? "Checking (dry run, nothing will change)..." : (isOrganize ? "Organizing..." : "Archiving...");
   $("#scan-status-history-link").classList.add("hidden");
   try {
-    const result = await api(endpoint, { method: "POST", body: JSON.stringify(body) });
+    const result = dryRun
+      ? await api(endpoint, { method: "POST", body: JSON.stringify(body) })
+      : await runConfirmInChunks(endpoint, body, items, isOrganize ? "Organizing" : "Archiving");
     const failures = result.results.filter((r) => r.status === "failed");
 
     if (dryRun) {
@@ -567,9 +647,10 @@ export async function approveSelected() {
       return; // preview table untouched -- nothing on disk/DB changed
     }
 
-    $("#scan-status").textContent = failures.length
+    const cancelNote = state.confirmCancelled && state.confirmSkipped ? ` Cancelled -- ${state.confirmSkipped} file(s) not processed.` : "";
+    $("#scan-status").textContent = (failures.length
       ? `Done with ${failures.length} failure(s)`
-      : isOrganize ? "Organized successfully" : "Archived successfully";
+      : isOrganize ? "Organized successfully" : "Archived successfully") + cancelNote;
 
     if (isOrganize) {
       $("#archive-table tbody").innerHTML = "";

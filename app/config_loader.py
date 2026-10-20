@@ -41,6 +41,7 @@ _DEFAULT_CONFIG: dict = {
     },
     "omdb": {"api_key": ""},
     "tvmaze": {"enabled": False},
+    "trash": {"enabled": True, "retention_days": 30},
     "backup": {"enabled": True, "retention_days": 14},
     "reports": {"enabled": False, "frequency": "monthly", "cron_time": "08:00"},
     "watcher": {"enabled": False},
@@ -140,6 +141,16 @@ class TVmazeConfig:
     # status/network, next-episode tracking; see app/core/tvmaze_client.py),
     # off by default like every other optional integration in this app.
     enabled: bool = False
+
+
+@dataclass
+class TrashConfig:
+    # On by default: "Delete" in Browse & Clean Up moves the video into a
+    # .mediagate-trash folder inside its library root (restorable from the
+    # Browse tab) and permanently removes it after retention_days. Off
+    # restores the original unlink-immediately behavior.
+    enabled: bool = True
+    retention_days: int = 30
 
 
 @dataclass
@@ -255,6 +266,7 @@ class AppConfig:
     renaming: RenamingConfig = field(default_factory=RenamingConfig)
     watcher: WatcherConfig = field(default_factory=WatcherConfig)
     tvmaze: TVmazeConfig = field(default_factory=TVmazeConfig)
+    trash: TrashConfig = field(default_factory=TrashConfig)
     reports: ReportDeliveryConfig = field(default_factory=ReportDeliveryConfig)
     config_path: Path = Path("config.yaml")
     tmdb_api_key_from_env: bool = False
@@ -302,6 +314,7 @@ def load_config(path: Path | str = DEFAULT_CONFIG_PATH, *, create_dirs: bool = T
         notifications=NotificationsConfig(**raw["notifications"]),
         omdb=OMDbConfig(**raw["omdb"]),
         tvmaze=TVmazeConfig(**raw["tvmaze"]),
+        trash=TrashConfig(**raw["trash"]),
         backup=BackupConfig(**raw["backup"]),
         reports=ReportDeliveryConfig(**raw["reports"]),
         media_server=MediaServerConfig(**raw["media_server"]),
@@ -341,6 +354,7 @@ _EDITABLE_KEYS = {
     },
     "omdb": {"api_key"},
     "tvmaze": {"enabled"},
+    "trash": {"enabled", "retention_days"},
     "tracker": {"auto_track_new", "digest_mode", "digest_interval_days"},
     "media_server": {"plex_url", "plex_token", "jellyfin_url", "jellyfin_api_key", "write_nfo_files"},
     "subtitles": {

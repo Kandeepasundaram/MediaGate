@@ -72,12 +72,20 @@ def preview_archive(
             continue
 
         parsed = parse_filename(source.name)
+        parse_fix = payload.parse_overrides.get(raw_path)
+        if parse_fix is not None:
+            if parse_fix.year is not None:
+                parsed.year = parse_fix.year
+            if parse_fix.season is not None:
+                parsed.season = parse_fix.season
+            if parse_fix.episode is not None:
+                parsed.episode = parse_fix.episode
         override_id = payload.tmdb_overrides.get(raw_path)
         try:
             if parsed.media_type == "tv":
                 media = _resolve_tv_match(tmdb, parsed, override_id)
-                season = parsed.season or 1
-                episode = parsed.episode or 1
+                season = parsed.season if parsed.season is not None else 1
+                episode = parsed.episode if parsed.episode is not None else 1
                 episode_title, air_date = _resolve_tv_enrichment(tmdb, tvmaze, config.renaming, media, season, episode)
                 plan = plan_tv_rename(
                     source,
@@ -251,7 +259,7 @@ def confirm_archive(
         dest = Path(item.dest_path)
 
         if payload.dry_run:
-            results.append(_dry_run_result(source, dest))
+            results.append(_dry_run_result(source, dest, config.renaming.collision_policy))
             continue
 
         keep_languages = keep_languages_for(config.subtitles, item.media_type)
@@ -305,15 +313,20 @@ def confirm_archive(
     return ArchiveConfirmResponse(results=results)
 
 
-def _dry_run_result(source: Path, dest: Path) -> ArchiveConfirmResult:
+def _dry_run_result(source: Path, dest: Path, collision_policy: str = "suffix") -> ArchiveConfirmResult:
     """What archive/organize would report for `source` without actually
     touching the filesystem, DB, subtitles, tracker, or media server --
-    only the source-exists/non-empty checks are predictable in advance;
-    a copy/checksum failure or an overwrite conflict can't be."""
+    the source-exists/non-empty checks and a destination collision (some
+    other file already sitting at `dest`, unless the configured policy is
+    "overwrite") are predictable in advance; a copy/checksum failure can't be."""
     if not source.exists():
         return ArchiveConfirmResult(source_path=str(source), status="failed", error="Source file not found")
     if source.stat().st_size == 0:
         return ArchiveConfirmResult(source_path=str(source), status="failed", error="Source file is 0 bytes")
+    if collision_policy != "overwrite" and dest.exists() and dest.resolve() != source.resolve():
+        return ArchiveConfirmResult(
+            source_path=str(source), status="failed", error=f"Destination already exists: {dest}"
+        )
     return ArchiveConfirmResult(source_path=str(source), dest_path=str(dest), status="success")
 
 

@@ -11,7 +11,7 @@ import contextlib
 import logging
 from datetime import datetime, timedelta, timezone
 
-from app.core import backup, report_delivery
+from app.core import backup, report_delivery, trash
 from app.core.tracker import check_for_updates, send_digest
 from app.dependencies import get_config, get_database, get_tmdb_client, get_tvmaze_client
 
@@ -135,6 +135,11 @@ async def run_weekly_maintenance() -> None:
             db = get_database()
             await asyncio.to_thread(db.maintenance_checkpoint_and_vacuum)
             logger.info("Weekly DB maintenance (WAL checkpoint + VACUUM) complete")
+            trash_cfg = get_config().trash
+            if trash_cfg.enabled:
+                purged = await asyncio.to_thread(trash.purge, get_config(), trash_cfg.retention_days)
+                if purged:
+                    logger.info("Purged %d expired file(s) from the library trash", purged)
             _task_status["maintenance"] = {"last_run_at": datetime.now(timezone.utc).isoformat(), "last_error": None}
         except asyncio.CancelledError:
             raise

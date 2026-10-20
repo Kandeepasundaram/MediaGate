@@ -56,6 +56,10 @@
 
 <main>
   <section id="tab-movies" class="tab-panel active">
+    <div id="movies-recent-row" class="continue-watching-row hidden">
+      <h3>Recently Added</h3>
+      <div id="movies-recent-cards" class="continue-watching-cards"></div>
+    </div>
     <details id="movies-recommendations-row" class="continue-watching-row recommendations-row">
       <summary>Recommended for You</summary>
       <div id="movies-recommendations-cards" class="continue-watching-cards"></div>
@@ -175,6 +179,10 @@
   </section>
 
   <section id="tab-tv" class="tab-panel">
+    <div id="tv-recent-row" class="continue-watching-row hidden">
+      <h3>Recently Added</h3>
+      <div id="tv-recent-cards" class="continue-watching-cards"></div>
+    </div>
     <div id="continue-watching-row" class="continue-watching-row hidden">
       <h3>Continue Watching</h3>
       <div id="continue-watching-cards" class="continue-watching-cards"></div>
@@ -322,6 +330,7 @@
           <select id="browse-filter">
             <option value="all">All</option>
             <option value="unmatched">Unmatched only</option>
+            <option value="unorganized">Needs organizing only</option>
           </select>
           <select id="browse-tracked">
             <option value="">All tracking status</option>
@@ -359,6 +368,17 @@
       </thead>
       <tbody></tbody>
     </table>
+    <details id="trash-panel" class="trash-panel">
+      <summary id="trash-summary">Trash</summary>
+      <div class="toolbar">
+        <button id="trash-empty-btn" class="danger">Empty Trash</button>
+        <span id="trash-status" class="hint"></span>
+      </div>
+      <table id="trash-table">
+        <thead><tr><th>Original path</th><th>Size</th><th>Deleted</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </details>
   </section>
 
   <section id="tab-archive" class="tab-panel">
@@ -378,6 +398,7 @@
           Dry run
         </label>
         <button id="approve-btn" class="primary">Approve &amp; Archive</button>
+        <button id="approve-cancel-btn" class="danger hidden" title="Stop after the file currently being processed">Cancel</button>
       </div>
     </div>
     <div id="organize-scope" class="toolbar hidden">
@@ -1011,6 +1032,37 @@
     <div class="toolbar">
       <button id="bulk-track-confirm-btn" class="primary hidden">Confirm &amp; Track All</button>
       <button id="bulk-track-cancel-btn">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="setup-wizard-modal" class="modal hidden" role="dialog" aria-labelledby="wizard-title">
+  <div class="modal-content">
+    <h3 id="wizard-title">Welcome — quick setup</h3>
+    <p class="hint">Point the app at your library folders and (optionally) add a TMDB key. Everything here can be changed later in Settings.</p>
+    <h4>1. Library folders</h4>
+    <div class="settings-grid">
+      <label>Incoming movies <input type="text" id="wizard-incoming-movies"></label>
+      <label>Incoming TV <input type="text" id="wizard-incoming-tv"></label>
+      <label>Movies archive <input type="text" id="wizard-archive-movies"></label>
+      <label>TV archive <input type="text" id="wizard-archive-tv"></label>
+    </div>
+    <p class="hint">Using one folder per type for both incoming and archive is fine — files are organized in place.</p>
+    <h4>2. TMDB API key <span class="hint">(optional)</span></h4>
+    <div class="toolbar">
+      <input type="password" id="wizard-tmdb-key" placeholder="Paste key, or leave blank for scraper fallback" autocomplete="off">
+      <button type="button" id="wizard-validate-key-btn">Test key</button>
+      <span id="wizard-key-status" class="hint"></span>
+    </div>
+    <h4>3. Check folders</h4>
+    <div class="toolbar">
+      <button type="button" id="wizard-test-btn">Save &amp; test folder permissions</button>
+    </div>
+    <div id="wizard-permissions"></div>
+    <div class="toolbar">
+      <button type="button" id="wizard-finish-btn" class="primary">Save &amp; finish</button>
+      <button type="button" id="wizard-skip-btn">Skip for now</button>
+      <span id="wizard-status" class="hint"></span>
     </div>
   </div>
 </div>

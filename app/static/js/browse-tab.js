@@ -19,6 +19,7 @@ export function renderBrowseTable() {
 
   let items = state.browseItems;
   if (filterMode === "unmatched") items = items.filter((i) => i.tmdb_id == null);
+  if (filterMode === "unorganized") items = items.filter((i) => !i.organized);
   if (trackedFilter === "tracked") items = items.filter((i) => i.tracked);
   if (trackedFilter === "untracked") items = items.filter((i) => !i.tracked);
   if (query) items = items.filter((i) => i.path.toLowerCase().includes(query) || i.parsed_title.toLowerCase().includes(query));
@@ -30,8 +31,13 @@ export function renderBrowseTable() {
   state.browseFiltered = items;
 
   if (state.browseDirectory) {
+    const unorganized = state.browseItems.filter((i) => !i.organized).length;
+    const disk = state.browseFreeBytes != null
+      ? ` · library ${formatBytes(state.browseLibraryBytes)} · ${formatBytes(state.browseFreeBytes)} free of ${formatBytes(state.browseTotalBytes)}`
+      : "";
     $("#browse-status").textContent = `${state.browseItems.length} file(s) in ${state.browseDirectory}` +
-      (items.length !== state.browseItems.length ? ` (${items.length} shown)` : "");
+      (items.length !== state.browseItems.length ? ` (${items.length} shown)` : "") +
+      (unorganized ? ` · ${unorganized} need organizing` : "") + disk;
   }
 
   if (state.browseItems.length === 0) {
@@ -47,7 +53,7 @@ export function renderBrowseTable() {
     <tr>
       <td><input type="checkbox" class="browse-check" data-index="${i}" aria-label="Select ${escapeAttr(item.path.split(/[\\/]/).pop())}"></td>
       <td title="${item.path}"><button class="row-copy-btn" data-index="${i}" title="Copy full path" aria-label="Copy full path">⧉</button>${item.path.split(/[\\/]/).pop()}</td>
-      <td>${item.parsed_title}${item.year ? ` (${item.year})` : ""}${
+      <td>${item.organized ? "" : `<span class="duplicate-badge" title="Path doesn't follow the folder/file layout -- select it and use Organize Selected">⚠ unorganized</span> `}${item.parsed_title}${item.year ? ` (${item.year})` : ""}${
         item.season != null ? ` S${String(item.season).padStart(2, "0")}E${String(item.episode).padStart(2, "0")}` : ""
       }</td>
       <td>${formatBytes(item.size_bytes)}</td>
@@ -117,11 +123,74 @@ export async function loadBrowse() {
     const data = await api(`/api/library/browse?media_type=${mediaType}`);
     state.browseItems = data.items;
     state.browseDirectory = data.directory;
+    state.browseFreeBytes = data.free_bytes;
+    state.browseTotalBytes = data.total_bytes;
+    state.browseLibraryBytes = data.used_by_library_bytes;
     renderBrowseTable();
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan=7>Error: ${e.message}</td></tr>`;
   }
   loadLibraryHealth();
+  loadTrash();
+}
+
+// ---- Trash (soft-deleted files, see app/core/trash.py) ----
+async function loadTrash() {
+  const tbody = $("#trash-table tbody");
+  try {
+    const data = await api("/api/library/trash");
+    state.trashItems = data.items;
+    const total = data.items.reduce((sum, i) => sum + i.size_bytes, 0);
+    $("#trash-summary").textContent = data.enabled
+      ? `Trash (${data.items.length}${data.items.length ? ` · ${formatBytes(total)}` : ""})`
+      : "Trash (disabled — deletes are permanent)";
+    $("#trash-status").textContent = data.items.length
+      ? `Files are removed for good ${data.retention_days} day(s) after deletion. A restored file is re-adopted without its old watched state or tags.`
+      : "";
+    $("#trash-empty-btn").disabled = data.items.length === 0;
+    tbody.innerHTML = data.items.length === 0
+      ? `<tr><td colspan=4>Trash is empty.</td></tr>`
+      : data.items.map((item, i) => `
+        <tr>
+          <td title="${escapeAttr(item.original_path)}">${escapeAttr(item.original_path)}</td>
+          <td>${formatBytes(item.size_bytes)}</td>
+          <td>${new Date(item.deleted_at).toLocaleString()}</td>
+          <td><button class="trash-restore-btn" data-index="${i}">Restore</button></td>
+        </tr>`).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan=4>Error: ${e.message}</td></tr>`;
+  }
+}
+
+async function restoreTrashItem(index) {
+  const item = state.trashItems[index];
+  try {
+    await api("/api/library/trash/restore", { method: "POST", body: JSON.stringify({ trash_path: item.trash_path }) });
+    $("#browse-status").textContent = `Restored ${item.original_path}`;
+    loadBrowse();
+  } catch (e) {
+    $("#trash-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+async function emptyTrash() {
+  const ok = await showConfirm(`Permanently delete everything in the trash (${(state.trashItems || []).length} file(s))? This cannot be undone.`);
+  if (!ok) return;
+  try {
+    const data = await api("/api/library/trash/empty", { method: "POST" });
+    $("#browse-status").textContent = `Removed ${data.removed} file(s) from the trash.`;
+    loadTrash();
+  } catch (e) {
+    $("#trash-status").textContent = `Error: ${e.message}`;
+  }
+}
+
+export function setupTrashPanel() {
+  $("#trash-empty-btn").addEventListener("click", emptyTrash);
+  $("#trash-table").addEventListener("click", (e) => {
+    const btn = e.target.closest(".trash-restore-btn");
+    if (btn) restoreTrashItem(Number(btn.dataset.index));
+  });
 }
 
 async function loadLibraryHealth() {
@@ -319,7 +388,7 @@ async function keepBestDuplicate(group) {
 
 async function deleteDuplicateCopy(path) {
   if (!path) return;
-  const ok = await showConfirm(`Permanently delete "${path}"? This cannot be undone.`);
+  const ok = await showConfirm(`Delete "${path}"? It moves to the Trash and can be restored from the Browse tab until it expires.`);
   if (!ok) return;
   try {
     await api("/api/library/delete-file", { method: "POST", body: JSON.stringify({ path }) });
@@ -353,7 +422,7 @@ async function deleteBrowseItem(index) {
   const item = state.browseFiltered[index];
   const dryRun = isBrowseDryRun();
   if (!dryRun) {
-    const ok = await showConfirm(`Permanently delete "${item.path}"? This cannot be undone.`);
+    const ok = await showConfirm(`Delete "${item.path}"? It moves to the Trash and can be restored from the Browse tab until it expires.`);
     if (!ok) return;
   }
 
@@ -378,7 +447,7 @@ export async function deleteSelectedBrowseItems() {
   const dryRun = isBrowseDryRun();
   if (!dryRun) {
     const totalBytes = selected.reduce((sum, item) => sum + (item.size_bytes || 0), 0);
-    const ok = await showConfirm(`Permanently delete ${selected.length} file(s) (${formatBytes(totalBytes)})? This cannot be undone.`);
+    const ok = await showConfirm(`Delete ${selected.length} file(s) (${formatBytes(totalBytes)})? They move to the Trash and can be restored from the Browse tab until they expire.`);
     if (!ok) return;
   }
 

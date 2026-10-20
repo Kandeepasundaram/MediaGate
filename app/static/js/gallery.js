@@ -875,6 +875,7 @@ export function renderMoviesGallery() {
   const pinnedOnly = $("#movies-pinned-only").checked;
   updateFilterBadge("movies");
   renderGenreChips("movies", state.movieItems);
+  renderRecentlyAdded("movies", state.movieItems);
   const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly }));
   populateAzRail("movies", items);
   const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly]);
@@ -1425,6 +1426,49 @@ function applyContinueOrder(upNext) {
     .map((x) => x.entry);
 }
 
+// "Recently Added" row (Movies and TV): the newest titles by archive/adoption
+// date, newest first -- a quick way back to what just landed without
+// switching the sort. Movies are items; TV shows are ranked by their newest
+// episode. Hidden when nothing has an archived_at to rank by.
+const RECENT_ROW_LIMIT = 12;
+
+function renderRecentlyAdded(kind, entries) {
+  const row = $(`#${kind}-recent-row`);
+  const cards = $(`#${kind}-recent-cards`);
+  if (!row || !cards) return;
+  const stamp = (e) => (kind === "movies"
+    ? e.archived_at
+    : e.episodes.reduce((max, ep) => ((ep.archived_at || "") > max ? ep.archived_at : max), ""));
+  const recent = entries
+    .map((e) => ({ e, at: stamp(e) || "" }))
+    .filter((x) => x.at)
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, RECENT_ROW_LIMIT)
+    .map((x) => x.e);
+  if (recent.length === 0) {
+    row.classList.add("hidden");
+    cards.innerHTML = "";
+    return;
+  }
+  row.classList.remove("hidden");
+  cards.innerHTML = recent.map((e, i) => `
+    <div class="continue-watching-card" data-recent-index="${i}" tabindex="0" role="button" title="Open ${escapeAttr(e.title)}">
+      ${posterMarkup(e.title, e.poster_path)}
+      <div class="continue-watching-info">
+        <div class="gallery-title" title="${escapeAttr(e.title)}">${e.title}</div>
+        <div class="hint">${e.year ? `${e.year} · ` : ""}added ${new Date(stamp(e)).toLocaleDateString()}</div>
+      </div>
+    </div>
+  `).join("");
+  cards.querySelectorAll(".continue-watching-card").forEach((card, i) => {
+    const open = () => openDetailPane(kind === "movies" ? "movie" : "tv", recent[i]);
+    card.addEventListener("click", open);
+    card.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); open(); }
+    });
+  });
+}
+
 function renderContinueWatching(allShows) {
   const row = $("#continue-watching-row");
   const cards = $("#continue-watching-cards");
@@ -1581,6 +1625,7 @@ export function renderTvGallery() {
   updateFilterBadge("tv");
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
+  renderRecentlyAdded("tv", allShows);
   renderGenreChips("tv", allShows);
   const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly }));
   populateAzRail("tv", shows);

@@ -1731,3 +1731,93 @@ def test_recommendations_excludes_orphaned_tracked_tv_show(client):
     tmdb_ids = [i["tmdb_id"] for i in resp.json()["items"]]
     assert 75219 not in tmdb_ids
     assert 88888 in tmdb_ids
+
+
+def test_delete_moves_file_to_trash_and_restore_brings_it_back(client):
+    c, _ = client
+    folder = _archive_movies_dir(c) / "Movie (2020)"
+    folder.mkdir()
+    video = folder / "Movie (2020).mkv"
+    video.write_bytes(b"data")
+
+    assert c.post("/api/library/delete-file", json={"path": str(video)}).status_code == 200
+    assert not video.exists()
+
+    trash = c.get("/api/library/trash").json()
+    assert [Path(i["original_path"]) for i in trash["items"]] == [video]
+    # trashed files never show up as library content
+    assert c.get("/api/library/browse", params={"media_type": "movie"}).json()["items"] == []
+
+    resp = c.post("/api/library/trash/restore", json={"trash_path": trash["items"][0]["trash_path"]})
+    assert resp.status_code == 200
+    assert video.read_bytes() == b"data"
+    assert c.get("/api/library/trash").json()["items"] == []
+
+
+def test_restore_refuses_to_overwrite_existing_file(client):
+    c, _ = client
+    video = _archive_movies_dir(c) / "Movie (2020).mkv"
+    video.write_bytes(b"old")
+    c.post("/api/library/delete-file", json={"path": str(video)})
+    video.write_bytes(b"new")
+
+    trash_path = c.get("/api/library/trash").json()["items"][0]["trash_path"]
+    assert c.post("/api/library/trash/restore", json={"trash_path": trash_path}).status_code == 409
+    assert video.read_bytes() == b"new"
+
+
+def test_empty_trash_removes_everything(client):
+    c, _ = client
+    video = _archive_movies_dir(c) / "gone.mkv"
+    video.write_bytes(b"data")
+    c.post("/api/library/delete-file", json={"path": str(video)})
+
+    assert c.post("/api/library/trash/empty").json() == {"removed": 1}
+    assert c.get("/api/library/trash").json()["items"] == []
+
+
+def test_browse_flags_files_outside_the_folder_layout(client):
+    c, _ = client
+    root = _archive_movies_dir(c)
+    (root / "Good (2020)").mkdir()
+    (root / "Good (2020)" / "Good (2020).mkv").write_bytes(b"x")
+    (root / "loose.2021.1080p.mkv").write_bytes(b"x")
+
+    items = {Path(i["path"]).name: i for i in c.get("/api/library/browse", params={"media_type": "movie"}).json()["items"]}
+    assert items["Good (2020).mkv"]["organized"] is True
+    assert items["loose.2021.1080p.mkv"]["organized"] is False
+
+
+def test_browse_reports_disk_usage(client):
+    c, _ = client
+    (_archive_movies_dir(c) / "a.mkv").write_bytes(b"12345")
+    body = c.get("/api/library/browse", params={"media_type": "movie"}).json()
+    assert body["used_by_library_bytes"] == 5
+    assert body["free_bytes"] > 0 and body["total_bytes"] >= body["free_bytes"]
+
+
+def test_dry_run_flags_destination_collision(client, tmp_path):
+    c, _ = client
+    source = tmp_path / "src.mkv"
+    source.write_bytes(b"data")
+    dest = tmp_path / "dest.mkv"
+    dest.write_bytes(b"other")
+    item = {"source_path": str(source), "dest_path": str(dest), "media_type": "movie", "title": "X"}
+
+    result = c.post("/api/archive/confirm", json={"items": [item], "dry_run": True}).json()["results"][0]
+    assert result["status"] == "failed" and "already exists" in result["error"]
+
+
+def test_preview_parse_override_rebuilds_episode_name(client, tmp_path):
+    c, _ = client
+    source = tmp_path / "Show.Name.S01E02.mkv"
+    source.write_bytes(b"data")
+    tmdb = MagicMock(mode="scraper")
+    tmdb.search_tv.return_value = [MediaResult(tmdb_id=1, title="Show Name", media_type="tv", year=2020)]
+    tmdb.get_tv_details.return_value = None
+    app.dependency_overrides[get_tmdb_client] = lambda: tmdb
+
+    body = {"paths": [str(source)], "parse_overrides": {str(source): {"season": 3, "episode": 7}}}
+    item = c.post("/api/archive/preview", json=body).json()["items"][0]
+    assert (item["season"], item["episode"]) == (3, 7)
+    assert "S03E07" in item["dest_path"]

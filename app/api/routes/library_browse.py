@@ -7,6 +7,8 @@ archive roots, tracked in media_items or not.
 from __future__ import annotations
 
 import logging
+import re
+import shutil
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -17,6 +19,7 @@ from app.config_loader import AppConfig
 from app.core.orphan_artwork import ARTWORK_NAMES
 from app.core.organizer import OrganizeError, OrganizeScope, effective_dest, organize_file
 from app.core.renamer import RenamePlan
+from app.core import trash
 from app.core.scanner import SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS, scan_directory
 from app.core.media_server import notify_media_servers
 from app.core.tracker import maybe_auto_track
@@ -33,6 +36,9 @@ from app.models import (
     DeletePreviewOut,
     MediaType,
     OrganizeConfirmRequest,
+    TrashItemOut,
+    TrashListResponse,
+    TrashRestoreRequest,
 )
 
 logger = logging.getLogger(__name__)
@@ -61,7 +67,7 @@ def organize_selected(
         dest = effective_dest(source, Path(item.dest_path), scope)
 
         if payload.dry_run:
-            results.append(_dry_run_result(source, dest))
+            results.append(_dry_run_result(source, dest, config.renaming.collision_policy))
             continue
 
         plan = RenamePlan(
@@ -100,6 +106,22 @@ def organize_selected(
     return ArchiveConfirmResponse(results=results)
 
 
+_SEASON_FOLDER = re.compile(r"^(season|series|specials?)|^s\d{1,2}$", re.IGNORECASE)
+
+
+def _follows_layout(path: Path, root: Path, media_type: str) -> bool:
+    """Heuristic (custom naming templates mean there's no single exact
+    pattern): a movie belongs in its own folder and its filename starts with
+    that folder's name; an episode sits at Show/Season NN/file."""
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        return False
+    if media_type == "movie":
+        return len(parts) == 2 and Path(parts[1]).stem.startswith(parts[0])
+    return len(parts) == 3 and bool(_SEASON_FOLDER.match(parts[1]))
+
+
 @router.get("/browse", response_model=BrowseResponse)
 def browse_archive(
     media_type: MediaType,
@@ -132,9 +154,19 @@ def browse_archive(
                 media_id=tracked_row["id"] if tracked_row else None,
                 tmdb_id=tracked_row["tmdb_id"] if tracked_row else None,
                 watched=bool(tracked_row["watched"]) if tracked_row else False,
+                organized=_follows_layout(f.path, root, media_type),
             )
         )
-    return BrowseResponse(directory=str(root), items=items)
+    free = total = None
+    try:
+        usage = shutil.disk_usage(root)
+        free, total = usage.free, usage.total
+    except OSError:
+        pass  # root missing/unmounted -- the table is already empty, just no disk figures
+    return BrowseResponse(
+        directory=str(root), items=items, free_bytes=free, total_bytes=total,
+        used_by_library_bytes=sum(i.size_bytes for i in items),
+    )
 
 
 def _resolve_and_validate_target(path: str, config: AppConfig) -> Path:
@@ -160,9 +192,13 @@ def _delete_target(target: Path, db: Database, config: AppConfig) -> None:
     # has a foreign key, and deleting the media_items row first would make a
     # log entry pointing at it fail that constraint.
     tracked_row = db.get_media_item_by_final_path(str(target))
+    trash_path: Path | None = None
     try:
-        target.unlink()
-    except OSError as exc:
+        if config.trash.enabled:
+            trash_path = trash.move_to_trash(target, config)
+        else:
+            target.unlink()
+    except (OSError, ValueError) as exc:
         db.log_operation(
             operation_type="delete",
             status="failed",
@@ -178,7 +214,7 @@ def _delete_target(target: Path, db: Database, config: AppConfig) -> None:
         operation_type="delete",
         status="success",
         media_id=tracked_row["id"] if tracked_row else None,
-        details={"path": str(target)},
+        details={"path": str(target), **({"trash_path": str(trash_path)} if trash_path else {})},
     )
     if tracked_row:
         db.delete_media_item(tracked_row["id"])
@@ -325,6 +361,42 @@ def delete_file(
     except OSError as exc:
         raise HTTPException(status_code=500, detail=f"Failed to delete: {exc}") from exc
     return {"deleted": True}
+
+
+@router.get("/trash", response_model=TrashListResponse)
+def list_library_trash(config: AppConfig = Depends(get_config)) -> TrashListResponse:
+    entries = trash.list_trash(config)
+    entries.sort(key=lambda e: e.deleted_at, reverse=True)
+    return TrashListResponse(
+        enabled=config.trash.enabled,
+        retention_days=config.trash.retention_days,
+        items=[
+            TrashItemOut(
+                trash_path=str(e.trash_path), original_path=str(e.original_path),
+                size_bytes=e.size_bytes, deleted_at=e.deleted_at.isoformat(),
+            )
+            for e in entries
+        ],
+    )
+
+
+@router.post("/trash/restore")
+def restore_from_trash(payload: TrashRestoreRequest, config: AppConfig = Depends(get_config)) -> dict:
+    """Puts a trashed file back where it was. The gallery re-adopts it on
+    its next load (a fresh row -- watched state/tags of the deleted row
+    are not restored)."""
+    try:
+        restored = trash.restore(Path(payload.trash_path), config)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"restored": str(restored)}
+
+
+@router.post("/trash/empty")
+def empty_trash(config: AppConfig = Depends(get_config)) -> dict:
+    return {"removed": trash.purge(config)}
 
 
 @router.post("/delete-batch", response_model=DeleteBatchResponse)
