@@ -576,12 +576,25 @@ tr:hover td { background: var(--bg-elevated); }
   padding: 0.8rem 1rem;
   margin-bottom: 0.6rem;
   display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
   justify-content: space-between;
   align-items: center;
   box-shadow: var(--shadow-surface, none);
   backdrop-filter: var(--surface-blur, none);
   -webkit-backdrop-filter: var(--surface-blur, none);
 }
+.notification-expandable { cursor: pointer; }
+.notification-details {
+  flex-basis: 100%;
+  cursor: default;
+  border-top: 1px solid var(--surface-border);
+  padding-top: 0.6rem;
+  font-size: 0.9rem;
+}
+.notification-details.hidden { display: none; }
+.notification-seasons { margin-top: 0.5rem; border-collapse: collapse; }
+.notification-seasons th, .notification-seasons td { padding: 0.15rem 1rem 0.15rem 0; text-align: left; }
 
 .status-success { color: var(--success); }
 .status-success::before { content: "\2713  "; }

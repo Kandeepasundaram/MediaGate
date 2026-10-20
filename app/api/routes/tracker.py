@@ -7,10 +7,12 @@ from xml.sax.saxutils import escape
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 
+from app.api.routes.library import movie_status, tv_status
 from app.core.tmdb_client import TMDBClient
 from app.core.tracker import build_digest_preview, check_movie_collection, check_tv_show
+from app.core.tvmaze_client import TVmazeClient
 from app.database import Database
-from app.dependencies import get_database, get_tmdb_client
+from app.dependencies import get_database, get_tmdb_client, get_tvmaze_client
 from app.models import (
     DigestPreviewOut,
     NotificationHistoryEntryOut,
@@ -239,6 +241,95 @@ def upcoming_releases(
 
     items.sort(key=lambda i: i.release_date)
     return UpcomingReleasesResponse(items=items)
+
+
+@router.get("/{tracker_id}/details")
+def tracker_details(
+    tracker_id: int,
+    db: Database = Depends(get_database),
+    tmdb: TMDBClient = Depends(get_tmdb_client),
+    tvmaze: TVmazeClient = Depends(get_tvmaze_client),
+) -> dict:
+    """Expanded view of one notification: how much of the title is owned vs
+    aired vs total, per season, plus last/next episode. Reuses the library's
+    /tv-status and /movie-status lookups, so it inherits their
+    data_available convention -- scraper mode (no API key) yields owned
+    counts only."""
+    row = db.get_tracker_by_id(tracker_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Tracked title not found")
+
+    if row["media_type"] == "movie":
+        owned = db.count_media_items_for_tmdb(row["tmdb_id"], "movie") > 0
+        status = None
+        try:
+            status = movie_status(row["tmdb_id"], tmdb)
+        except HTTPException:
+            pass
+        related = []
+        if status:
+            owned_ids = {
+                m["tmdb_id"] for m in db.list_media_items("movie") if m["tmdb_id"] is not None
+            }
+            related = [
+                {"tmdb_id": r.tmdb_id, "title": r.title, "year": r.year, "owned": r.tmdb_id in owned_ids}
+                for r in status.related
+            ]
+        return {
+            "media_type": "movie",
+            "owned": owned,
+            "release_status": row["movie_release_status"],
+            "related": related,
+            "data_available": bool(status and status.data_available),
+        }
+
+    owned_by_season: dict[int, int] = {}
+    for item in db.list_media_items("tv"):
+        if item["tmdb_id"] == row["tmdb_id"] and item["season_number"] is not None:
+            owned_by_season[item["season_number"]] = owned_by_season.get(item["season_number"], 0) + 1
+
+    try:
+        status = tv_status(row["tmdb_id"], tmdb, tvmaze)
+    except HTTPException:
+        status = None
+
+    seasons = []
+    if status:
+        for s in status.seasons:
+            owned = owned_by_season.get(s.season_number, 0)
+            aired = s.aired_count if s.aired_count is not None else s.episode_count
+            seasons.append({
+                "season_number": s.season_number,
+                "total": s.episode_count,
+                "aired": aired,
+                "owned": owned,
+                "pending": max(aired - owned, 0),
+            })
+    else:
+        seasons = [
+            {"season_number": n, "total": None, "aired": None, "owned": c, "pending": None}
+            for n, c in sorted(owned_by_season.items())
+        ]
+
+    owned_total = sum(owned_by_season.values())
+    aired_total = sum(s["aired"] for s in seasons if s["aired"] is not None) if status else None
+    return {
+        "media_type": "tv",
+        "data_available": bool(status and status.data_available),
+        "status": status.status if status else None,
+        "network": status.network if status else None,
+        "latest_known_season": (status.latest_known_season if status else None) or row["latest_known_season"],
+        "current_season_archived": row["current_season_archived"],
+        "total_episodes": status.total_episodes if status else None,
+        "owned_episodes": owned_total,
+        "aired_episodes": aired_total,
+        "pending_episodes": sum(s["pending"] for s in seasons) if status else None,
+        "last_episode_code": status.last_episode_code if status else None,
+        "last_episode_air_date": status.last_episode_air_date if status else None,
+        "next_episode_code": status.next_episode_code if status else None,
+        "next_episode_air_date": (status.next_episode_air_date if status else None) or row["next_episode_air_date"],
+        "seasons": seasons,
+    }
 
 
 @router.post("/{tracker_id}/mute")

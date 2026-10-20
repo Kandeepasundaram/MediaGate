@@ -24,6 +24,73 @@ export function updateNotificationsBadge(count) {
   document.title = count > 0 ? `(${count}) ${BASE_TITLE}` : BASE_TITLE;
 }
 
+// Ids of notifications left expanded, so the 30s poll's re-render doesn't
+// collapse a row the user is reading.
+const expandedNotificationIds = new Set();
+
+function renderNotificationDetails(d) {
+  if (d.media_type === "movie") {
+    const related = d.related.length === 0
+      ? ""
+      : `<div class="hint">Collection:</div><ul>${d.related.map((r) =>
+        `<li>${escapeAttr(r.title)}${r.year ? ` (${r.year})` : ""} — ${r.owned ? "✅ in library" : "⬜ not in library"}</li>`).join("")}</ul>`;
+    return `
+      <div>Owned: ${d.owned ? "✅ yes" : "⬜ no"}</div>
+      ${d.release_status ? `<div>${escapeAttr(d.release_status)}</div>` : ""}
+      ${related}`;
+  }
+  const lines = [];
+  if (d.status || d.network) lines.push(`<div>${[d.status, d.network].filter(Boolean).map(escapeAttr).join(" · ")}</div>`);
+  if (d.latest_known_season != null) {
+    lines.push(`<div>Latest season: ${d.latest_known_season}${d.current_season_archived != null ? ` (archived through season ${d.current_season_archived})` : ""}</div>`);
+  }
+  const owned = d.total_episodes != null ? `${d.owned_episodes} of ${d.total_episodes}` : `${d.owned_episodes}`;
+  lines.push(`<div>Episodes owned: ${owned}${d.aired_episodes != null && d.aired_episodes !== d.total_episodes ? ` (${d.aired_episodes} aired)` : ""}</div>`);
+  if (d.pending_episodes != null) lines.push(`<div>Pending (aired, not in library): <strong>${d.pending_episodes}</strong></div>`);
+  if (d.last_episode_air_date) {
+    lines.push(`<div>Last aired: ${d.last_episode_code ? `${d.last_episode_code} — ` : ""}${d.last_episode_air_date}</div>`);
+  }
+  if (d.next_episode_air_date) {
+    lines.push(`<div>Next: ${d.next_episode_code ? `${d.next_episode_code} — ` : ""}${d.next_episode_air_date} ${countdownBadge(d.next_episode_air_date)}</div>`);
+  }
+  if (!d.data_available) lines.push(`<div class="hint">Full season data needs a TMDB API key (or TVmaze enabled) in Settings.</div>`);
+  const seasonRows = d.seasons.map((s) => `
+    <tr>
+      <td>Season ${s.season_number}</td>
+      <td>${s.owned}${s.total != null ? ` / ${s.total}` : ""}</td>
+      <td>${s.aired != null ? s.aired : "—"}</td>
+      <td>${s.pending != null ? s.pending : "—"}</td>
+    </tr>`).join("");
+  const table = d.seasons.length === 0 ? "" : `
+    <table class="notification-seasons">
+      <thead><tr><th>Season</th><th>Owned / total</th><th>Aired</th><th>Pending</th></tr></thead>
+      <tbody>${seasonRows}</tbody>
+    </table>`;
+  return lines.join("") + table;
+}
+
+async function toggleNotificationDetails(item) {
+  const panel = item.querySelector(".notification-details");
+  const id = Number(item.dataset.id);
+  const open = panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open);
+  item.querySelector(".notification-chevron").textContent = open ? "▾" : "▸";
+  if (!open) {
+    expandedNotificationIds.delete(id);
+    return;
+  }
+  expandedNotificationIds.add(id);
+  if (panel.dataset.loaded === "1") return;
+  panel.innerHTML = `<span class="hint">Loading details...</span>`;
+  try {
+    const d = await api(`/api/tracker/${id}/details`);
+    panel.innerHTML = renderNotificationDetails(d);
+    panel.dataset.loaded = "1";
+  } catch (e) {
+    panel.innerHTML = `<span class="hint">Error loading details: ${e.message}</span>`;
+  }
+}
+
 export async function loadNotifications() {
   const container = $("#notifications-list");
   container.innerHTML = "Loading...";
@@ -35,9 +102,9 @@ export async function loadNotifications() {
       return;
     }
     container.innerHTML = data.notifications.map((n) => `
-      <div class="notification-item">
+      <div class="notification-item notification-expandable" data-id="${n.id}">
         <div>
-          <strong>${n.title}</strong>
+          <strong>${n.title}</strong> <span class="hint notification-chevron">▸</span>
           <div>${n.media_type === "tv"
             ? (n.latest_known_season != null ? `Season ${n.latest_known_season} now available` : "New season available")
             : (n.movie_release_status || "New release detected")}</div>
@@ -45,8 +112,15 @@ export async function loadNotifications() {
         </div>
         <button data-id="${n.id}" class="ack-btn">Mark Downloaded</button>
         <button data-id="${n.id}" class="snooze-btn">Remind Me in 7 Days</button>
+        <div class="notification-details hidden"></div>
       </div>
     `).join("");
+    container.querySelectorAll(".notification-expandable").forEach((item) => {
+      item.addEventListener("click", (e) => {
+        if (e.target.closest("button")) return;
+        toggleNotificationDetails(item);
+      });
+    });
     $all(".ack-btn").forEach((btn) => {
       btn.addEventListener("click", async () => {
         await api("/api/tracker/acknowledge", {
@@ -64,6 +138,9 @@ export async function loadNotifications() {
         });
         loadNotifications();
       });
+    });
+    container.querySelectorAll(".notification-expandable").forEach((item) => {
+      if (expandedNotificationIds.has(Number(item.dataset.id))) toggleNotificationDetails(item);
     });
   } catch (e) {
     container.innerHTML = `<p>Error loading notifications: ${e.message}</p>`;
