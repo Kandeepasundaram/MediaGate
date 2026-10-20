@@ -243,6 +243,16 @@ def upcoming_releases(
     return UpcomingReleasesResponse(items=items)
 
 
+def _season_watch_fields(episodes: list[dict]) -> dict:
+    """Per-season watch state, derived only from archived episode files --
+    a season with no files has nothing to hang a watched flag on (use the
+    show's "watched through" bookmark for those)."""
+    return {
+        "episode_ids": [e["id"] for e in episodes],
+        "watched": sum(1 for e in episodes if e["watched"]),
+    }
+
+
 @router.get("/{tracker_id}/details")
 def tracker_details(
     tracker_id: int,
@@ -283,10 +293,11 @@ def tracker_details(
             "data_available": bool(status and status.data_available),
         }
 
-    owned_by_season: dict[int, int] = {}
+    episodes_by_season: dict[int, list[dict]] = {}
     for item in db.list_media_items("tv"):
         if item["tmdb_id"] == row["tmdb_id"] and item["season_number"] is not None:
-            owned_by_season[item["season_number"]] = owned_by_season.get(item["season_number"], 0) + 1
+            episodes_by_season.setdefault(item["season_number"], []).append(item)
+    owned_by_season = {n: len(eps) for n, eps in episodes_by_season.items()}
 
     try:
         status = tv_status(row["tmdb_id"], tmdb, tvmaze)
@@ -304,10 +315,12 @@ def tracker_details(
                 "aired": aired,
                 "owned": owned,
                 "pending": max(aired - owned, 0),
+                **_season_watch_fields(episodes_by_season.get(s.season_number, [])),
             })
     else:
         seasons = [
-            {"season_number": n, "total": None, "aired": None, "owned": c, "pending": None}
+            {"season_number": n, "total": None, "aired": None, "owned": c, "pending": None,
+             **_season_watch_fields(episodes_by_season[n])}
             for n, c in sorted(owned_by_season.items())
         ]
 

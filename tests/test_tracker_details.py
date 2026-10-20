@@ -83,3 +83,23 @@ def test_tv_details_falls_back_to_owned_counts_without_tmdb_data(client):
 def test_details_unknown_tracker_is_404(client):
     c, _db, _tmdb = client
     assert c.get("/api/tracker/999/details").status_code == 404
+
+
+def test_tv_details_reports_per_season_watch_state(client):
+    c, db, tmdb = client
+    tmdb.get_tv_details.return_value = None
+    db.upsert_tracker(tmdb_id=11, media_type="tv", title="Show")
+    ids = [
+        db.create_media_item(
+            original_path=f"/x/{e}", final_path=f"/y/{e}", tmdb_id=11,
+            media_type="tv", title="Show", season_number=1, episode_number=e,
+        )
+        for e in (1, 2)
+    ]
+    db.update_media_item(ids[0], watched=1)
+    tracker_id = db.get_tracker(11, "tv")["id"]
+
+    season = c.get(f"/api/tracker/{tracker_id}/details").json()["seasons"][0]
+
+    assert season["watched"] == 1
+    assert sorted(season["episode_ids"]) == sorted(ids)

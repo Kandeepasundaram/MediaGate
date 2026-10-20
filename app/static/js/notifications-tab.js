@@ -60,10 +60,15 @@ function renderNotificationDetails(d) {
       <td>${s.owned}${s.total != null ? ` / ${s.total}` : ""}</td>
       <td>${s.aired != null ? s.aired : "—"}</td>
       <td>${s.pending != null ? s.pending : "—"}</td>
+      <td>${s.episode_ids.length === 0 ? "—" : `
+        <label class="watched-toggle" title="${s.watched} of ${s.episode_ids.length} owned episodes watched">
+          <input type="checkbox" class="season-watched" data-season="${s.season_number}" ${s.watched === s.episode_ids.length ? "checked" : ""}>
+          ${s.watched}/${s.episode_ids.length}
+        </label>`}</td>
     </tr>`).join("");
   const table = d.seasons.length === 0 ? "" : `
     <table class="notification-seasons">
-      <thead><tr><th>Season</th><th>Owned / total</th><th>Aired</th><th>Pending</th></tr></thead>
+      <thead><tr><th>Season</th><th>Owned / total</th><th>Aired</th><th>Pending</th><th>Watched</th></tr></thead>
       <tbody>${seasonRows}</tbody>
     </table>`;
   return lines.join("") + table;
@@ -86,6 +91,26 @@ async function toggleNotificationDetails(item) {
     const d = await api(`/api/tracker/${id}/details`);
     panel.innerHTML = renderNotificationDetails(d);
     panel.dataset.loaded = "1";
+    panel.querySelectorAll(".season-watched").forEach((cb) => {
+      cb.addEventListener("change", async () => {
+        const season = d.seasons.find((s) => s.season_number === Number(cb.dataset.season));
+        cb.disabled = true;
+        try {
+          await api("/api/library/watched-batch", {
+            method: "POST",
+            body: JSON.stringify({ ids: season.episode_ids, watched: cb.checked }),
+          });
+          // Re-render from fresh counts rather than patching the label by hand.
+          panel.dataset.loaded = "0";
+          panel.classList.add("hidden");
+          expandedNotificationIds.delete(id);
+          toggleNotificationDetails(item);
+        } catch (e) {
+          cb.checked = !cb.checked;
+          cb.disabled = false;
+        }
+      });
+    });
   } catch (e) {
     panel.innerHTML = `<span class="hint">Error loading details: ${e.message}</span>`;
   }
