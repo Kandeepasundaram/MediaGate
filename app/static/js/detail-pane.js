@@ -64,9 +64,13 @@ export function openRecentlyViewedItem(entry) {
 
 function detailIdsMarkup(item, mediaType) {
   const parts = [];
-  if (item.tmdb_id != null) parts.push(`<a href="https://www.themoviedb.org/${mediaType}/${item.tmdb_id}" target="_blank" rel="noopener">TMDB ${item.tmdb_id}</a>`);
-  if (item.imdb_id) parts.push(`<a href="https://www.imdb.com/title/${escapeAttr(item.imdb_id)}/" target="_blank" rel="noopener">IMDb ${escapeAttr(item.imdb_id)}</a>`);
-  return `<div id="detail-ids" class="detail-ids hint">${parts.join(" · ")}</div>`;
+  if (item.tmdb_id != null) {
+    parts.push(`<a class="detail-id-icon" href="https://www.themoviedb.org/${mediaType}/${item.tmdb_id}" target="_blank" rel="noopener" title="Open on TMDB (${item.tmdb_id})" aria-label="Open on TMDB"><svg viewBox="0 0 48 24" width="42" height="21" aria-hidden="true"><rect width="48" height="24" rx="5" fill="#01b4e4"/><text x="24" y="16.5" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#0d253f">TMDB</text></svg></a>`);
+  }
+  if (item.imdb_id) {
+    parts.push(`<a class="detail-id-icon" href="https://www.imdb.com/title/${escapeAttr(item.imdb_id)}/" target="_blank" rel="noopener" title="Open on IMDb (${escapeAttr(item.imdb_id)})" aria-label="Open on IMDb"><svg viewBox="0 0 48 24" width="42" height="21" aria-hidden="true"><rect width="48" height="24" rx="5" fill="#f5c518"/><text x="24" y="17" text-anchor="middle" font-family="Arial,sans-serif" font-size="13" font-weight="900" fill="#000">IMDb</text></svg></a>`);
+  }
+  return `<div id="detail-ids" class="detail-ids">${parts.join("")}</div>`;
 }
 
 export function renderDetailPane() {
