@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -210,8 +211,18 @@ def search_tmdb(
 ) -> TMDBSearchResponse:
     """Candidate TMDB matches for a title -- backs the "Change Match" picker
     in the archive/organize preview table, for manual disambiguation when
-    the automatic top result is wrong."""
-    matches = tmdb.search_tv(title) if media_type == "tv" else tmdb.search_movie(title)
+    the automatic top result is wrong. A bare number is looked up as a TMDB
+    id and a `tt1234567` string as an IMDb id, so a title that text search
+    can't find is still reachable."""
+    query = title.strip()
+    if query.isdigit():
+        details = tmdb.get_tv_details(int(query)) if media_type == "tv" else tmdb.get_movie_details(int(query))
+        matches = [details] if details else []
+    elif re.fullmatch(r"tt\d{6,}", query, re.IGNORECASE):
+        found = tmdb.find_by_imdb_id(query.lower(), media_type)
+        matches = [found] if found else []
+    else:
+        matches = tmdb.search_tv(title) if media_type == "tv" else tmdb.search_movie(title)
     return TMDBSearchResponse(
         results=[
             TMDBSearchResultOut(tmdb_id=m.tmdb_id, title=m.title, year=m.year, overview=m.overview, poster_path=m.poster_path)

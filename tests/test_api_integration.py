@@ -758,6 +758,22 @@ def test_search_tmdb_endpoint_returns_candidates(client):
     assert len(resp.json()["results"]) == 2
 
 
+def test_search_tmdb_endpoint_accepts_tmdb_and_imdb_ids(client):
+    c, _ = client
+    fake_tmdb = app.dependency_overrides[get_tmdb_client]()
+    patriot = MediaResult(tmdb_id=1300501, title="Patriot", media_type="movie", year=2026)
+    fake_tmdb.get_movie_details.return_value = patriot
+    fake_tmdb.find_by_imdb_id.return_value = patriot
+
+    by_tmdb = c.get("/api/archive/search", params={"title": "1300501", "media_type": "movie"}).json()
+    fake_tmdb.get_movie_details.assert_called_with(1300501)
+    assert [r["tmdb_id"] for r in by_tmdb["results"]] == [1300501]
+
+    by_imdb = c.get("/api/archive/search", params={"title": "tt33412884", "media_type": "movie"}).json()
+    fake_tmdb.find_by_imdb_id.assert_called_with("tt33412884", "movie")
+    assert [r["tmdb_id"] for r in by_imdb["results"]] == [1300501]
+
+
 def test_undo_archive_deletes_copy_and_media_item(client):
     c, incoming_movies = client
     video = incoming_movies / "Sample.Movie.2020.1080p.mkv"
