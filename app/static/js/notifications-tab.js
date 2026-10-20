@@ -28,6 +28,28 @@ export function updateNotificationsBadge(count) {
 // collapse a row the user is reading.
 const expandedNotificationIds = new Set();
 
+// A season with no archived files has no episode row to flag, so its watch
+// state lives in the show's single "watched through" bookmark instead --
+// checking season N bookmarks "through the end of N" (which also covers
+// every earlier season), unchecking it steps the bookmark back to N-1.
+function bookmarkCovers(s, d) {
+  const through = d.watched_through_season;
+  if (through == null) return false;
+  if (s.season_number < through) return true;
+  if (s.season_number > through) return false;
+  const ep = d.watched_through_episode;
+  return ep == null || (s.aired != null && ep >= s.aired);
+}
+
+function bookmarkToggle(s, d) {
+  if (d.media_type !== "tv") return "—";
+  return `
+    <label class="watched-toggle" title="No files for this season, so this sets the show's 'watched through' bookmark (covers this and all earlier seasons).">
+      <input type="checkbox" class="season-bookmark" data-season="${s.season_number}" ${bookmarkCovers(s, d) ? "checked" : ""}>
+      bookmark
+    </label>`;
+}
+
 function renderNotificationDetails(d) {
   if (d.media_type === "movie") {
     const related = d.related.length === 0
@@ -60,7 +82,7 @@ function renderNotificationDetails(d) {
       <td>${s.owned}${s.total != null ? ` / ${s.total}` : ""}</td>
       <td>${s.aired != null ? s.aired : "—"}</td>
       <td>${s.pending != null ? s.pending : "—"}</td>
-      <td>${s.episode_ids.length === 0 ? "—" : `
+      <td>${s.episode_ids.length === 0 ? bookmarkToggle(s, d) : `
         <label class="watched-toggle" title="${s.watched} of ${s.episode_ids.length} owned episodes watched">
           <input type="checkbox" class="season-watched" data-season="${s.season_number}" ${s.watched === s.episode_ids.length ? "checked" : ""}>
           ${s.watched}/${s.episode_ids.length}
@@ -91,6 +113,29 @@ async function toggleNotificationDetails(item) {
     const d = await api(`/api/tracker/${id}/details`);
     panel.innerHTML = renderNotificationDetails(d);
     panel.dataset.loaded = "1";
+    const reload = () => {
+      panel.dataset.loaded = "0";
+      panel.classList.add("hidden");
+      expandedNotificationIds.delete(id);
+      toggleNotificationDetails(item);
+    };
+    panel.querySelectorAll(".season-bookmark").forEach((cb) => {
+      cb.addEventListener("change", async () => {
+        const n = Number(cb.dataset.season);
+        const through = cb.checked ? n : n - 1;
+        cb.disabled = true;
+        try {
+          await api(`/api/tracker/${id}/watch-progress`, {
+            method: "POST",
+            body: JSON.stringify(through >= 1 ? { season: through, episode: null } : { season: null, episode: null }),
+          });
+          reload();
+        } catch (e) {
+          cb.checked = !cb.checked;
+          cb.disabled = false;
+        }
+      });
+    });
     panel.querySelectorAll(".season-watched").forEach((cb) => {
       cb.addEventListener("change", async () => {
         const season = d.seasons.find((s) => s.season_number === Number(cb.dataset.season));
@@ -101,10 +146,7 @@ async function toggleNotificationDetails(item) {
             body: JSON.stringify({ ids: season.episode_ids, watched: cb.checked }),
           });
           // Re-render from fresh counts rather than patching the label by hand.
-          panel.dataset.loaded = "0";
-          panel.classList.add("hidden");
-          expandedNotificationIds.delete(id);
-          toggleNotificationDetails(item);
+          reload();
         } catch (e) {
           cb.checked = !cb.checked;
           cb.disabled = false;

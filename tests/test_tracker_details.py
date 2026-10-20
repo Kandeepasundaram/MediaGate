@@ -103,3 +103,15 @@ def test_tv_details_reports_per_season_watch_state(client):
 
     assert season["watched"] == 1
     assert sorted(season["episode_ids"]) == sorted(ids)
+
+
+def test_details_include_watched_through_bookmark(client):
+    c, db, tmdb = client
+    tmdb.get_tv_details.return_value = None
+    db.upsert_tracker(tmdb_id=12, media_type="tv", title="Show")
+    tracker_id = db.get_tracker(12, "tv")["id"]
+    c.post(f"/api/tracker/{tracker_id}/watch-progress", json={"season": 2, "episode": None})
+
+    body = c.get(f"/api/tracker/{tracker_id}/details").json()
+
+    assert (body["watched_through_season"], body["watched_through_episode"]) == (2, None)

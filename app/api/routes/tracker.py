@@ -341,6 +341,8 @@ def tracker_details(
         "last_episode_air_date": status.last_episode_air_date if status else None,
         "next_episode_code": status.next_episode_code if status else None,
         "next_episode_air_date": (status.next_episode_air_date if status else None) or row["next_episode_air_date"],
+        "watched_through_season": row["watched_through_season"],
+        "watched_through_episode": row["watched_through_episode"],
         "seasons": seasons,
     }
 
