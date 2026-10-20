@@ -1,7 +1,8 @@
 services:
   media-manager:
-    build: .
-    image: media-manager:latest
+    # Built and pushed by .github/workflows/docker-publish.yml on every push
+    # to main. For a local build instead: docker build -t <this image> .
+    image: ghcr.io/kandeepasundaram/mediagate:latest
     container_name: media-manager
     restart: unless-stopped
     ports:
