@@ -24,13 +24,14 @@ after first boot.
    cp .env.example .env
    # edit .env: MOVIES_HOST_PATH=/your/real/movies/path
    #            TV_HOST_PATH=/your/real/tv/path
-   docker compose up -d --build
+   docker compose up -d   # pulls ghcr.io/kandeepasundaram/mediagate:latest
    ```
    In Arcane: create a Project "From Git Repo" pointing at this repo (add it
    under Customization → Git Repositories first if it's not already there;
-   auth type "None" works for a public repo), enable **Sync Files** (`build:
-   .` needs the Dockerfile and app source alongside the compose file, not
-   just the compose file itself), sync, then edit the project's `.env` panel
+   auth type "None" works for a public repo), sync (Sync Files isn't needed any more: the compose file pulls a prebuilt
+   image from GHCR instead of building from source). The GHCR package must
+   be public, or add a GHCR registry credential in Arcane (PAT with
+   `read:packages`), then edit the project's `.env` panel
    with your real `MOVIES_HOST_PATH`/`TV_HOST_PATH`, then start it.
 3. **First boot**: open `http://<host-ip>:26431`. Go to **Settings** and
    optionally set a TMDB API key — leave it blank to run in scraper-fallback

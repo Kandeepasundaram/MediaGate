@@ -43,7 +43,7 @@ architecture notes aimed at AI coding agents working in this repo.
 
 ```bash
 cp .env.example .env   # set MOVIES_HOST_PATH / TV_HOST_PATH to your real folders
-docker compose up -d --build
+docker compose up -d   # pulls the prebuilt image from GHCR
 ```
 
 Host paths go in `.env`, not `docker-compose.yml` — keeps them out of git

@@ -23,8 +23,12 @@ python -m venv .venv
 # the server itself not running would otherwise rely on cron for this)
 .venv/Scripts/python scripts/cron_job.py
 
-# Docker build + run
-docker compose up -d --build
+# Docker run (pulls ghcr.io/kandeepasundaram/mediagate:latest, built by
+# .github/workflows/docker-publish.yml on every push to main)
+docker compose pull && docker compose up -d
+
+# Local image build, only for testing uncommitted changes
+docker build -t ghcr.io/kandeepasundaram/mediagate:latest . && docker compose up -d
 ```
 
 There is no separate lint/format tooling configured yet — none was requested.
