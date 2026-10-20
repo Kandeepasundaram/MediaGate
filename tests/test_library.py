@@ -1148,6 +1148,40 @@ def test_search_library_matches_exact_tmdb_and_imdb_id(client):
     assert by_imdb[0]["imdb_id"] == "tt33412884"
 
 
+def test_link_ids_adds_imdb_id_without_touching_metadata(client):
+    c, db = client
+    media_id = _seed_movie(db, title="Patriot", tmdb_id=1300501)
+
+    resp = c.post("/api/library/link-ids", json={"ids": [media_id], "imdb_id": " TT33412884 "})
+    assert resp.status_code == 200
+    assert resp.json() == {"updated": 1, "tmdb_id": None, "imdb_id": "tt33412884"}
+
+    row = db.get_media_item(media_id)
+    assert row["imdb_id"] == "tt33412884"
+    assert row["tmdb_id"] == 1300501  # left as-is
+    assert row["title"] == "Patriot"
+    assert "poster_path" in row["metadata"]  # not wiped like a rematch would
+
+
+def test_link_ids_adds_tmdb_id_to_imdb_only_match(client):
+    c, db = client
+    media_id = _seed_movie(db, title="Patriot", tmdb_id=None, imdb_id="tt33412884")
+
+    resp = c.post("/api/library/link-ids", json={"ids": [media_id], "tmdb_id": 1300501})
+    assert resp.status_code == 200
+    row = db.get_media_item(media_id)
+    assert row["tmdb_id"] == 1300501
+    assert row["imdb_id"] == "tt33412884"
+
+
+def test_link_ids_rejects_bad_input(client):
+    c, db = client
+    media_id = _seed_movie(db)
+    assert c.post("/api/library/link-ids", json={"ids": [media_id], "imdb_id": "12345"}).status_code == 422
+    assert c.post("/api/library/link-ids", json={"ids": [media_id]}).status_code == 422
+    assert c.post("/api/library/link-ids", json={"ids": [9999], "tmdb_id": 5}).status_code == 404
+
+
 def test_search_library_short_query_returns_empty(client):
     c, db = client
     _seed_movie(db, title="Interstellar", final_path="/archive/movie1.mkv")

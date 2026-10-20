@@ -1553,7 +1553,8 @@ function detailFixMarkup() {
       <label>IMDb ID
         <input type="text" id="detail-imdb-input" placeholder="tt1234567">
       </label>
-      <button id="detail-fetch-btn" title="Enter either id, or both to store both">Fetch Metadata from IDs</button>
+      <button id="detail-fetch-btn" title="Looks the id up and replaces title, poster and overview with what it finds">Fetch Metadata from IDs</button>
+      <button id="detail-link-ids-btn" title="Just records the id(s) on this item, e.g. add the IMDb id to a title matched by TMDB. No lookup, metadata untouched.">Save IDs Only</button>
       <span id="detail-fetch-status" class="hint"></span>
       <details class="detail-custom-title">
         <summary>Not on TMDB? Set a custom title</summary>
@@ -1625,6 +1626,27 @@ function wireDetailFix() {
         await api(`/api/library/${id}/override`, { method: "POST", body: JSON.stringify({ title, year }) });
       }
       $("#detail-fetch-status").textContent = "Updated.";
+      await reopenDetailPaneAfterRematch(pane, ids);
+    } catch (e) {
+      $("#detail-fetch-status").textContent = `Error: ${e.message}`;
+    }
+  });
+  $("#detail-link-ids-btn").addEventListener("click", async () => {
+    const pane = state.detailPane;
+    if (!pane) return;
+    const imdbId = $("#detail-imdb-input").value.trim();
+    const tmdbRaw = $("#detail-tmdb-input").value.trim();
+    const tmdbId = tmdbRaw ? Number(tmdbRaw) : null;
+    if (!imdbId && tmdbId == null) return;
+
+    const ids = pane.kind === "movie" ? [pane.data.id] : pane.data.episodes.map((e) => e.id);
+    $("#detail-fetch-status").textContent = "Saving IDs...";
+    try {
+      await api("/api/library/link-ids", {
+        method: "POST",
+        body: JSON.stringify({ ids, imdb_id: imdbId || null, tmdb_id: tmdbId }),
+      });
+      $("#detail-fetch-status").textContent = "IDs saved.";
       await reopenDetailPaneAfterRematch(pane, ids);
     } catch (e) {
       $("#detail-fetch-status").textContent = `Error: ${e.message}`;

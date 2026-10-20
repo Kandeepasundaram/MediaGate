@@ -635,6 +635,20 @@ class RematchTmdbRequest(BaseModel):
     imdb_id: str | None = None  # stored as-is when the caller already knows it
 
 
+class LinkIdsRequest(BaseModel):
+    """Attach a missing TMDB and/or IMDb id to already-matched items -- stores
+    the ids as given, no lookup, nothing else on the row changes."""
+    ids: list[int]
+    tmdb_id: int | None = None
+    imdb_id: str | None = None
+
+
+class LinkIdsResponse(BaseModel):
+    updated: int
+    tmdb_id: int | None = None
+    imdb_id: str | None = None
+
+
 class RematchResponse(BaseModel):
     updated: int
     tmdb_id: int | None = None

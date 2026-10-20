@@ -48,6 +48,8 @@ from app.models import (
     PlayOnJellyfinRequest,
     PlayOnJellyfinResponse,
     LibraryItemOut,
+    LinkIdsRequest,
+    LinkIdsResponse,
     LibraryResponse,
     ManualOverrideRequest,
     MediaType,
@@ -815,6 +817,41 @@ def rematch_by_imdb_id(
         poster_path=media.poster_path,
         overview=media.overview,
     )
+
+
+@router.post("/link-ids", response_model=LinkIdsResponse)
+def link_ids(payload: LinkIdsRequest, db: Database = Depends(get_database)) -> LinkIdsResponse:
+    """Adds the IMDb id and/or TMDB id the other half of a match is missing
+    (a title matched by TMDB id has no imdb_id until something lazily
+    resolves one; one matched by IMDb via OMDb has no tmdb_id). Unlike
+    rematch-*, this makes no TMDB/OMDb call and leaves title, year, poster
+    and the rest of the metadata untouched -- it only records the ids, so it
+    works without an API key and can't clobber a good match. A field left
+    out is left as-is on every row.
+    """
+    imdb_id = (payload.imdb_id or "").strip().lower() or None
+    if imdb_id is not None and not re.fullmatch(r"tt\d{6,}", imdb_id):
+        raise HTTPException(status_code=422, detail=f"{payload.imdb_id!r} is not an IMDb id (expected tt followed by digits)")
+    if payload.tmdb_id is not None and payload.tmdb_id <= 0:
+        raise HTTPException(status_code=422, detail="tmdb_id must be a positive number")
+    if imdb_id is None and payload.tmdb_id is None:
+        raise HTTPException(status_code=422, detail="Give a tmdb_id, an imdb_id, or both")
+
+    fields: dict = {}
+    if payload.tmdb_id is not None:
+        fields["tmdb_id"] = payload.tmdb_id
+    if imdb_id is not None:
+        fields["imdb_id"] = imdb_id
+
+    updated = 0
+    for item_id in payload.ids:
+        if db.get_media_item(item_id) is None:
+            continue
+        db.update_media_item(item_id, **fields)
+        updated += 1
+    if updated == 0:
+        raise HTTPException(status_code=404, detail="Media item not found")
+    return LinkIdsResponse(updated=updated, tmdb_id=payload.tmdb_id, imdb_id=imdb_id)
 
 
 @router.post("/rematch-tmdb", response_model=RematchResponse)
