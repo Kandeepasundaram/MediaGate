@@ -62,6 +62,13 @@ export function openRecentlyViewedItem(entry) {
   }
 }
 
+function detailIdsMarkup(item, mediaType) {
+  const parts = [];
+  if (item.tmdb_id != null) parts.push(`<a href="https://www.themoviedb.org/${mediaType}/${item.tmdb_id}" target="_blank" rel="noopener">TMDB ${item.tmdb_id}</a>`);
+  if (item.imdb_id) parts.push(`<a href="https://www.imdb.com/title/${escapeAttr(item.imdb_id)}/" target="_blank" rel="noopener">IMDb ${escapeAttr(item.imdb_id)}</a>`);
+  return parts.length ? `<div class="detail-ids hint">${parts.join(" · ")}</div>` : "";
+}
+
 export function renderDetailPane() {
   const pane = state.detailPane;
   const content = $("#detail-pane-content");
@@ -77,6 +84,7 @@ export function renderDetailPane() {
       ${posterMarkupLarge(item.title, item.poster_path)}
       <div class="detail-title">${item.title}</div>
       <div class="detail-year">${item.year || ""}</div>
+      ${detailIdsMarkup(item, "movie")}
       <button id="detail-share-btn" title="Copy title, rating, and overview to clipboard">📋 Copy Info</button>
       <label class="watched-toggle">
         <input type="checkbox" id="detail-watched-toggle" data-id="${item.id}" ${effectiveWatched(item) ? "checked" : ""}>
@@ -101,7 +109,7 @@ export function renderDetailPane() {
         <button id="detail-note-save-btn">Save Note to Movie Folder</button>
         <span id="detail-note-status" class="hint"></span>
       </div>
-      ${detailFixMarkup()}
+      ${detailFixMarkup(item)}
     `;
     $("#detail-note-download-btn").addEventListener("click", () => downloadMovieNote(item.id));
     $("#detail-note-save-btn").addEventListener("click", () => saveMovieNote(item.id));
@@ -244,6 +252,7 @@ export function renderDetailPane() {
       ${posterMarkupLarge(show.title, show.poster_path)}
       <div class="detail-title">${show.title}</div>
       <div class="detail-year">${show.episodes.length} episode(s)</div>
+      ${detailIdsMarkup(show, "tv")}
       <button id="detail-share-btn" title="Copy title, rating, and overview to clipboard">📋 Copy Info</button>
       ${show.tmdb_id != null ? `
         <label class="show-status-select-label">
@@ -268,7 +277,7 @@ export function renderDetailPane() {
           <span id="detail-note-status" class="hint"></span>
         </div>
       ` : `<p class="hint">Notes need a TMDB match first.</p>`}
-      ${detailFixMarkup()}
+      ${detailFixMarkup(show)}
     `;
     $("#detail-share-btn").addEventListener("click", () => copyToClipboard(shareTextForTitle(show.title, show.year, show.vote_average, show.personal_rating, show.overview)));
     if (show.tmdb_id != null) {
@@ -1543,15 +1552,15 @@ function wireDetailTags(ids, onSaved) {
   });
 }
 
-function detailFixMarkup() {
+function detailFixMarkup(item) {
   return `
     <div class="detail-fix">
       <button id="detail-change-match-btn">Change Match (search TMDB)</button>
       <label>TMDB ID
-        <input type="number" id="detail-tmdb-input" placeholder="603">
+        <input type="number" id="detail-tmdb-input" placeholder="603" value="${item.tmdb_id ?? ""}">
       </label>
       <label>IMDb ID
-        <input type="text" id="detail-imdb-input" placeholder="tt1234567">
+        <input type="text" id="detail-imdb-input" placeholder="tt1234567" value="${escapeAttr(item.imdb_id || "")}">
       </label>
       <button id="detail-fetch-btn" title="Looks the id up and replaces title, poster and overview with what it finds">Fetch Metadata from IDs</button>
       <button id="detail-link-ids-btn" title="Just records the id(s) on this item, e.g. add the IMDb id to a title matched by TMDB. No lookup, metadata untouched.">Save IDs Only</button>
