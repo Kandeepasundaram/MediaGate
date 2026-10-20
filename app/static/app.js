@@ -385,6 +385,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#movies-rating").addEventListener("change", renderMoviesGallery);
   $("#movies-added").addEventListener("change", renderMoviesGallery);
   $("#movies-watched-within").addEventListener("change", renderMoviesGallery);
+  $("#movies-archive").addEventListener("change", renderMoviesGallery);
   $("#movies-pinned-only").addEventListener("change", renderMoviesGallery);
   $("#movies-bulk-rematch-btn").addEventListener("click", () => {
     const ids = $all("#movies-gallery .gallery-select:checked").map((b) => Number(b.dataset.selectId));
@@ -538,6 +539,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#tv-rating").addEventListener("change", renderTvGallery);
   $("#tv-added").addEventListener("change", renderTvGallery);
   $("#tv-watched-within").addEventListener("change", renderTvGallery);
+  $("#tv-archive").addEventListener("change", renderTvGallery);
   $("#tv-pinned-only").addEventListener("change", renderTvGallery);
   $("#tv-bulk-rematch-btn").addEventListener("click", () => {
     const titles = new Set($all("#tv-gallery .gallery-select:checked").map((b) => b.dataset.selectTitle));

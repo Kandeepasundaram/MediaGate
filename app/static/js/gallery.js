@@ -366,6 +366,13 @@ function matchesWatch(item, watchFilter) {
   return watchFilter === "watched" ? !!item.watched : !item.watched;
 }
 
+function matchesArchive(item, archiveFilter) {
+  if (!archiveFilter) return true;
+  // A show groups many episodes: it counts as missing if any episode's file is gone.
+  const missing = item.episodes ? item.episodes.some((e) => e.in_archive === false) : item.in_archive === false;
+  return archiveFilter === "missing" ? missing : !missing;
+}
+
 function matchesRating(item, ratingFilter) {
   if (!ratingFilter) return true;
   return (item.vote_average || 0) >= Number(ratingFilter);
@@ -386,7 +393,7 @@ function matchesWatchedWithin(item, watchedFilter) {
 }
 
 function filterAndSort(items, opts) {
-  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly } = opts;
+  const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly } = opts;
   let out = items;
   if (pinnedOnly) out = out.filter(isPinned);
   if (filterMode === "unmatched") out = out.filter((i) => i.tmdb_id == null);
@@ -399,6 +406,7 @@ function filterAndSort(items, opts) {
   if (ratingFilter) out = out.filter((i) => matchesRating(i, ratingFilter));
   if (addedFilter) out = out.filter((i) => matchesAddedWithin(i, addedFilter));
   if (watchedFilter) out = out.filter((i) => matchesWatchedWithin(i, watchedFilter));
+  if (archiveFilter) out = out.filter((i) => matchesArchive(i, archiveFilter));
   if (query) {
     const q = query.toLowerCase();
     out = out.filter((i) => i[titleKey].toLowerCase().includes(q));
@@ -437,8 +445,8 @@ function restoreFilterState(prefix, controlIds) {
   return values;
 }
 
-const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution", "movies-watch", "movies-rating", "movies-added", "movies-watched-within"];
-const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution", "tv-watch", "tv-rating", "tv-added", "tv-watched-within"];
+const MOVIE_FILTER_IDS = ["movies-search", "movies-sort", "movies-filter", "movies-resolution", "movies-watch", "movies-rating", "movies-added", "movies-watched-within", "movies-archive"];
+const TV_FILTER_IDS = ["tv-search", "tv-sort", "tv-filter", "tv-resolution", "tv-watch", "tv-rating", "tv-added", "tv-watched-within", "tv-archive"];
 export const MOVIE_PRESET_IDS = [...MOVIE_FILTER_IDS, "movies-genre", "movies-year", "movies-tag", "movies-collection"];
 export const TV_PRESET_IDS = [...TV_FILTER_IDS, "tv-genre", "tv-year", "tv-tag", "tv-collection"];
 
@@ -537,8 +545,8 @@ export function setupFilterPersistence() {
 // at all times -- app.js still wires each select's own change listener
 // directly by id, this only adds show/hide + an active-count badge + reset.
 const FILTER_POPOVER_SELECT_IDS = {
-  movies: ["movies-filter", "movies-genre", "movies-tag", "movies-collection", "movies-resolution", "movies-watch", "movies-year", "movies-rating", "movies-added", "movies-watched-within"],
-  tv: ["tv-filter", "tv-genre", "tv-tag", "tv-collection", "tv-resolution", "tv-watch", "tv-year", "tv-rating", "tv-added", "tv-watched-within"],
+  movies: ["movies-filter", "movies-genre", "movies-tag", "movies-collection", "movies-resolution", "movies-watch", "movies-year", "movies-rating", "movies-added", "movies-watched-within", "movies-archive"],
+  tv: ["tv-filter", "tv-genre", "tv-tag", "tv-collection", "tv-resolution", "tv-watch", "tv-year", "tv-rating", "tv-added", "tv-watched-within", "tv-archive"],
 };
 
 // Every popover select's "no filter applied" value is "" except the
@@ -853,12 +861,13 @@ export function renderMoviesGallery() {
   const ratingFilter = $("#movies-rating").value;
   const addedFilter = $("#movies-added").value;
   const watchedFilter = $("#movies-watched-within").value;
+  const archiveFilter = $("#movies-archive").value;
   const pinnedOnly = $("#movies-pinned-only").checked;
   updateFilterBadge("movies");
   renderGenreChips("movies", state.movieItems);
-  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly }));
+  const items = floatPinnedToTop(filterAndSort(state.movieItems, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly }));
   populateAzRail("movies", items);
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly]);
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly]);
   const { visible, total, limitKey } = paginateGallery("movies", items, signature);
 
   $("#movies-count").textContent = `${state.movieItems.length} movie(s) archived` +
@@ -965,6 +974,7 @@ function currentMovieFilters() {
     ratingFilter: $("#movies-rating").value,
     addedFilter: $("#movies-added").value,
     watchedFilter: $("#movies-watched-within").value,
+    archiveFilter: $("#movies-archive").value,
     pinnedOnly: $("#movies-pinned-only").checked,
   };
 }
@@ -984,6 +994,7 @@ function currentTvFilters() {
     ratingFilter: $("#tv-rating").value,
     addedFilter: $("#tv-added").value,
     watchedFilter: $("#tv-watched-within").value,
+    archiveFilter: $("#tv-archive").value,
     pinnedOnly: $("#tv-pinned-only").checked,
   };
 }
@@ -1555,14 +1566,15 @@ export function renderTvGallery() {
   const ratingFilter = $("#tv-rating").value;
   const addedFilter = $("#tv-added").value;
   const watchedFilter = $("#tv-watched-within").value;
+  const archiveFilter = $("#tv-archive").value;
   const pinnedOnly = $("#tv-pinned-only").checked;
   updateFilterBadge("tv");
   const allShows = groupEpisodesByShow(state.tvItems);
   renderContinueWatching(allShows);
   renderGenreChips("tv", allShows);
-  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly }));
+  const shows = floatPinnedToTop(filterAndSort(allShows, { query, sortMode, titleKey: "title", filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly }));
   populateAzRail("tv", shows);
-  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, pinnedOnly]);
+  const signature = JSON.stringify([query, sortMode, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly]);
   const { visible, total, limitKey } = paginateGallery("tv", shows, signature);
 
   $("#tv-count").textContent = `${state.tvItems.length} episode(s) across ${allShows.length} show(s)` +
