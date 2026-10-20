@@ -1362,7 +1362,7 @@ export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || 
     const key = groupKey(orphan);
     if (shows.has(key)) continue;
     shows.set(key, {
-      title: orphan.title, poster_path: orphan.poster_path, tmdb_id: orphan.tmdb_id, overview: orphan.overview,
+      title: orphan.title, poster_path: orphan.poster_path, tmdb_id: orphan.tmdb_id, imdb_id: orphan.imdb_id, overview: orphan.overview,
       manual_override: false, vote_average: null, genres: orphan.genres, tags: [], year: null, episodes: [],
       show_status: orphan.status, watched: false, archived_at: null, noFilesOnDisk: true,
       personal_rating: orphan.personal_rating, personal_note: orphan.personal_note,

@@ -66,7 +66,7 @@ function detailIdsMarkup(item, mediaType) {
   const parts = [];
   if (item.tmdb_id != null) parts.push(`<a href="https://www.themoviedb.org/${mediaType}/${item.tmdb_id}" target="_blank" rel="noopener">TMDB ${item.tmdb_id}</a>`);
   if (item.imdb_id) parts.push(`<a href="https://www.imdb.com/title/${escapeAttr(item.imdb_id)}/" target="_blank" rel="noopener">IMDb ${escapeAttr(item.imdb_id)}</a>`);
-  return parts.length ? `<div class="detail-ids hint">${parts.join(" · ")}</div>` : "";
+  return `<div id="detail-ids" class="detail-ids hint">${parts.join(" · ")}</div>`;
 }
 
 export function renderDetailPane() {
@@ -1242,7 +1242,21 @@ async function loadMoreInfoByTmdb(tmdbId, mediaType) {
   }
 }
 
+// Tracker-only shows have no stored imdb_id (it's resolved lazily via TMDB
+// external_ids), so adopt the one the ratings lookup found and refresh the
+// ids row + input.
+function adoptResolvedImdbId(r) {
+  const pane = state.detailPane;
+  if (!pane || !r.imdb_id || pane.data.imdb_id) return;
+  pane.data.imdb_id = r.imdb_id;
+  const idsEl = $("#detail-ids");
+  if (idsEl) idsEl.outerHTML = detailIdsMarkup(pane.data, pane.kind === "movie" ? "movie" : "tv");
+  const input = $("#detail-imdb-input");
+  if (input && !input.value) input.value = r.imdb_id;
+}
+
 function renderRatings(r) {
+  adoptResolvedImdbId(r);
   const el = $("#detail-ratings");
   if (!el) return;
   if (!r.omdb_configured) {
