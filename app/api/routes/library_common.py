@@ -57,6 +57,7 @@ def _to_out(
         season_number=row["season_number"],
         episode_number=row["episode_number"],
         tmdb_id=row["tmdb_id"],
+        imdb_id=row.get("imdb_id"),
         poster_path=meta.get("poster_path"),
         overview=meta.get("overview", ""),
         watched=bool(row["watched"]),

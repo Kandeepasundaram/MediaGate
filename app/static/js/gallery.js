@@ -392,6 +392,16 @@ function matchesWatchedWithin(item, watchedFilter) {
   return new Date(item.watched_at).getTime() >= cutoff;
 }
 
+// Title substring, or an exact TMDB id ("1300501") / IMDb id ("tt33412884").
+// A show matches on its own ids or any episode's.
+function matchesQuery(item, titleKey, q) {
+  if (item[titleKey].toLowerCase().includes(q)) return true;
+  const rows = item.episodes ? [item, ...item.episodes] : [item];
+  if (/^\d+$/.test(q)) return rows.some((r) => r.tmdb_id != null && String(r.tmdb_id) === q);
+  if (/^tt\d+$/.test(q)) return rows.some((r) => (r.imdb_id || "").toLowerCase() === q);
+  return false;
+}
+
 function filterAndSort(items, opts) {
   const { query, sortMode, titleKey, filterMode, genreFilter, tagFilter, collectionFilter, resolutionFilter, watchFilter, yearFilter, ratingFilter, addedFilter, watchedFilter, archiveFilter, pinnedOnly } = opts;
   let out = items;
@@ -409,7 +419,7 @@ function filterAndSort(items, opts) {
   if (archiveFilter) out = out.filter((i) => matchesArchive(i, archiveFilter));
   if (query) {
     const q = query.toLowerCase();
-    out = out.filter((i) => i[titleKey].toLowerCase().includes(q));
+    out = out.filter((i) => matchesQuery(i, titleKey, q));
   }
   out = out.slice();
   if (sortMode === "title") out.sort((a, b) => a[titleKey].localeCompare(b[titleKey]));
@@ -1333,7 +1343,7 @@ export function groupEpisodesByShow(items, orphanShows = state.tvOrphanShows || 
     const key = groupKey(item);
     if (!shows.has(key)) {
       shows.set(key, {
-        title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, overview: item.overview,
+        title: item.title, poster_path: item.poster_path, tmdb_id: item.tmdb_id, imdb_id: item.imdb_id, overview: item.overview,
         manual_override: item.manual_override, vote_average: item.vote_average, genres: item.genres, tags: item.tags, year: item.year, episodes: [],
         show_status: item.show_status, personal_rating: item.personal_rating, personal_note: item.personal_note,
       });

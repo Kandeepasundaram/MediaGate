@@ -1135,6 +1135,19 @@ def test_search_library_is_case_insensitive(client):
     assert resp.json()["items"][0]["title"] == "Interstellar"
 
 
+def test_search_library_matches_exact_tmdb_and_imdb_id(client):
+    c, db = client
+    _seed_movie(db, title="Patriot", tmdb_id=1300501, imdb_id="tt33412884", final_path="/archive/movie1.mkv")
+    _seed_movie(db, title="Other", tmdb_id=13005012, imdb_id="tt334128849", final_path="/archive/movie2.mkv")
+
+    by_tmdb = c.get("/api/library/search", params={"q": "1300501"}).json()["items"]
+    assert [i["title"] for i in by_tmdb] == ["Patriot"]  # exact, not "contains"
+
+    by_imdb = c.get("/api/library/search", params={"q": "TT33412884"}).json()["items"]
+    assert [i["title"] for i in by_imdb] == ["Patriot"]
+    assert by_imdb[0]["imdb_id"] == "tt33412884"
+
+
 def test_search_library_short_query_returns_empty(client):
     c, db = client
     _seed_movie(db, title="Interstellar", final_path="/archive/movie1.mkv")

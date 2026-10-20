@@ -447,6 +447,7 @@ class LibraryItemOut(BaseModel):
     season_number: int | None = None
     episode_number: int | None = None
     tmdb_id: int | None = None
+    imdb_id: str | None = None
     poster_path: str | None = None
     overview: str = ""
     watched: bool

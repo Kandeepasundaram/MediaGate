@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -417,15 +418,23 @@ class Database:
         """
         escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         like = f"%{escaped}%"
+        q = query.strip().lower()
+        # An all-digits query is also tried as an exact TMDB id, a `tt1234567`
+        # one as an exact IMDb id -- exact, not LIKE, so "12" doesn't match
+        # every id containing 12.
+        tmdb_id = int(q) if q.isdigit() else None
+        imdb_id = q if re.fullmatch(r"tt\d+", q) else None
         rows = self.fetch_all(
             "SELECT * FROM media_items WHERE title LIKE ? ESCAPE '\\' OR metadata LIKE ? ESCAPE '\\' "
+            "OR tmdb_id = ? OR lower(imdb_id) = ? "
             "ORDER BY (watched = 0) DESC, title ASC LIMIT ?",
-            (like, like, limit * 3),
+            (like, like, tmdb_id, imdb_id, limit * 3),
         )
-        q = query.strip().lower()
 
         def _matches(row: dict) -> bool:
             if q in (row["title"] or "").lower():
+                return True
+            if (tmdb_id is not None and row["tmdb_id"] == tmdb_id) or (imdb_id and (row.get("imdb_id") or "").lower() == imdb_id):
                 return True
             try:
                 meta = json.loads(row["metadata"]) if row.get("metadata") else {}
