@@ -302,7 +302,10 @@ class TMDBClient:
         if key in self._cache:
             return self._cache[key]
         result = fn()
-        self._cache[key] = result
+        # A None means the lookup failed (network blip, 5xx, bad key at the
+        # time); memoizing it would keep a title "not found" until restart.
+        if result is not None:
+            self._cache[key] = result
         return result
 
     def search_movie(self, title: str, year: int | None = None) -> list[MediaResult]:

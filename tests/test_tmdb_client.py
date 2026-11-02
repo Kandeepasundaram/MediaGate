@@ -749,3 +749,12 @@ def test_clear_show_cache_only_drops_that_tv_show():
     assert set(client._cache) == {
         ("movie_details", 7), ("imdb_id", 7, "movie"), ("tv_details", 8), ("search_tv", "x"),
     }
+
+
+def test_failed_details_lookup_is_not_memoized(monkeypatch):
+    client = TMDBClient(api_key="")
+    results = iter([None, MediaResult(tmdb_id=9, title="Back", media_type="tv", year=2020)])
+    monkeypatch.setattr(client, "_get_tv_details", lambda tmdb_id: next(results))
+    assert client.get_tv_details(9) is None            # failure
+    assert client.get_tv_details(9).title == "Back"    # retried, not served from cache
+    assert client.get_tv_details(9).title == "Back"    # success is memoized (iterator would raise otherwise)
