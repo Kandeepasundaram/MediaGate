@@ -706,3 +706,33 @@ def test_validate_key_detailed_reasons(monkeypatch):
     assert client.validate_key() is False
 
     assert mod.TMDBClient(api_key="").validate_key_detailed() == (False, "empty")
+
+
+def test_season_episodes_failure_not_cached_and_retried(monkeypatch):
+    client = TMDBClient(api_key="k" * 32)
+    calls = {"n": 0}
+
+    def fake_get(path, params=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None  # first lookup fails
+        return {"episodes": [{"episode_number": 1, "name": "Pilot", "air_date": "2026-01-01", "overview": "x"}]}
+
+    monkeypatch.setattr(client, "_tmdb_get", fake_get)
+    monkeypatch.setattr(tmdbv3api.Season, "details", lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("down")))
+
+    assert client.get_season_episodes(1, 1) == []          # failure -> empty, not memoized
+    eps = client.get_season_episodes(1, 1)                  # retried -> succeeds
+    assert eps[0]["name"] == "Pilot"
+    assert client.get_season_episodes(1, 1) is eps          # success is memoized
+    assert calls["n"] == 2
+
+
+def test_season_episodes_falls_back_to_tmdbv3api(monkeypatch):
+    client = TMDBClient(api_key="k" * 32)
+    monkeypatch.setattr(client, "_tmdb_get", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        tmdbv3api.Season, "details",
+        lambda *a, **kw: {"episodes": [{"episode_number": 2, "name": "Two", "air_date": None, "overview": ""}]},
+    )
+    assert client.get_season_episodes(5, 1)[0]["name"] == "Two"

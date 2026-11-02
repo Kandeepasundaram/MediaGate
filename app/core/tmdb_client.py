@@ -591,17 +591,30 @@ class TMDBClient:
         scraped). The /tv-season route falls back to TVmazeClient.get_episodes
         when this comes back empty, same fallback role TVmaze plays in
         /tv-status."""
-        return self._cached(
-            ("season_episodes", tmdb_id, season_number),
-            lambda: self._get_season_episodes(tmdb_id, season_number),
-        )
+        key = ("season_episodes", tmdb_id, season_number)
+        if key in self._cache:
+            return self._cache[key]
+        episodes = self._get_season_episodes(tmdb_id, season_number)
+        if episodes:  # don't memoize a failure/empty result: one blip would blank this season until restart
+            self._cache[key] = episodes
+        return episodes
 
     def _get_season_episodes(self, tmdb_id: int, season_number: int) -> list[dict]:
         if not self._api:
             return []
         data = self._tmdb_get(f"tv/{tmdb_id}/season/{season_number}")
-        if data is None:
-            return []
+        if data is not None:
+            raw_episodes = data.get("episodes", [])
+        else:
+            # Direct request failed; the tmdbv3api path (same one get_tv_details
+            # uses) is the proven-working route on some hosts, so try it too.
+            try:
+                from tmdbv3api import Season
+
+                raw_episodes = [dict(e) for e in (Season().details(tmdb_id, season_number, append_to_response="") or {}).get("episodes", [])]
+            except Exception as exc:
+                logger.warning("TMDB season %s/%s lookup failed on both paths: %s", tmdb_id, season_number, exc)
+                return []
         return [
             {
                 "episode_number": e.get("episode_number"),
@@ -609,7 +622,7 @@ class TMDBClient:
                 "air_date": e.get("air_date"),
                 "overview": e.get("overview"),
             }
-            for e in data.get("episodes", [])
+            for e in raw_episodes
             if e.get("episode_number") is not None
         ]
 
