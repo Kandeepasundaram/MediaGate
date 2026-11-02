@@ -1343,6 +1343,8 @@ class RenameLabSimulateRequest(BaseModel):
     tmdb_id: int | None = None
     title: str | None = None  # used only for unmatched shows (tmdb_id null)
     patterns: list[RenameLabPattern] = Field(min_length=1, max_length=12)
+    rescan: bool = False   # adopt new files on disk into the library before simulating
+    refresh: bool = False  # drop cached TMDB data for this show and fetch it again
 
 
 class RenameLabRow(BaseModel):
@@ -1387,6 +1389,7 @@ class RenameLabSimulateResponse(BaseModel):
     tmdb_id: int | None = None
     metadata_available: bool = False
     metadata_note: str | None = None
+    rescan_added: int | None = None  # new files adopted by a rescan (None when not requested)
     show_folder: RenameLabShowFolder | None = None
     patterns: list[RenameLabPatternResult]
 

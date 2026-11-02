@@ -361,7 +361,7 @@ function scheduleSimulation() {
   lab.debounce = setTimeout(runSimulation, 400);
 }
 
-async function runSimulation(note = "") {
+async function runSimulation(note = "", extra = {}) {
   clearTimeout(lab.debounce);
   const seq = ++lab.simSeq;
   lab.slots = currentSlots();
@@ -373,6 +373,7 @@ async function runSimulation(note = "") {
         tmdb_id: lab.show.tmdb_id ?? null,
         title: lab.show.tmdb_id == null ? lab.show.title : null,
         patterns: lab.slots.map(({ id, label, tv_season_folder, tv_file }) => ({ id, label, tv_season_folder, tv_file })),
+        ...extra,
       }),
     });
     if (seq !== lab.simSeq) return; // a newer simulation is already in flight
@@ -380,6 +381,9 @@ async function runSimulation(note = "") {
     lab.showTitle = data.show_title || lab.show.title;
     lab.metadataAvailable = data.metadata_available;
     lab.metadataNote = data.metadata_note;
+    if (data.rescan_added != null) {
+      note = `${data.rescan_added ? `Rescan added ${data.rescan_added} new file(s) to the library (they may need a TMDB match to show here).` : "Rescan found no new files."}`;
+    }
     lab.showFolder = data.show_folder;
     lab.activeIdx = Math.min(lab.activeIdx, lab.results.length - 1);
     lab.overrides.clear();
@@ -1047,6 +1051,10 @@ async function saveAsDefault() {
 // --------------------------------------------------------------------- setup
 
 export function setupRenameLab() {
+  $("#lab-rescan-btn").addEventListener("click", () => runSimulation("", { rescan: true }));
+  $("#lab-refetch-btn").addEventListener("click", () => {
+    runSimulation("Cached TMDB data for this show was cleared and re-fetched.", { refresh: true });
+  });
   $("#lab-back-btn").addEventListener("click", () => {
     $('.tab-btn[data-tab="tv"]').click();
   });

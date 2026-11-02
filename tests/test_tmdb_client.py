@@ -736,3 +736,16 @@ def test_season_episodes_falls_back_to_tmdbv3api(monkeypatch):
         lambda *a, **kw: {"episodes": [{"episode_number": 2, "name": "Two", "air_date": None, "overview": ""}]},
     )
     assert client.get_season_episodes(5, 1)[0]["name"] == "Two"
+
+
+def test_clear_show_cache_only_drops_that_tv_show():
+    client = TMDBClient(api_key="")
+    client._cache.update({
+        ("tv_details", 7): "a", ("season_episodes", 7, 1): "b", ("imdb_id", 7, "tv"): "c",
+        ("movie_details", 7): "keep-movie", ("imdb_id", 7, "movie"): "keep-movie-imdb",
+        ("tv_details", 8): "keep-other-show", ("search_tv", "x"): "keep-search",
+    })
+    assert client.clear_show_cache(7) == 3
+    assert set(client._cache) == {
+        ("movie_details", 7), ("imdb_id", 7, "movie"), ("tv_details", 8), ("search_tv", "x"),
+    }

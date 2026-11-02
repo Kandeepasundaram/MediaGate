@@ -2894,3 +2894,29 @@ def test_rename_lab_saved_pattern_rejects_bad_template(client):
         "label": "Bad", "tv_season_folder": "Season {season}", "tv_file": "{nope}",
     })
     assert resp.status_code == 400 and "nope" in resp.json()["detail"]
+
+
+def test_rename_lab_rescan_and_refresh(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    config = app.dependency_overrides[get_config]()
+    _seed_show(db, config.paths.archive_tv)
+    fake_tmdb = _lab_mocks()
+    pattern = {"id": "a", "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code}"}
+
+    plain = c.post("/api/library/rename-lab/simulate", json={"tmdb_id": 555, "patterns": [pattern]}).json()
+    assert plain["rescan_added"] is None
+    fake_tmdb.clear_show_cache.assert_not_called()
+
+    # A file dropped on disk after the last scan is adopted by rescan.
+    new_file = config.paths.archive_tv / "Show" / "Season 01" / "show.s01e03.720p.mkv"
+    new_file.write_bytes(b"x" * 10)
+    rescanned = c.post("/api/library/rename-lab/simulate", json={"tmdb_id": 555, "patterns": [pattern], "rescan": True}).json()
+    assert rescanned["rescan_added"] == 1
+    assert db.get_media_item_by_final_path(str(new_file)) is not None
+
+    again = c.post("/api/library/rename-lab/simulate", json={"tmdb_id": 555, "patterns": [pattern], "rescan": True}).json()
+    assert again["rescan_added"] == 0
+
+    c.post("/api/library/rename-lab/simulate", json={"tmdb_id": 555, "patterns": [pattern], "refresh": True})
+    fake_tmdb.clear_show_cache.assert_called_once_with(555)

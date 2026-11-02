@@ -584,6 +584,23 @@ class TMDBClient:
             )
         return titles
 
+    def clear_show_cache(self, tmdb_id: int) -> int:
+        """Drops every memoized entry for one TV show (details, per-season
+        episode lists, external ids, ...) so the next lookup hits TMDB again.
+        Returns the number of entries removed. For a user-triggered
+        "re-fetch" when cached data is stale or came from a failed call."""
+        def is_this_show(k: tuple) -> bool:
+            if k[0] in ("tv_details", "season_episodes"):
+                return k[1] == tmdb_id
+            if k[0] in ("imdb_id", "trailer", "cast", "similar"):
+                return k[1] == tmdb_id and k[2] == "tv"
+            return False
+
+        stale = [k for k in self._cache if is_this_show(k)]
+        for k in stale:
+            del self._cache[k]
+        return len(stale)
+
     def get_season_episodes(self, tmdb_id: int, season_number: int) -> list[dict]:
         """Episode name/air_date/overview for one season, via TMDB's
         /tv/{id}/season/{n} endpoint. API-key-only, same as get_cast/

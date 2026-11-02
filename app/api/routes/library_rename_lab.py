@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.routes.library_common import _metadata_dict
 from app.config_loader import AppConfig, RenamingConfig, load_config, update_settings
+from app.core.library_adopt import adopt_new_files
 from app.core.renamer import (
     TV_PATTERN_PRESETS,
     TV_TEMPLATE_TOKENS,
@@ -174,6 +175,9 @@ def simulate_show_rename(
 ) -> RenameLabSimulateResponse:
     if payload.tmdb_id is None and not payload.title:
         raise HTTPException(status_code=400, detail="tmdb_id or title is required")
+    rescan_added = adopt_new_files(db, config, "tv") if payload.rescan else None
+    if payload.refresh and payload.tmdb_id is not None:
+        tmdb.clear_show_cache(payload.tmdb_id)
     rows = [
         r for r in db.list_tv_episodes_for_show(payload.tmdb_id, payload.title)
         if r["final_path"] and r["season_number"] is not None and r["episode_number"] is not None
@@ -289,7 +293,7 @@ def simulate_show_rename(
 
     return RenameLabSimulateResponse(
         show_title=media.title, tmdb_id=payload.tmdb_id,
-        metadata_available=bool(remote), metadata_note=_metadata_note(remote, payload.tmdb_id, tmdb, tvmaze),
+        metadata_available=bool(remote), rescan_added=rescan_added, metadata_note=_metadata_note(remote, payload.tmdb_id, tmdb, tvmaze),
         show_folder=_show_folder(episodes, media, config),
         patterns=results,
     )
