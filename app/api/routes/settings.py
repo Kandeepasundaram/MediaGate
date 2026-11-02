@@ -293,7 +293,8 @@ def validate_tmdb_key(payload: TmdbKeyValidateRequest) -> TmdbKeyValidateRespons
     """Checks a candidate key before it's saved -- a throwaway client, not
     the cached get_tmdb_client() singleton, since the key being tested may
     differ from (or not yet be) the one actually saved in config.yaml."""
-    return TmdbKeyValidateResponse(valid=TMDBClient(api_key=payload.key).validate_key())
+    valid, reason = TMDBClient(api_key=payload.key).validate_key_detailed()
+    return TmdbKeyValidateResponse(valid=valid, reason=reason)
 
 
 @router.get("/permissions-check", response_model=PermissionsCheckResponse)

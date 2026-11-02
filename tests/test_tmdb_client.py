@@ -673,3 +673,36 @@ def test_client_falls_back_to_scraper_on_api_failure(monkeypatch):
     results = client.search_movie("Y")
     assert results[0].tmdb_id == 7
     assert results[0].source == "scraper"
+
+
+# ---- validate_key_detailed: tell a bad key from a network problem ----
+
+class _FakeResp:
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
+def test_validate_key_detailed_reasons(monkeypatch):
+    import requests as _requests
+    from app.core import tmdb_client as mod
+
+    client = mod.TMDBClient(api_key="k" * 32)
+
+    monkeypatch.setattr(mod.requests, "get", lambda *a, **kw: _FakeResp(200))
+    assert client.validate_key_detailed() == (True, None)
+    assert client.validate_key() is True
+
+    monkeypatch.setattr(mod.requests, "get", lambda *a, **kw: _FakeResp(401))
+    assert client.validate_key_detailed() == (False, "rejected")
+
+    monkeypatch.setattr(mod.requests, "get", lambda *a, **kw: _FakeResp(500))
+    assert client.validate_key_detailed() == (False, "error")
+
+    def boom(*a, **kw):
+        raise _requests.ConnectionError("dns")
+
+    monkeypatch.setattr(mod.requests, "get", boom)
+    assert client.validate_key_detailed() == (False, "unreachable")
+    assert client.validate_key() is False
+
+    assert mod.TMDBClient(api_key="").validate_key_detailed() == (False, "empty")

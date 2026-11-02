@@ -252,20 +252,33 @@ class TMDBClient:
         return "api" if self._api else "scraper"
 
     def validate_key(self) -> bool:
+        return self.validate_key_detailed()[0]
+
+    def validate_key_detailed(self) -> tuple[bool, str | None]:
         """Cheap TMDB auth check -- /authentication succeeds only for a
         real, active key, independent of API/scraper mode. Used by the
         Settings tab's "Test Key" button so a typo isn't discovered only
-        later when a lookup silently falls back to the scraper."""
+        later when a lookup silently falls back to the scraper.
+
+        Returns (valid, reason); reason is None when valid, else one of
+        "empty", "rejected" (TMDB said no: bad key), "unreachable" (couldn't
+        talk to TMDB at all: DNS/firewall/timeout) or "error" (unexpected
+        HTTP status), so the UI can tell a typo from a network problem."""
         if not self.api_key:
-            return False
+            return False, "empty"
         try:
             resp = requests.get(
                 "https://api.themoviedb.org/3/authentication",
                 params={"api_key": self.api_key}, timeout=10,
             )
-            return resp.status_code == 200
-        except requests.RequestException:
-            return False
+        except requests.RequestException as exc:
+            logger.warning("TMDB key validation could not reach TMDB: %s", exc)
+            return False, "unreachable"
+        if resp.status_code == 200:
+            return True, None
+        if resp.status_code in (401, 403):
+            return False, "rejected"
+        return False, "error"
 
     def _tmdb_get(self, path: str, params: dict | None = None) -> dict | None:
         """GET https://api.themoviedb.org/3/{path} with api_key already

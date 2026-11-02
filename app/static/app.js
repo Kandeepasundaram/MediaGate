@@ -313,6 +313,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("#check-permissions-btn").addEventListener("click", checkPermissions);
   $("#clear-cache-btn").addEventListener("click", clearBrowserCache);
   $("#test-tmdb-key-btn").addEventListener("click", testTmdbKey);
+  $("#setting-tmdb-key").addEventListener("change", testTmdbKey); // blur/paste-commit: validate, and autosave if valid
   $("#digest-preview-btn").addEventListener("click", previewDigest);
   $("#disable-api-token-btn").addEventListener("click", disableApiToken);
   $("#create-api-token-btn").addEventListener("click", createApiToken);

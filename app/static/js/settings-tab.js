@@ -139,9 +139,19 @@ export async function previewDigest() {
   }
 }
 
+const TMDB_KEY_FAILURES = {
+  empty: "✗ No key entered.",
+  rejected: "✗ TMDB rejected this key. Use the v3 \"API Key\" (32 characters), not the Read Access Token.",
+  unreachable: "✗ Couldn't reach TMDB from the server (DNS, firewall or network). The key was not checked, so it was not saved.",
+  error: "✗ TMDB returned an unexpected response. Try again shortly.",
+};
+
+// Tests the typed key against TMDB and, only if TMDB accepts it, saves it on
+// the spot (key-only POST, so other unsaved form edits are untouched).
 export async function testTmdbKey() {
   const status = $("#tmdb-key-test-status");
-  const key = $("#setting-tmdb-key").value.trim();
+  const input = $("#setting-tmdb-key");
+  const key = input.value.trim();
   if (!key) {
     status.textContent = "Type a key above to test it.";
     return;
@@ -149,7 +159,15 @@ export async function testTmdbKey() {
   status.textContent = "Testing…";
   try {
     const data = await api("/api/settings/validate-tmdb-key", { method: "POST", body: JSON.stringify({ key }) });
-    status.textContent = data.valid ? "✓ Key works." : "✗ Key rejected by TMDB.";
+    if (!data.valid) {
+      status.textContent = TMDB_KEY_FAILURES[data.reason] || TMDB_KEY_FAILURES.rejected;
+      return;
+    }
+    await api("/api/settings", { method: "POST", body: JSON.stringify({ tmdb_api_key: key }) });
+    input.value = "";
+    status.textContent = "✓ Key works and was saved.";
+    loadSettings();
+    loadStatus();
   } catch (e) {
     status.textContent = `Error: ${e.message}`;
   }
