@@ -701,6 +701,7 @@ def test_validate_key_detailed_reasons(monkeypatch):
     def boom(*a, **kw):
         raise _requests.ConnectionError("dns")
 
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
     monkeypatch.setattr(mod.requests, "get", boom)
     assert client.validate_key_detailed() == (False, "unreachable")
     assert client.validate_key() is False
@@ -758,3 +759,35 @@ def test_failed_details_lookup_is_not_memoized(monkeypatch):
     assert client.get_tv_details(9) is None            # failure
     assert client.get_tv_details(9).title == "Back"    # retried, not served from cache
     assert client.get_tv_details(9).title == "Back"    # success is memoized (iterator would raise otherwise)
+
+
+def test_http_get_retries_once_on_connection_error_but_not_on_http_status(monkeypatch):
+    import requests as _requests
+    from app.core import tmdb_client as mod
+
+    monkeypatch.setattr(mod.time, "sleep", lambda s: None)
+    client = mod.TMDBClient(api_key="k" * 32)
+
+    calls = {"n": 0}
+
+    def flaky(*a, **kw):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _requests.ConnectionError("temporary DNS failure")
+        return _FakeResp(200)
+
+    monkeypatch.setattr(mod.requests, "get", flaky)
+    assert client.validate_key_detailed() == (True, None)   # transient failure hidden by the retry
+    assert calls["n"] == 2
+
+    calls["n"] = 0
+    monkeypatch.setattr(mod.requests, "get", lambda *a, **kw: (calls.__setitem__("n", calls["n"] + 1), _FakeResp(401))[1])
+    assert client.validate_key_detailed() == (False, "rejected")
+    assert calls["n"] == 1                                   # a 401 is final, never retried
+
+    def down(*a, **kw):
+        raise _requests.ConnectionError("name resolution failed")
+
+    monkeypatch.setattr(mod.requests, "get", down)
+    assert client.validate_key_detailed() == (False, "unreachable")
+    assert "name resolution failed" in client.last_error

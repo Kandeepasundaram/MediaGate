@@ -767,6 +767,7 @@ class TmdbKeyValidateResponse(BaseModel):
     valid: bool
     # None when valid; else "empty" | "rejected" | "unreachable" | "error".
     reason: str | None = None
+    detail: str | None = None  # underlying error text for "unreachable"/"error", to help diagnose
 
 
 class TagDeleteRequest(BaseModel):

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -232,6 +233,7 @@ class TMDBClient:
         self.language = language
         self.scraper = scraper or TMDBScraper(language=language)
         self._cache: dict[tuple, Any] = {}
+        self.last_error: str | None = None  # detail of the most recent connection failure (diagnostics)
         self._api = None
         if api_key:
             try:
@@ -254,6 +256,28 @@ class TMDBClient:
     def validate_key(self) -> bool:
         return self.validate_key_detailed()[0]
 
+    def _http_get(self, path: str, params: dict | None = None) -> requests.Response:
+        """requests.get against the TMDB API with one retry on a
+        connection-level failure (DNS hiccup, reset, timeout). Homelab
+        containers often see a transient first-call failure after idling;
+        a retry hides that, while HTTP error statuses (bad key, 404) are
+        returned to the caller untouched, never retried."""
+        last_exc: requests.RequestException | None = None
+        for attempt in range(2):
+            try:
+                return requests.get(
+                    f"https://api.themoviedb.org/3/{path}",
+                    params={"api_key": self.api_key, **(params or {})},
+                    timeout=10,
+                )
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                last_exc = exc
+                logger.warning("TMDB request %s failed (attempt %d/2): %s", path, attempt + 1, exc)
+                if attempt == 0:
+                    time.sleep(0.5)
+        assert last_exc is not None
+        raise last_exc
+
     def validate_key_detailed(self) -> tuple[bool, str | None]:
         """Cheap TMDB auth check -- /authentication succeeds only for a
         real, active key, independent of API/scraper mode. Used by the
@@ -267,12 +291,10 @@ class TMDBClient:
         if not self.api_key:
             return False, "empty"
         try:
-            resp = requests.get(
-                "https://api.themoviedb.org/3/authentication",
-                params={"api_key": self.api_key}, timeout=10,
-            )
+            resp = self._http_get("authentication")
         except requests.RequestException as exc:
             logger.warning("TMDB key validation could not reach TMDB: %s", exc)
+            self.last_error = f"{type(exc).__name__}: {exc}"[:300]
             return False, "unreachable"
         if resp.status_code == 200:
             return True, None
@@ -287,11 +309,7 @@ class TMDBClient:
         shared so the retry/timeout policy lives in one place instead of
         five (external_ids, videos, credits, similar, find)."""
         try:
-            resp = requests.get(
-                f"https://api.themoviedb.org/3/{path}",
-                params={"api_key": self.api_key, **(params or {})},
-                timeout=10,
-            )
+            resp = self._http_get(path, params)
             resp.raise_for_status()
             return resp.json()
         except Exception as exc:

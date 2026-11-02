@@ -161,7 +161,8 @@ export async function testTmdbKey() {
   try {
     const data = await api("/api/settings/validate-tmdb-key", { method: "POST", body: JSON.stringify({ key }) });
     if (!data.valid) {
-      status.textContent = TMDB_KEY_FAILURES[data.reason] || TMDB_KEY_FAILURES.rejected;
+      const why = TMDB_KEY_FAILURES[data.reason] || TMDB_KEY_FAILURES.rejected;
+      status.textContent = data.detail ? `${why} (${data.detail})` : why;
       return;
     }
     await api("/api/settings", { method: "POST", body: JSON.stringify({ tmdb_api_key: key }) });
