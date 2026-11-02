@@ -1384,6 +1384,7 @@ class RenameLabSimulateResponse(BaseModel):
     show_title: str
     tmdb_id: int | None = None
     metadata_available: bool = False
+    metadata_note: str | None = None
     show_folder: RenameLabShowFolder | None = None
     patterns: list[RenameLabPatternResult]
 

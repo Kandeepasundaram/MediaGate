@@ -58,6 +58,7 @@ const lab = {
   editing: null, // media_id being edited inline
   showFolder: null,
   metadataAvailable: false,
+  metadataNote: null,
   undoOps: [],
   debounce: null,
   cancelled: false,
@@ -378,6 +379,7 @@ async function runSimulation(note = "") {
     lab.results = data.patterns;
     lab.showTitle = data.show_title || lab.show.title;
     lab.metadataAvailable = data.metadata_available;
+    lab.metadataNote = data.metadata_note;
     lab.showFolder = data.show_folder;
     lab.activeIdx = Math.min(lab.activeIdx, lab.results.length - 1);
     lab.overrides.clear();
@@ -421,7 +423,7 @@ function renderSummary() {
     <span class="badge badge-ok">${unchanged} already correct</span>
     <span class="badge badge-warn">${conflicts} conflict(s)</span>
     ${skipped ? `<span class="badge badge-ok">${skipped} skipped</span>` : ""}
-    ${lab.metadataAvailable ? "" : `<span class="hint">No TMDB/TVmaze episode data — titles/air dates come from stored metadata only.</span>`}
+    ${lab.metadataAvailable ? "" : `<span class="hint">${escapeAttr(lab.metadataNote || "No TMDB/TVmaze episode data.")} Titles/air dates fall back to stored metadata.</span>`}
   `;
 }
 

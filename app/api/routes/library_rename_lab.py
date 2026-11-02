@@ -289,9 +289,22 @@ def simulate_show_rename(
 
     return RenameLabSimulateResponse(
         show_title=media.title, tmdb_id=payload.tmdb_id,
-        metadata_available=bool(remote), show_folder=_show_folder(episodes, media, config),
+        metadata_available=bool(remote), metadata_note=_metadata_note(remote, payload.tmdb_id, tmdb, tvmaze),
+        show_folder=_show_folder(episodes, media, config),
         patterns=results,
     )
+
+
+def _metadata_note(remote: dict, tmdb_id: int | None, tmdb: TMDBClient, tvmaze: TVmazeClient) -> str | None:
+    """Why remote episode titles are missing (None when they were fetched)."""
+    if remote:
+        return None
+    if tmdb_id is None:
+        return "This show has no TMDB match yet, so episode titles can't be fetched. Wait for the metadata backfill or fix the match."
+    if not getattr(tmdb, "_api", None) and not tvmaze.enabled:
+        return "Episode titles need a TMDB API key (Settings) or TVmaze enabled (Settings > Integrations). Neither is set."
+    return "TMDB/TVmaze returned no episode list for this show's seasons. Check the logs for lookup errors."
+
 
 
 def _show_folder(episodes: list[dict], media: MediaResult, config: AppConfig) -> RenameLabShowFolder | None:
