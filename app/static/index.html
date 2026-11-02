@@ -527,6 +527,98 @@
     <div id="tracked-list" class="gallery"></div>
   </section>
 
+  <section id="tab-rename-lab" class="tab-panel">
+    <div class="toolbar">
+      <button type="button" id="lab-back-btn">← Back to TV</button>
+      <h2 id="lab-title" class="lab-title">Rename Lab</h2>
+    </div>
+
+    <div id="lab-undo-banner" class="lab-banner hidden" role="status">
+      <span id="lab-undo-text"></span>
+      <button type="button" id="lab-undo-btn">Undo all</button>
+      <button type="button" id="lab-undo-dismiss" aria-label="Dismiss">✕</button>
+    </div>
+
+    <div class="lab-pattern-bar">
+      <label>Pattern
+        <select id="lab-preset-select"></select>
+      </label>
+      <label>Season folder
+        <input type="text" id="lab-season-folder" spellcheck="false" autocomplete="off">
+      </label>
+      <label>File name
+        <input type="text" id="lab-file-template" spellcheck="false" autocomplete="off">
+      </label>
+      <button type="button" id="lab-compare-btn" aria-pressed="false" title="Show up to 3 patterns side by side">Compare patterns</button>
+    </div>
+    <div id="lab-compare-panel" class="lab-compare-panel hidden">
+      <span class="hint">Pick up to 3 patterns to compare:</span>
+      <div id="lab-compare-list"></div>
+    </div>
+
+    <div class="lab-token-row">
+      <span class="hint">Insert token:</span>
+      <span id="lab-token-chips"></span>
+    </div>
+    <p id="lab-sample" class="hint"></p>
+    <p id="lab-template-error" class="lab-error hidden" role="alert"></p>
+
+    <div class="lab-pattern-actions">
+      <button type="button" id="lab-save-as-btn">Save as…</button>
+      <span id="lab-save-form" class="hidden">
+        <input type="text" id="lab-save-name" placeholder="Pattern name" maxlength="60" autocomplete="off">
+        <button type="button" id="lab-save-confirm">Save</button>
+        <button type="button" id="lab-save-cancel">Cancel</button>
+      </span>
+      <button type="button" id="lab-update-saved-btn" class="hidden" title="Overwrite this saved pattern with the templates above">Update saved</button>
+      <button type="button" id="lab-delete-saved-btn" class="danger hidden">Delete saved</button>
+      <button type="button" id="lab-save-default-btn" title="Use this pattern for all future TV archive/organize runs">Set as default</button>
+    </div>
+
+    <div id="lab-folders" class="lab-folders hidden">
+      <label class="checkbox-label"><input type="checkbox" id="lab-folders-check"> Also rename folders</label>
+      <div id="lab-folders-text" class="hint"></div>
+    </div>
+
+    <div id="lab-summary" class="lab-summary"></div>
+
+    <div class="lab-filters">
+      <div id="lab-filter-chips" class="lab-chips" role="group" aria-label="Filter episodes"></div>
+      <select id="lab-season-filter" aria-label="Filter by season"></select>
+      <input type="search" id="lab-search" placeholder="Search episodes…" aria-label="Search episodes" autocomplete="off">
+      <span id="lab-visible-count" class="hint"></span>
+    </div>
+
+    <div class="selection-bar">
+      <button type="button" id="lab-select-all">Select all shown</button>
+      <button type="button" id="lab-select-none">Select none</button>
+      <span id="lab-selected-count" class="hint"></span>
+      <span class="lab-spacer"></span>
+      <select id="lab-resolve-policy" aria-label="Conflict resolution">
+        <option value="suffix">Add (2) suffix</option>
+        <option value="skip">Skip</option>
+        <option value="overwrite">Overwrite</option>
+      </select>
+      <button type="button" id="lab-resolve-btn" title="Apply the chosen policy to every conflicting episode">Resolve conflicts</button>
+    </div>
+    <div class="selection-bar">
+      <label class="checkbox-label"><input type="checkbox" id="lab-scope-file" checked> File</label>
+      <label class="checkbox-label"><input type="checkbox" id="lab-scope-sidecars" checked> Subtitles/NFO/artwork</label>
+      <label class="checkbox-label"><input type="checkbox" id="lab-dry-run" checked> Dry run</label>
+      <span class="lab-spacer"></span>
+      <button type="button" id="lab-apply-btn" class="primary" disabled>Apply selected</button>
+      <button type="button" id="lab-cancel-btn" class="danger hidden">Cancel</button>
+    </div>
+    <p id="lab-status" class="hint" role="status"></p>
+
+    <div class="lab-table-wrap">
+      <table id="lab-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
   <section id="tab-history" class="tab-panel">
     <div class="toolbar">
       <div class="filter-popover-wrap">

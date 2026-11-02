@@ -126,6 +126,7 @@ class ArchiveConfirmResult(BaseModel):
     source_path: str
     dest_path: str | None = None
     media_id: int | None = None
+    operation_id: int | None = None  # operation_log id of the rename (organize only) -- enables batch undo
     status: Literal["success", "failed"]
     error: str | None = None
 
@@ -1326,3 +1327,83 @@ class TrackerBulkAddRequest(BaseModel):
 
 class TrackerBulkAddResponse(BaseModel):
     added: int
+
+
+class RenameLabPattern(BaseModel):
+    id: str = "custom"
+    label: str = ""
+    tv_season_folder: str
+    tv_file: str
+    saved: bool = False  # user-saved pattern (deletable) vs built-in preset
+
+
+class RenameLabSimulateRequest(BaseModel):
+    tmdb_id: int | None = None
+    title: str | None = None  # used only for unmatched shows (tmdb_id null)
+    patterns: list[RenameLabPattern] = Field(min_length=1, max_length=12)
+
+
+class RenameLabRow(BaseModel):
+    media_id: int
+    current_path: str
+    dest_path: str
+    season: int | None = None
+    episode: int | None = None
+    code: str
+    episode_title: str | None = None
+    air_date: str | None = None
+    absolute_episode: int | None = None
+    overview: str = ""
+    size_bytes: int | None = None
+    duration_seconds: float | None = None
+    height: int | None = None
+    flags: list[str] = Field(default_factory=list)
+    item: ArchivePreviewItem  # ready to send to /api/library/organize
+
+
+class RenameLabPatternResult(BaseModel):
+    id: str
+    label: str
+    tv_season_folder: str
+    tv_file: str
+    error: str | None = None
+    rows: list[RenameLabRow] = Field(default_factory=list)
+    changes: int = 0
+    conflicts: int = 0
+    unchanged: int = 0
+
+
+class RenameLabShowFolder(BaseModel):
+    current: str
+    proposed: str
+    will_rename: bool  # a real sibling rename is possible
+    conflict: bool  # proposed folder already exists (would need a merge, not a rename)
+
+
+class RenameLabSimulateResponse(BaseModel):
+    show_title: str
+    tmdb_id: int | None = None
+    metadata_available: bool = False
+    show_folder: RenameLabShowFolder | None = None
+    patterns: list[RenameLabPatternResult]
+
+
+class RenameLabCheckRequest(BaseModel):
+    paths: list[str] = Field(max_length=2000)
+
+
+class RenameLabCheckResponse(BaseModel):
+    exists: list[str]
+    outside_archive: list[str]
+
+
+class RenameLabSavePatternRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    tv_season_folder: str = Field(min_length=1, max_length=200)
+    tv_file: str = Field(min_length=1, max_length=300)
+    id: str | None = None  # present = update that saved pattern
+
+
+class RenameLabPresetsResponse(BaseModel):
+    presets: list[RenameLabPattern]
+    tokens: list[str]

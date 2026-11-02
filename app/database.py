@@ -272,6 +272,21 @@ class Database:
             return self.fetch_all("SELECT * FROM media_items WHERE media_type = ? ORDER BY created_at DESC", (media_type,))
         return self.fetch_all("SELECT * FROM media_items ORDER BY created_at DESC")
 
+    def list_tv_episodes_for_show(self, tmdb_id: int | None = None, title: str | None = None) -> list[dict[str, Any]]:
+        """Every tracked episode row of one show, in season/episode order.
+        Matches by tmdb_id when given, else (unmatched shows) by exact title."""
+        if tmdb_id is not None:
+            return self.fetch_all(
+                "SELECT * FROM media_items WHERE media_type = 'tv' AND tmdb_id = ? "
+                "ORDER BY season_number, episode_number, id",
+                (tmdb_id,),
+            )
+        return self.fetch_all(
+            "SELECT * FROM media_items WHERE media_type = 'tv' AND tmdb_id IS NULL AND title = ? "
+            "ORDER BY season_number, episode_number, id",
+            (title,),
+        )
+
     def update_media_item(self, item_id: int, **fields: Any) -> None:
         if not fields:
             return

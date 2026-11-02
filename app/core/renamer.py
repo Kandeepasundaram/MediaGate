@@ -158,6 +158,51 @@ def plan_tv_rename(
     )
 
 
+TV_PATTERN_PRESETS: list[dict[str, str]] = [
+    {"id": "default", "label": "Default (Show - S01E02 - Title)",
+     "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code}{episode_title_suffix}"},
+    {"id": "code-only", "label": "Code only (S01E02)",
+     "tv_season_folder": "Season {season:02d}", "tv_file": "{code}"},
+    {"id": "code-title", "label": "Show - S01E02 - Title (title required)",
+     "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code} - {episode_title}"},
+    {"id": "x-style", "label": "Show - 1x02 - Title",
+     "tv_season_folder": "Season {season}", "tv_file": "{show_name} - {season}x{episode:02d}{episode_title_suffix}"},
+    {"id": "absolute", "label": "Anime absolute (Show - 001)",
+     "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {absolute_episode:03d}{episode_title_suffix}"},
+    {"id": "air-date", "label": "Air date (Show - 2020-01-31 - Title)",
+     "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {air_date}{episode_title_suffix}"},
+    {"id": "short-folder", "label": "Short folder (S01)",
+     "tv_season_folder": "S{season:02d}", "tv_file": "{show_name} - {code}{episode_title_suffix}"},
+    {"id": "code-first", "label": "Code first (S01E02 - Show - Title)",
+     "tv_season_folder": "Season {season:02d}", "tv_file": "{code} - {show_name}{episode_title_suffix}"},
+]
+
+TV_TEMPLATE_TOKENS = [
+    "show_name", "season", "episode", "code", "episode_title", "episode_title_suffix",
+    "absolute_episode", "part_suffix", "air_date",
+]
+
+
+def validate_tv_templates(season_folder: str, file_template: str) -> str | None:
+    """Returns a human-readable error if either TV template can't be
+    rendered (bad token / format spec), else None. plan_tv_rename silently
+    falls back to the default on such errors; the rename simulator needs to
+    flag them instead."""
+    sample = {
+        "show_name": "Show", "season": 1, "episode": 2, "code": "S01E02",
+        "episode_title": "Title", "episode_title_suffix": " - Title",
+        "absolute_episode": 2, "part_suffix": "", "air_date": "2020-01-31",
+    }
+    for label, template in (("Season folder", season_folder), ("File name", file_template)):
+        try:
+            template.format(**sample)
+        except KeyError as exc:
+            return f"{label}: unknown token {{{exc.args[0]}}}"
+        except (ValueError, IndexError) as exc:
+            return f"{label}: invalid format ({exc})"
+    return None
+
+
 def _avoid_collision(dest: Path, policy: str = "suffix") -> Path:
     if not dest.exists():
         return dest

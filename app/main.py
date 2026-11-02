@@ -14,6 +14,7 @@ from app.api.routes import (
     library_browse,
     library_maintenance,
     library_notes,
+    library_rename_lab,
     reports,
     scan,
     settings,
@@ -95,6 +96,7 @@ def create_app() -> FastAPI:
     app.include_router(library_notes.router, dependencies=token_gate)
     app.include_router(library_maintenance.router, dependencies=token_gate)
     app.include_router(library_browse.router, dependencies=token_gate)
+    app.include_router(library_rename_lab.router, dependencies=token_gate)
     app.include_router(watchlist.router, dependencies=token_gate)
     app.include_router(reports.router, dependencies=token_gate)
     app.include_router(webhooks.router, dependencies=token_gate)

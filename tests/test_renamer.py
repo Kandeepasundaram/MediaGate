@@ -248,3 +248,22 @@ def test_plan_tv_rename_absolute_episode_falls_back_to_in_season_episode(tmp_pat
     plan = plan_tv_rename(source, archive_root, media, season=2, episode=3, renaming=renaming)  # no absolute_episode passed
 
     assert plan.dest_path == archive_root / "Show" / "Season 02" / "Show - 003.mkv"
+
+
+def test_tv_pattern_presets_all_render_and_validate(tmp_path):
+    from app.core.renamer import TV_PATTERN_PRESETS, validate_tv_templates
+    media = MediaResult(tmdb_id=1, title="Show", media_type="tv", year=2020)
+    src = tmp_path / "x.mkv"
+    for preset in TV_PATTERN_PRESETS:
+        assert validate_tv_templates(preset["tv_season_folder"], preset["tv_file"]) is None, preset["id"]
+        plan = plan_tv_rename(
+            src, tmp_path, media, season=1, episode=2, episode_title="Title", air_date="2020-01-31",
+            renaming=RenamingConfig(tv_season_folder=preset["tv_season_folder"], tv_file=preset["tv_file"]),
+        )
+        assert plan.dest_path.suffix == ".mkv", preset["id"]
+
+
+def test_validate_tv_templates_reports_bad_tokens():
+    from app.core.renamer import validate_tv_templates
+    assert "bogus" in validate_tv_templates("Season {season}", "{bogus}")
+    assert validate_tv_templates("Season {season:zz}", "{code}") is not None

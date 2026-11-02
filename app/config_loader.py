@@ -55,6 +55,7 @@ _DEFAULT_CONFIG: dict = {
         "tv_season_folder": "Season {season:02d}",
         "tv_file": "{show_name} - {code}{episode_title_suffix}",
         "collision_policy": "suffix",
+        "saved_tv_patterns": [],
     },
 }
 
@@ -248,6 +249,8 @@ class RenamingConfig:
     # "skip" excludes the file from the preview with an error message
     # instead of silently creating or clobbering anything.
     collision_policy: str = "suffix"
+    # User-named TV patterns for the Rename Lab: [{id, label, tv_season_folder, tv_file}].
+    saved_tv_patterns: list = field(default_factory=list)
 
 
 @dataclass
@@ -361,7 +364,7 @@ _EDITABLE_KEYS = {
         "keep_languages", "keep_languages_movies", "keep_languages_tv",
         "opensubtitles_api_key", "auto_fetch_missing_subtitles",
     },
-    "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy"},
+    "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy", "saved_tv_patterns"},
     "watcher": {"enabled"},
     "backup": {"webdav_url", "webdav_username", "webdav_password", "webdav_remote_path", "enabled", "retention_days"},
     "reports": {"enabled", "frequency", "cron_time"},

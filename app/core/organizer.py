@@ -68,10 +68,22 @@ def organize_file(
     scope: OrganizeScope | None = None,
     protected_roots: frozenset[Path] | set[Path] = frozenset(),
 ) -> int:
+    """Returns just the media_item id; see organize_file_with_op for the
+    operation_log id as well (needed by callers that offer batch undo)."""
+    return organize_file_with_op(db, plan, write_nfo_files, scope, protected_roots)[0]
+
+
+def organize_file_with_op(
+    db: Database,
+    plan: RenamePlan,
+    write_nfo_files: bool = True,
+    scope: OrganizeScope | None = None,
+    protected_roots: frozenset[Path] | set[Path] = frozenset(),
+) -> tuple[int, int]:
     """Applies `scope`'s share of plan.source_path -> plan.dest_path, and
     updates the media_items row tracking that file by its previous
     final_path in place, or creates one if it wasn't tracked yet. Returns
-    the media_item id. A no-op move (already at the destination) is just a
+    (media_item id, operation_log id). A no-op move (already at the destination) is just a
     metadata refresh.
 
     Folders are renamed in place (an atomic directory rename that also
@@ -141,7 +153,7 @@ def organize_file(
             **fields,
         )
 
-    db.log_operation(
+    operation_id = db.log_operation(
         operation_type="rename",
         status="success",
         media_id=media_id,
@@ -152,7 +164,7 @@ def organize_file(
         },
     )
     logger.info("Organized %s -> %s", plan.source_path, final)
-    return media_id
+    return media_id, operation_id
 
 
 def _rename_folders_in_place(db: Database, current: Path, final: Path, levels: int, protected_roots) -> Path:

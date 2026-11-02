@@ -2679,3 +2679,218 @@ def test_bulk_add_creates_tracker_rows_for_every_item(client):
     tv_row = db.get_tracker(2, "tv")
     assert tv_row["title"] == "Show Two"
     assert tv_row["poster_path"] == "/p.jpg"
+
+
+# ---- Rename Lab ----
+
+def _seed_show(db, archive_tv: Path):
+    """Two episodes of 'Show' stored under messy names; returns their paths."""
+    season_dir = archive_tv / "Show" / "Season 01"
+    season_dir.mkdir(parents=True)
+    paths = []
+    for ep in (1, 2):
+        p = season_dir / f"show.s01e0{ep}.720p.mkv"
+        p.write_bytes(b"x" * 10)
+        db.create_media_item(
+            original_path=str(p), title="Show", media_type="tv", tmdb_id=555,
+            season_number=1, episode_number=ep, final_path=str(p), metadata={},
+        )
+        paths.append(p)
+    return paths
+
+
+def _lab_mocks():
+    fake_tmdb = MagicMock()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=555, title="Show", media_type="tv", year=2020,
+        raw={"seasons": [{"season_number": 1, "episode_count": 2}]},
+    )
+    fake_tmdb.get_season_episodes.return_value = [
+        {"episode_number": 1, "name": "Pilot", "air_date": "2020-01-01", "overview": "First."},
+        {"episode_number": 2, "name": "", "air_date": "2020-01-08", "overview": None},
+    ]
+    app.dependency_overrides[get_tmdb_client] = lambda: fake_tmdb
+    app.dependency_overrides[get_tvmaze_client] = lambda: MagicMock(enabled=False)
+    return fake_tmdb
+
+
+def test_rename_lab_presets(client):
+    c, _ = client
+    body = c.get("/api/library/rename-lab/presets").json()
+    assert body["presets"][0]["id"] == "current"
+    assert any(p["id"] == "default" for p in body["presets"])
+    assert "episode_title" in body["tokens"]
+
+
+def test_rename_lab_simulate_is_read_only_and_flags(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    config = app.dependency_overrides[get_config]()
+    paths = _seed_show(db, config.paths.archive_tv)
+    _lab_mocks()
+
+    resp = c.post("/api/library/rename-lab/simulate", json={
+        "tmdb_id": 555,
+        "patterns": [
+            {"id": "a", "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code} - {episode_title}"},
+            {"id": "b", "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name}"},  # both eps -> same dest
+            {"id": "c", "tv_season_folder": "S{season:02d}", "tv_file": "{bogus}"},  # bad token
+        ],
+    })
+    assert resp.status_code == 200
+    a, b, bad = resp.json()["patterns"]
+
+    assert a["rows"][0]["dest_path"].endswith("Show - S01E01 - Pilot.mkv")
+    assert a["rows"][0]["air_date"] == "2020-01-01"
+    assert a["rows"][0]["absolute_episode"] == 1
+    assert "missing_title" in a["rows"][1]["flags"]  # ep 2 has no title
+    assert a["changes"] == 2 and a["conflicts"] == 0
+
+    assert all("batch_duplicate" in r["flags"] for r in b["rows"])
+    assert b["conflicts"] == 2
+
+    assert bad["error"] and "bogus" in bad["error"] and bad["rows"] == []
+
+    # Strictly read-only: files untouched, DB paths unchanged.
+    assert all(p.exists() for p in paths)
+    assert {r["final_path"] for r in db.list_tv_episodes_for_show(555)} == {str(p) for p in paths}
+
+
+def test_rename_lab_flags_collision_and_unchanged(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    config = app.dependency_overrides[get_config]()
+    paths = _seed_show(db, config.paths.archive_tv)
+    _lab_mocks()
+    # Something else already sits where episode 1 would go.
+    (paths[0].parent / "Show - S01E01 - Pilot.mkv").write_bytes(b"other")
+    # Episode 2 is already named correctly under the default pattern.
+    already = paths[1].parent / "Show - S01E02.mkv"
+    paths[1].rename(already)
+    db.execute_query("UPDATE media_items SET final_path = ? WHERE episode_number = 2", (str(already),))
+
+    body = c.post("/api/library/rename-lab/simulate", json={
+        "tmdb_id": 555,
+        "patterns": [{"id": "d", "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code}{episode_title_suffix}"}],
+    }).json()
+    rows = body["patterns"][0]["rows"]
+    assert "collision_on_disk" in rows[0]["flags"]
+    assert "unchanged" in rows[1]["flags"]
+
+
+def test_rename_lab_unknown_show_404(client):
+    c, _ = client
+    _lab_mocks()
+    resp = c.post("/api/library/rename-lab/simulate", json={
+        "tmdb_id": 12345, "patterns": [{"tv_season_folder": "S", "tv_file": "{code}"}],
+    })
+    assert resp.status_code == 404
+
+
+def test_rename_lab_rows_apply_via_organize(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    config = app.dependency_overrides[get_config]()
+    paths = _seed_show(db, config.paths.archive_tv)
+    _lab_mocks()
+    rows = c.post("/api/library/rename-lab/simulate", json={
+        "tmdb_id": 555,
+        "patterns": [{"id": "a", "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code}"}],
+    }).json()["patterns"][0]["rows"]
+
+    resp = c.post("/api/library/organize", json={
+        "items": [rows[0]["item"]], "dry_run": False,
+        "scope": {"file": True, "folder": False, "sidecars": True},
+    })
+    assert resp.status_code == 200
+    assert resp.json()["results"][0]["status"] == "success"
+    assert not paths[0].exists()
+    assert (paths[0].parent / "Show - S01E01.mkv").exists()
+    assert paths[1].exists()  # only the selected episode moved
+
+
+def test_organize_returns_operation_id_and_it_is_undoable(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    config = app.dependency_overrides[get_config]()
+    paths = _seed_show(db, config.paths.archive_tv)
+    _lab_mocks()
+    rows = c.post("/api/library/rename-lab/simulate", json={
+        "tmdb_id": 555,
+        "patterns": [{"id": "a", "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code}"}],
+    }).json()["patterns"][0]["rows"]
+
+    result = c.post("/api/library/organize", json={
+        "items": [rows[0]["item"]], "dry_run": False,
+        "scope": {"file": True, "folder": False, "sidecars": True},
+    }).json()["results"][0]
+    assert isinstance(result["operation_id"], int)
+
+    undo = c.post(f"/api/archive/history/{result['operation_id']}/undo")
+    assert undo.status_code == 200
+    assert paths[0].exists()
+
+
+def test_rename_lab_simulate_reports_show_folder(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    config = app.dependency_overrides[get_config]()
+    _seed_show(db, config.paths.archive_tv)
+    fake_tmdb = _lab_mocks()
+    fake_tmdb.get_tv_details.return_value = MediaResult(
+        tmdb_id=555, title="Show Renamed", media_type="tv", year=2020,
+        raw={"seasons": [{"season_number": 1, "episode_count": 2}]},
+    )
+    body = c.post("/api/library/rename-lab/simulate", json={
+        "tmdb_id": 555, "patterns": [{"tv_season_folder": "Season {season:02d}", "tv_file": "{code}"}],
+    }).json()
+    folder = body["show_folder"]
+    assert folder["current"].endswith("Show") and folder["proposed"].endswith("Show Renamed")
+    assert folder["will_rename"] is True and folder["conflict"] is False
+
+    (config.paths.archive_tv / "Show Renamed").mkdir()
+    body = c.post("/api/library/rename-lab/simulate", json={
+        "tmdb_id": 555, "patterns": [{"tv_season_folder": "Season {season:02d}", "tv_file": "{code}"}],
+    }).json()
+    assert body["show_folder"]["conflict"] is True and body["show_folder"]["will_rename"] is False
+
+
+def test_rename_lab_check_reports_existing_and_outside(client, tmp_path):
+    c, _ = client
+    config = app.dependency_overrides[get_config]()
+    inside_existing = config.paths.archive_tv / "a.mkv"
+    inside_existing.write_bytes(b"x")
+    resp = c.post("/api/library/rename-lab/check", json={"paths": [
+        str(inside_existing), str(config.paths.archive_tv / "missing.mkv"), str(tmp_path / "elsewhere.mkv"),
+    ]}).json()
+    assert resp["exists"] == [str(inside_existing)]
+    assert resp["outside_archive"] == [str(tmp_path / "elsewhere.mkv")]
+
+
+def test_rename_lab_saved_patterns_crud(client):
+    c, _ = client
+    body = {"label": "My Style", "tv_season_folder": "S{season:02d}", "tv_file": "{code} {episode_title}"}
+    saved = c.post("/api/library/rename-lab/patterns", json=body).json()
+    assert saved["saved"] is True and saved["id"] == "saved-my-style"
+
+    presets = c.get("/api/library/rename-lab/presets").json()["presets"]
+    assert any(p["id"] == "saved-my-style" and p["saved"] for p in presets)
+
+    # Same label again -> distinct id; update by id keeps it.
+    second = c.post("/api/library/rename-lab/patterns", json=body).json()
+    assert second["id"] == "saved-my-style-2"
+    updated = c.post("/api/library/rename-lab/patterns", json={**body, "id": "saved-my-style", "label": "Renamed"}).json()
+    assert updated["id"] == "saved-my-style" and updated["label"] == "Renamed"
+
+    assert c.delete("/api/library/rename-lab/patterns/saved-my-style").status_code == 200
+    assert c.delete("/api/library/rename-lab/patterns/saved-my-style").status_code == 404
+    ids = [p["id"] for p in c.get("/api/library/rename-lab/presets").json()["presets"]]
+    assert "saved-my-style" not in ids and "saved-my-style-2" in ids
+
+
+def test_rename_lab_saved_pattern_rejects_bad_template(client):
+    c, _ = client
+    resp = c.post("/api/library/rename-lab/patterns", json={
+        "label": "Bad", "tv_season_folder": "Season {season}", "tv_file": "{nope}",
+    })
+    assert resp.status_code == 400 and "nope" in resp.json()["detail"]

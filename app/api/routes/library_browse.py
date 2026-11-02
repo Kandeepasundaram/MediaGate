@@ -17,7 +17,7 @@ from app.api.routes.archive import _dry_run_result
 from app.api.routes.library_common import _metadata_dict
 from app.config_loader import AppConfig
 from app.core.orphan_artwork import ARTWORK_NAMES
-from app.core.organizer import OrganizeError, OrganizeScope, effective_dest, organize_file
+from app.core.organizer import OrganizeError, OrganizeScope, effective_dest, organize_file_with_op
 from app.core.renamer import RenamePlan
 from app.core import trash
 from app.core.scanner import SUBTITLE_EXTENSIONS, VIDEO_EXTENSIONS, scan_directory
@@ -87,7 +87,7 @@ def organize_selected(
             genres=item.genres,
         )
         try:
-            media_id = organize_file(
+            media_id, operation_id = organize_file_with_op(
                 db, plan, write_nfo_files=config.media_server.write_nfo_files,
                 scope=scope, protected_roots=_protected_roots(config),
             )
@@ -95,7 +95,10 @@ def organize_selected(
                 db, config.tracker.auto_track_new, item.tmdb_id, item.media_type, item.title, item.season
             )
             results.append(
-                ArchiveConfirmResult(source_path=str(source), dest_path=str(dest), media_id=media_id, status="success")
+                ArchiveConfirmResult(
+                    source_path=str(source), dest_path=str(dest), media_id=media_id,
+                    operation_id=operation_id, status="success",
+                )
             )
         except OrganizeError as exc:
             results.append(ArchiveConfirmResult(source_path=str(source), status="failed", error=str(exc)))

@@ -5,6 +5,7 @@
 import { approveSelected, cancelConfirm, closeBulkTrackModal, closeMatchPicker, confirmBulkTrack, openBulkMatchPicker, openBulkTrackModal, openTrackAddModal, previewBulkTrack, runMatchSearch, scanAndPreview, showConfirm, useMatchById } from "./js/archive-tab.js";
 import { closeBulkRematchModal, openBulkRematchModal } from "./js/bulk-rematch.js";
 import { cleanupOrphanedArtwork, cleanupOrphans, deleteSelectedBrowseItems, loadBrowse, openDuplicatesModal, organizePaths, organizeSelected, renderBrowseTable, setupBrowseFilterPopover, setupLibraryHealthToggle, setupTrashPanel } from "./js/browse-tab.js";
+import { setupRenameLab } from "./js/rename-lab.js";
 import { loadStatus, restoreLastTab, restoreScrollPosition, setupBackToTop, setupFontSize, setupGlobalSearch, setupHeaderMoreMenu, setupReducedMotion, setupScrollPersistence, setupTabs, setupTheme } from "./js/chrome.js";
 import { closeCommandPalette, filterCommands, openCommandPalette, renderPalette, runPaletteCommand } from "./js/command-palette.js";
 import { closeCompareModal, openCompareModal, setupCompareModal } from "./js/compare.js";
@@ -241,6 +242,7 @@ window.addEventListener("appinstalled", () => {
 
 document.addEventListener("DOMContentLoaded", () => {
   setupTabs();
+  setupRenameLab();
   setupSwipeNavigation();
   setupScrollPersistence();
   enableGalleryDragSelect($("#movies-gallery"));

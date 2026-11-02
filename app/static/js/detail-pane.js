@@ -4,6 +4,7 @@
 
 import { escapeAttr, openMatchModal, showConfirm } from "./archive-tab.js";
 import { organizePaths } from "./browse-tab.js";
+import { openRenameLab } from "./rename-lab.js";
 import { $, api, copyToClipboard, formatBytes, showToast, state } from "./core.js";
 import { TV_SHOW_STATUSES, downloadCsv, downloadMovieNote, downloadTvNote, effectiveWatched, getActiveViewerId, groupEpisodesByShow, loadMoviesGallery, loadTvGallery, mapApiStatusToManual, posterMarkup, posterUrl, renderMoviesGallery, renderTvGallery, rowsToCsv, saveMovieNote, saveTvNote, setTvShowStatus, syncShowStatusIntoState, toggleWatched } from "./gallery.js";
 import { loadNotifications, loadTrackerTab, TRACKER_CATEGORIES } from "./notifications-tab.js";
@@ -545,6 +546,9 @@ export function renderTvBody() {
       ${earlierEpisodes.length > 0 ? `
         <button id="detail-earlier-watched-btn">${earlierAllWatched ? "Mark Earlier Seasons Unwatched" : "Mark Earlier Seasons Watched"}</button>
       ` : ""}
+      ${show.episodes.some((e) => e.final_path) ? `
+        <button id="detail-rename-lab-btn" title="Simulate renaming every episode of this show with different naming patterns, then apply the one you like">Simulate rename</button>
+      ` : ""}
       ${show.episodes.length > 0 ? `
         <button id="detail-show-watched-btn">${show.watched ? "Mark Show Unwatched" : "Mark Show Watched"}</button>
       ` : ""}
@@ -579,6 +583,12 @@ export function renderTvBody() {
     renderTvBody();
   });
   wireShowWatchProgress(show);
+
+  const labBtn = $("#detail-rename-lab-btn");
+  if (labBtn) labBtn.addEventListener("click", () => {
+    closeDetailPane();
+    openRenameLab(show);
+  });
 
   const nameModeToggle = $("#detail-name-mode-toggle");
   if (nameModeToggle) {
