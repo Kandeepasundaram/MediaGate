@@ -75,6 +75,7 @@ def _to_out(config: AppConfig) -> SettingsOut:
         subtitle_keep_languages_movies=config.subtitles.keep_languages_movies,
         subtitle_keep_languages_tv=config.subtitles.keep_languages_tv,
         movie_folder_template=config.renaming.movie_folder,
+        tv_show_folder_template=config.renaming.tv_show_folder,
         tv_season_folder_template=config.renaming.tv_season_folder,
         tv_file_template=config.renaming.tv_file,
         collision_policy=config.renaming.collision_policy,
@@ -192,6 +193,8 @@ def save_settings(payload: SettingsUpdateRequest, config: AppConfig = Depends(ge
         ]
     if payload.movie_folder_template is not None:
         updates["renaming"]["movie_folder"] = payload.movie_folder_template
+    if payload.tv_show_folder_template is not None:
+        updates["renaming"]["tv_show_folder"] = payload.tv_show_folder_template
     if payload.tv_season_folder_template is not None:
         updates["renaming"]["tv_season_folder"] = payload.tv_season_folder_template
     if payload.tv_file_template is not None:

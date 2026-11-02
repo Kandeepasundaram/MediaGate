@@ -52,6 +52,7 @@ _DEFAULT_CONFIG: dict = {
     "server": {"host": "0.0.0.0", "port": 8000, "cors_origins": ["*"], "api_token": ""},
     "renaming": {
         "movie_folder": "{title}{year_suffix}",
+        "tv_show_folder": "{show_name_sorted}{year_suffix}",
         "tv_season_folder": "Season {season:02d}",
         "tv_file": "{show_name} - {code}{episode_title_suffix}",
         "collision_policy": "suffix",
@@ -230,7 +231,9 @@ class RenamingConfig:
     the folder's base name by convention (see renamer.py::plan_movie_rename
     and the "also rename file" UI, which both depend on that). Available
     tokens: movie_folder gets {title}, {year}, {year_suffix} (" (YYYY)" or
-    "" when year is unknown); tv_season_folder gets {season}; tv_file gets
+    "" when year is unknown); tv_show_folder gets {show_name}, {show_name_sorted}
+    ("Diplomat, The" -- leading The/A/An moved to the end, for sorting),
+    {year}, {year_suffix}; tv_season_folder gets {season}; tv_file gets
     {show_name}, {season}, {episode}, {code} ("S01E02"), {episode_title},
     {episode_title_suffix} (" - Title" or "" when there's no episode title),
     {absolute_episode} (cumulative episode count across seasons, for
@@ -241,6 +244,7 @@ class RenamingConfig:
     plan_movie_rename.
     """
     movie_folder: str = "{title}{year_suffix}"
+    tv_show_folder: str = "{show_name_sorted}{year_suffix}"
     tv_season_folder: str = "Season {season:02d}"
     tv_file: str = "{show_name} - {code}{episode_title_suffix}"
     # What to do when the computed destination path already exists:
@@ -249,7 +253,7 @@ class RenamingConfig:
     # "skip" excludes the file from the preview with an error message
     # instead of silently creating or clobbering anything.
     collision_policy: str = "suffix"
-    # User-named TV patterns for the Rename Lab: [{id, label, tv_season_folder, tv_file}].
+    # User-named TV patterns for the Rename Lab: [{id, label, tv_show_folder, tv_season_folder, tv_file}].
     saved_tv_patterns: list = field(default_factory=list)
 
 
@@ -364,7 +368,7 @@ _EDITABLE_KEYS = {
         "keep_languages", "keep_languages_movies", "keep_languages_tv",
         "opensubtitles_api_key", "auto_fetch_missing_subtitles",
     },
-    "renaming": {"movie_folder", "tv_season_folder", "tv_file", "collision_policy", "saved_tv_patterns"},
+    "renaming": {"movie_folder", "tv_show_folder", "tv_season_folder", "tv_file", "collision_policy", "saved_tv_patterns"},
     "watcher": {"enabled"},
     "backup": {"webdav_url", "webdav_username", "webdav_password", "webdav_remote_path", "enabled", "retention_days"},
     "reports": {"enabled", "frequency", "cron_time"},

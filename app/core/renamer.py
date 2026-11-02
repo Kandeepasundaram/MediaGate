@@ -44,6 +44,27 @@ def sanitize_filename(name: str) -> str:
     return cleaned or "untitled"
 
 
+_LEADING_ARTICLE = re.compile(r"^(the|a|an)\s+(.+)$", re.IGNORECASE)
+
+
+def sortable_title(name: str) -> str:
+    """Library-sort form of a title: a leading English article moves to the
+    end ("The Diplomat" -> "Diplomat, The"). Titles without one are unchanged."""
+    m = _LEADING_ARTICLE.match(name.strip())
+    return f"{m.group(2)}, {m.group(1)}" if m else name
+
+
+def show_folder_context(show_name: str, year: int | None) -> dict:
+    """Tokens available to the TV show-folder template (and also usable in
+    the season-folder and file templates)."""
+    return {
+        "show_name": show_name,
+        "show_name_sorted": sortable_title(show_name),
+        "year": year or "",
+        "year_suffix": f" ({year})" if year else "",
+    }
+
+
 @dataclass
 class RenamePlan:
     source_path: Path
@@ -130,16 +151,17 @@ def plan_tv_rename(
     code = f"S{season:02d}E{episode:02d}"
     clean_episode_title = sanitize_filename(episode_title) if episode_title else ""
     context = {
-        "show_name": show_name, "season": season, "episode": episode, "code": code,
+        **show_folder_context(show_name, media.year), "season": season, "episode": episode, "code": code,
         "episode_title": clean_episode_title,
         "episode_title_suffix": f" - {clean_episode_title}" if clean_episode_title else "",
         "absolute_episode": absolute_episode if absolute_episode is not None else episode,
         "part_suffix": f" - {part}" if part else "",
         "air_date": air_date or "",
     }
+    show_folder = sanitize_filename(_format_template(renaming.tv_show_folder, _DEFAULT_RENAMING.tv_show_folder, context))
     season_folder = sanitize_filename(_format_template(renaming.tv_season_folder, _DEFAULT_RENAMING.tv_season_folder, context))
     file_name = sanitize_filename(_format_template(renaming.tv_file, _DEFAULT_RENAMING.tv_file, context)) + ext
-    dest = archive_root / show_name / season_folder / file_name
+    dest = archive_root / show_folder / season_folder / file_name
     dest = _avoid_collision(dest, renaming.collision_policy)
     return RenamePlan(
         source_path=source,
@@ -147,6 +169,7 @@ def plan_tv_rename(
         media_type="tv",
         tmdb_id=media.tmdb_id,
         title=media.title,
+        year=media.year,
         season=season,
         episode=episode,
         episode_title=episode_title,
@@ -177,23 +200,36 @@ TV_PATTERN_PRESETS: list[dict[str, str]] = [
      "tv_season_folder": "Season {season:02d}", "tv_file": "{code} - {show_name}{episode_title_suffix}"},
 ]
 
+DEFAULT_TV_SHOW_FOLDER = "{show_name_sorted}{year_suffix}"
+
+# Every built-in preset shares the default show-folder naming; the extra
+# "plain-folder" preset keeps the older bare "Show Name" folders.
+for _preset in TV_PATTERN_PRESETS:
+    _preset.setdefault("tv_show_folder", DEFAULT_TV_SHOW_FOLDER)
+TV_PATTERN_PRESETS.append({
+    "id": "plain-folder", "label": "Plain show folder (Show)",
+    "tv_show_folder": "{show_name}",
+    "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code}{episode_title_suffix}",
+})
+
 TV_TEMPLATE_TOKENS = [
-    "show_name", "season", "episode", "code", "episode_title", "episode_title_suffix",
+    "show_name", "show_name_sorted", "year", "year_suffix", "season", "episode", "code", "episode_title", "episode_title_suffix",
     "absolute_episode", "part_suffix", "air_date",
 ]
 
 
-def validate_tv_templates(season_folder: str, file_template: str) -> str | None:
+def validate_tv_templates(season_folder: str, file_template: str, show_folder: str = DEFAULT_TV_SHOW_FOLDER) -> str | None:
     """Returns a human-readable error if either TV template can't be
     rendered (bad token / format spec), else None. plan_tv_rename silently
     falls back to the default on such errors; the rename simulator needs to
     flag them instead."""
     sample = {
-        "show_name": "Show", "season": 1, "episode": 2, "code": "S01E02",
+        "show_name": "Show", "show_name_sorted": "Show", "year": 2020, "year_suffix": " (2020)",
+        "season": 1, "episode": 2, "code": "S01E02",
         "episode_title": "Title", "episode_title_suffix": " - Title",
         "absolute_episode": 2, "part_suffix": "", "air_date": "2020-01-31",
     }
-    for label, template in (("Season folder", season_folder), ("File name", file_template)):
+    for label, template in (("Show folder", show_folder), ("Season folder", season_folder), ("File name", file_template)):
         try:
             template.format(**sample)
         except KeyError as exc:

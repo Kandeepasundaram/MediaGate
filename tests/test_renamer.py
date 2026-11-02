@@ -267,3 +267,31 @@ def test_validate_tv_templates_reports_bad_tokens():
     from app.core.renamer import validate_tv_templates
     assert "bogus" in validate_tv_templates("Season {season}", "{bogus}")
     assert validate_tv_templates("Season {season:zz}", "{code}") is not None
+
+
+def test_sortable_title_and_show_folder_context():
+    from app.core.renamer import show_folder_context, sortable_title
+
+    assert sortable_title("The Diplomat") == "Diplomat, The"
+    assert sortable_title("A Discovery of Witches") == "Discovery of Witches, A"
+    assert sortable_title("Lanterns") == "Lanterns"
+    assert sortable_title("Theodore Rex") == "Theodore Rex"  # prefix only counts as a whole word
+    ctx = show_folder_context("The Diplomat", 2023)
+    assert ctx["year_suffix"] == " (2023)" and ctx["show_name_sorted"] == "Diplomat, The"
+    assert show_folder_context("X", None)["year_suffix"] == ""
+
+
+def test_plan_tv_rename_uses_show_folder_template(tmp_path):
+    from app.config_loader import RenamingConfig
+    from app.core.renamer import plan_tv_rename
+    from app.core.tmdb_client import MediaResult
+
+    media = MediaResult(tmdb_id=1, title="The Diplomat", media_type="tv", year=2023)
+    plan = plan_tv_rename(tmp_path / "a.mkv", tmp_path, media, 1, 2)
+    assert plan.dest_path.parts[-3] == "Diplomat, The (2023)"
+    assert plan.dest_path.name == "The Diplomat - S01E02.mkv"  # file name keeps the plain title
+
+    plain = plan_tv_rename(tmp_path / "a.mkv", tmp_path, media, 1, 2, renaming=RenamingConfig(tv_show_folder="{show_name}"))
+    assert plain.dest_path.parts[-3] == "The Diplomat"
+    bad = plan_tv_rename(tmp_path / "a.mkv", tmp_path, media, 1, 2, renaming=RenamingConfig(tv_show_folder="{nope}"))
+    assert bad.dest_path.parts[-3] == "Diplomat, The (2023)"  # bad template falls back to default

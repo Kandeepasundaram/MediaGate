@@ -101,6 +101,7 @@ export async function loadSettings() {
     $("#setting-subtitle-languages-movies").value = (s.subtitle_keep_languages_movies || []).join(", ");
     $("#setting-subtitle-languages-tv").value = (s.subtitle_keep_languages_tv || []).join(", ");
     $("#setting-movie-folder-template").value = s.movie_folder_template || "";
+    $("#setting-tv-show-folder-template").value = s.tv_show_folder_template || "";
     $("#setting-tv-season-folder-template").value = s.tv_season_folder_template || "";
     $("#setting-tv-file-template").value = s.tv_file_template || "";
     $("#setting-collision-policy").value = s.collision_policy || "suffix";
@@ -234,6 +235,7 @@ export async function saveSettings(e) {
 
 const DEFAULT_NAMING_TEMPLATES = {
   movie_folder_template: "{title}{year_suffix}",
+  tv_show_folder_template: "{show_name_sorted}{year_suffix}",
   tv_season_folder_template: "Season {season:02d}",
   tv_file_template: "{show_name} - {code}{episode_title_suffix}",
 };
@@ -242,6 +244,7 @@ export async function saveNamingTemplates(e) {
   e.preventDefault();
   const payload = {
     movie_folder_template: $("#setting-movie-folder-template").value.trim() || DEFAULT_NAMING_TEMPLATES.movie_folder_template,
+    tv_show_folder_template: $("#setting-tv-show-folder-template").value.trim() || DEFAULT_NAMING_TEMPLATES.tv_show_folder_template,
     tv_season_folder_template: $("#setting-tv-season-folder-template").value.trim() || DEFAULT_NAMING_TEMPLATES.tv_season_folder_template,
     tv_file_template: $("#setting-tv-file-template").value.trim() || DEFAULT_NAMING_TEMPLATES.tv_file_template,
     collision_policy: $("#setting-collision-policy").value,

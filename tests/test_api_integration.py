@@ -2771,7 +2771,7 @@ def test_rename_lab_flags_collision_and_unchanged(client):
 
     body = c.post("/api/library/rename-lab/simulate", json={
         "tmdb_id": 555,
-        "patterns": [{"id": "d", "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code}{episode_title_suffix}"}],
+        "patterns": [{"id": "d", "tv_show_folder": "{show_name}", "tv_season_folder": "Season {season:02d}", "tv_file": "{show_name} - {code}{episode_title_suffix}"}],
     }).json()
     rows = body["patterns"][0]["rows"]
     assert "collision_on_disk" in rows[0]["flags"]
@@ -2842,7 +2842,7 @@ def test_rename_lab_simulate_reports_show_folder(client):
         raw={"seasons": [{"season_number": 1, "episode_count": 2}]},
     )
     body = c.post("/api/library/rename-lab/simulate", json={
-        "tmdb_id": 555, "patterns": [{"tv_season_folder": "Season {season:02d}", "tv_file": "{code}"}],
+        "tmdb_id": 555, "patterns": [{"tv_show_folder": "{show_name}", "tv_season_folder": "Season {season:02d}", "tv_file": "{code}"}],
     }).json()
     folder = body["show_folder"]
     assert folder["current"].endswith("Show") and folder["proposed"].endswith("Show Renamed")
@@ -2850,7 +2850,7 @@ def test_rename_lab_simulate_reports_show_folder(client):
 
     (config.paths.archive_tv / "Show Renamed").mkdir()
     body = c.post("/api/library/rename-lab/simulate", json={
-        "tmdb_id": 555, "patterns": [{"tv_season_folder": "Season {season:02d}", "tv_file": "{code}"}],
+        "tmdb_id": 555, "patterns": [{"tv_show_folder": "{show_name}", "tv_season_folder": "Season {season:02d}", "tv_file": "{code}"}],
     }).json()
     assert body["show_folder"]["conflict"] is True and body["show_folder"]["will_rename"] is False
 
@@ -2920,3 +2920,46 @@ def test_rename_lab_rescan_and_refresh(client):
 
     c.post("/api/library/rename-lab/simulate", json={"tmdb_id": 555, "patterns": [pattern], "refresh": True})
     fake_tmdb.clear_show_cache.assert_called_once_with(555)
+
+
+def test_rename_lab_default_show_folder_is_name_and_year(client):
+    c, _ = client
+    db = app.dependency_overrides[get_database]()
+    config = app.dependency_overrides[get_config]()
+    _seed_show(db, config.paths.archive_tv)
+    fake_tmdb = _lab_mocks()
+
+    def simulate(title, year):
+        fake_tmdb.get_tv_details.return_value = MediaResult(
+            tmdb_id=555, title=title, media_type="tv", year=year,
+            raw={"seasons": [{"season_number": 1, "episode_count": 2}]},
+        )
+        # No tv_show_folder given -> the model default applies.
+        body = c.post("/api/library/rename-lab/simulate", json={
+            "tmdb_id": 555, "patterns": [{"tv_season_folder": "Season {season:02d}", "tv_file": "{code}"}],
+        }).json()
+        return body["patterns"][0]
+
+    result = simulate("Lanterns", 2026)
+    assert result["rows"][0]["dest_path"].replace("\\", "/").endswith("/Lanterns (2026)/Season 01/S01E01.mkv")
+    assert result["show_folder"]["proposed"].endswith("Lanterns (2026)")
+
+    assert simulate("The Diplomat", 2023)["show_folder"]["proposed"].endswith("Diplomat, The (2023)")
+    assert simulate("Unknown Year", None)["show_folder"]["proposed"].endswith("Unknown Year")  # no year -> no suffix
+
+
+def test_rename_lab_show_folder_template_validated_and_saved(client):
+    c, _ = client
+    bad = c.post("/api/library/rename-lab/patterns", json={
+        "label": "Bad", "tv_show_folder": "{nope}", "tv_season_folder": "Season {season}", "tv_file": "{code}",
+    })
+    assert bad.status_code == 400 and "Show folder" in bad.json()["detail"]
+
+    saved = c.post("/api/library/rename-lab/patterns", json={
+        "label": "Plain", "tv_show_folder": "{show_name}", "tv_season_folder": "Season {season}", "tv_file": "{code}",
+    }).json()
+    assert saved["tv_show_folder"] == "{show_name}"
+    presets = c.get("/api/library/rename-lab/presets").json()["presets"]
+    assert next(p for p in presets if p["id"] == saved["id"])["tv_show_folder"] == "{show_name}"
+    assert next(p for p in presets if p["id"] == "default")["tv_show_folder"] == "{show_name_sorted}{year_suffix}"
+    assert any(p["id"] == "plain-folder" for p in presets)

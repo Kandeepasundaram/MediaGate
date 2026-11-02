@@ -964,6 +964,7 @@ class SettingsOut(BaseModel):
     subtitle_keep_languages_movies: list[str] = Field(default_factory=list)
     subtitle_keep_languages_tv: list[str] = Field(default_factory=list)
     movie_folder_template: str = ""
+    tv_show_folder_template: str = ""
     tv_season_folder_template: str = ""
     tv_file_template: str = ""
     collision_policy: str = "suffix"
@@ -1012,6 +1013,7 @@ class SettingsUpdateRequest(BaseModel):
     subtitle_keep_languages_movies: list[str] | None = None
     subtitle_keep_languages_tv: list[str] | None = None
     movie_folder_template: str | None = None
+    tv_show_folder_template: str | None = None
     tv_season_folder_template: str | None = None
     tv_file_template: str | None = None
     collision_policy: str | None = None
@@ -1334,6 +1336,7 @@ class TrackerBulkAddResponse(BaseModel):
 class RenameLabPattern(BaseModel):
     id: str = "custom"
     label: str = ""
+    tv_show_folder: str = "{show_name_sorted}{year_suffix}"
     tv_season_folder: str
     tv_file: str
     saved: bool = False  # user-saved pattern (deletable) vs built-in preset
@@ -1365,18 +1368,6 @@ class RenameLabRow(BaseModel):
     item: ArchivePreviewItem  # ready to send to /api/library/organize
 
 
-class RenameLabPatternResult(BaseModel):
-    id: str
-    label: str
-    tv_season_folder: str
-    tv_file: str
-    error: str | None = None
-    rows: list[RenameLabRow] = Field(default_factory=list)
-    changes: int = 0
-    conflicts: int = 0
-    unchanged: int = 0
-
-
 class RenameLabShowFolder(BaseModel):
     current: str
     proposed: str
@@ -1384,8 +1375,25 @@ class RenameLabShowFolder(BaseModel):
     conflict: bool  # proposed folder already exists (would need a merge, not a rename)
 
 
+class RenameLabPatternResult(BaseModel):
+    id: str
+    label: str
+    tv_show_folder: str = "{show_name_sorted}{year_suffix}"
+    tv_season_folder: str
+    tv_file: str
+    error: str | None = None
+    show_folder: RenameLabShowFolder | None = None  # where this pattern would put the show's folder
+    rows: list[RenameLabRow] = Field(default_factory=list)
+    changes: int = 0
+    conflicts: int = 0
+    unchanged: int = 0
+
+
+
+
 class RenameLabSimulateResponse(BaseModel):
     show_title: str
+    show_year: int | None = None
     tmdb_id: int | None = None
     metadata_available: bool = False
     metadata_note: str | None = None
@@ -1405,6 +1413,7 @@ class RenameLabCheckResponse(BaseModel):
 
 class RenameLabSavePatternRequest(BaseModel):
     label: str = Field(min_length=1, max_length=60)
+    tv_show_folder: str = Field(default="{show_name_sorted}{year_suffix}", min_length=1, max_length=200)
     tv_season_folder: str = Field(min_length=1, max_length=200)
     tv_file: str = Field(min_length=1, max_length=300)
     id: str | None = None  # present = update that saved pattern

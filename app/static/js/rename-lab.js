@@ -16,6 +16,8 @@ import {
   joinLike,
   renderFileName,
   renderSeasonFolder,
+  renderShowFolder,
+  setShowYear,
   sanitizeName,
   splitExt,
   suffixedName,
@@ -57,6 +59,7 @@ const lab = {
   filter: { status: "all", season: "all", search: "" },
   editing: null, // media_id being edited inline
   showFolder: null,
+  showYear: null,
   metadataAvailable: false,
   metadataNote: null,
   undoOps: [],
@@ -73,7 +76,12 @@ function showKey() {
 }
 
 function customPattern() {
-  return { id: "custom", label: "Custom", tv_season_folder: $("#lab-season-folder").value, tv_file: $("#lab-file-template").value };
+  return {
+    id: "custom", label: "Custom",
+    tv_show_folder: $("#lab-show-folder").value,
+    tv_season_folder: $("#lab-season-folder").value,
+    tv_file: $("#lab-file-template").value,
+  };
 }
 
 function patternById(id) {
@@ -99,11 +107,13 @@ function activePattern() {
 function syncCustomInputs() {
   const id = $("#lab-preset-select").value;
   const isCustom = id === "custom";
+  $("#lab-show-folder").readOnly = !isCustom;
   $("#lab-season-folder").readOnly = !isCustom;
   $("#lab-file-template").readOnly = !isCustom;
   if (!isCustom) {
     const preset = lab.presets.find((p) => p.id === id);
     if (preset) {
+      $("#lab-show-folder").value = preset.tv_show_folder || DEFAULT_SHOW_FOLDER;
       $("#lab-season-folder").value = preset.tv_season_folder;
       $("#lab-file-template").value = preset.tv_file;
     }
@@ -172,7 +182,7 @@ function loadLastPattern() {
 function rememberPattern() {
   try {
     const p = selectedPattern();
-    localStorage.setItem(showKey(), JSON.stringify({ id: p.id, season: p.tv_season_folder, file: p.tv_file }));
+    localStorage.setItem(showKey(), JSON.stringify({ id: p.id, show: p.tv_show_folder, season: p.tv_season_folder, file: p.tv_file }));
   } catch (e) { /* storage unavailable -- just won't be remembered */ }
 }
 
@@ -213,7 +223,9 @@ function updateSampleLine() {
   const row = lab.results[0]?.rows?.[0];
   let message = "";
   try {
-    formatTemplate(p.tv_season_folder, episodeContext(lab.showTitle || "Show", row || { season: 1, episode: 1, code: "S01E01", episode_title: "Title" }));
+    const sampleRow = row || { season: 1, episode: 1, code: "S01E01", episode_title: "Title" };
+    formatTemplate(p.tv_show_folder, episodeContext(lab.showTitle || "Show", sampleRow));
+    formatTemplate(p.tv_season_folder, episodeContext(lab.showTitle || "Show", sampleRow));
     formatTemplate(p.tv_file, episodeContext(lab.showTitle || "Show", row || { season: 1, episode: 1, code: "S01E01", episode_title: "Title" }));
   } catch (e) {
     message = e.message;
@@ -222,7 +234,7 @@ function updateSampleLine() {
   const shown = message || serverError || "";
   err.textContent = shown ? `Template problem: ${shown}` : "";
   err.classList.toggle("hidden", !shown);
-  for (const id of ["#lab-season-folder", "#lab-file-template"]) $(id).setAttribute("aria-invalid", String(Boolean(shown)));
+  for (const id of ["#lab-show-folder", "#lab-season-folder", "#lab-file-template"]) $(id).setAttribute("aria-invalid", String(Boolean(shown)));
 
   if (shown || !row) {
     sample.textContent = "";
@@ -230,8 +242,9 @@ function updateSampleLine() {
   }
   const ext = splitExt(basename(row.current_path)).ext;
   try {
+    const showDir = renderShowFolder(p.tv_show_folder, lab.showTitle, row);
     const folder = renderSeasonFolder(p.tv_season_folder, lab.showTitle, row);
-    sample.textContent = `Sample (${row.code}): ${folder} / ${renderFileName(p.tv_file, lab.showTitle, row, undefined, ext)}`;
+    sample.textContent = `Sample (${row.code}): ${showDir} / ${folder} / ${renderFileName(p.tv_file, lab.showTitle, row, undefined, ext)}`;
   } catch (e) {
     sample.textContent = "";
   }
@@ -338,6 +351,7 @@ export async function openRenameLab(show) {
     const last = loadLastPattern();
     if (last && last.id === "custom") {
       renderPresetSelect("custom");
+      $("#lab-show-folder").value = last.show || DEFAULT_SHOW_FOLDER;
       $("#lab-season-folder").value = last.season;
       $("#lab-file-template").value = last.file;
     } else {
@@ -372,7 +386,7 @@ async function runSimulation(note = "", extra = {}) {
       body: JSON.stringify({
         tmdb_id: lab.show.tmdb_id ?? null,
         title: lab.show.tmdb_id == null ? lab.show.title : null,
-        patterns: lab.slots.map(({ id, label, tv_season_folder, tv_file }) => ({ id, label, tv_season_folder, tv_file })),
+        patterns: lab.slots.map(({ id, label, tv_show_folder, tv_season_folder, tv_file }) => ({ id, label, tv_show_folder, tv_season_folder, tv_file })),
         ...extra,
       }),
     });
@@ -385,6 +399,8 @@ async function runSimulation(note = "", extra = {}) {
       note = `${data.rescan_added ? `Rescan added ${data.rescan_added} new file(s) to the library (they may need a TMDB match to show here).` : "Rescan found no new files."}`;
     }
     lab.showFolder = data.show_folder;
+    lab.showYear = data.show_year ?? null;
+    setShowYear(lab.showYear);
     lab.activeIdx = Math.min(lab.activeIdx, lab.results.length - 1);
     lab.overrides.clear();
     lab.editing = null;
@@ -771,8 +787,15 @@ async function resolveAllConflicts() {
 
 // -------------------------------------------------------------------- folders
 
+const DEFAULT_SHOW_FOLDER = "{show_name_sorted}{year_suffix}";
+
+// Show-folder rename for the pattern whose column is currently active.
+function activeShowFolder() {
+  return lab.results[lab.activeIdx]?.show_folder ?? lab.showFolder;
+}
+
 function folderPlan(rows) {
-  const sf = lab.showFolder;
+  const sf = activeShowFolder();
   const showRename = sf && sf.will_rename ? { from: sf.current, to: sf.proposed } : null;
   const seasons = new Map();
   rows.forEach((r) => {
@@ -794,7 +817,7 @@ function renderFolders() {
   }
   const lines = [];
   if (plan.showRename) lines.push(`Show folder: <code>${escapeAttr(basename(plan.showRename.from))}</code> → <code>${escapeAttr(basename(plan.showRename.to))}</code>`);
-  if (plan.showConflict) lines.push(`<span class="badge badge-warn">Show folder "${escapeAttr(basename(lab.showFolder.proposed))}" already exists</span> — folders can't be merged here, so the show folder is left alone.`);
+  if (plan.showConflict) lines.push(`<span class="badge badge-warn">Show folder "${escapeAttr(basename(activeShowFolder().proposed))}" already exists</span> — folders can't be merged here, so the show folder is left alone.`);
   plan.seasons.slice(0, 6).forEach((s) => lines.push(`Season ${s.season}: <code>${escapeAttr(s.fromName)}</code> → <code>${escapeAttr(s.toName)}</code>`));
   if (plan.seasons.length > 6) lines.push(`…and ${plan.seasons.length - 6} more season folder(s)`);
   lines.push(`<em>Folder renames can't be undone automatically.</em>`);
@@ -998,6 +1021,7 @@ async function savePattern(update) {
       method: "POST",
       body: JSON.stringify({
         label: name,
+        tv_show_folder: current.tv_show_folder,
         tv_season_folder: current.tv_season_folder,
         tv_file: current.tv_file,
         ...(update && savedEntry ? { id: savedEntry.id } : {}),
@@ -1035,10 +1059,10 @@ async function deleteSavedPattern() {
 
 async function saveAsDefault() {
   const p = selectedPattern();
-  const ok = await showConfirm(`Make this the default TV naming pattern for all future archive/organize runs?\n\nFolder: ${p.tv_season_folder}\nFile: ${p.tv_file}`);
+  const ok = await showConfirm(`Make this the default TV naming pattern for all future archive/organize runs?\n\nShow folder: ${p.tv_show_folder}\nSeason folder: ${p.tv_season_folder}\nFile: ${p.tv_file}`);
   if (!ok) return;
   try {
-    await api("/api/settings", { method: "POST", body: JSON.stringify({ tv_season_folder_template: p.tv_season_folder, tv_file_template: p.tv_file }) });
+    await api("/api/settings", { method: "POST", body: JSON.stringify({ tv_show_folder_template: p.tv_show_folder, tv_season_folder_template: p.tv_season_folder, tv_file_template: p.tv_file }) });
     await loadPresets();
     renderPresetSelect($("#lab-preset-select").value);
     syncCustomInputs();
@@ -1063,7 +1087,7 @@ export function setupRenameLab() {
     if (lab.compare && lab.compareIds.length === 0) lab.compareIds = [$("#lab-preset-select").value];
     runSimulation();
   });
-  for (const id of ["#lab-season-folder", "#lab-file-template"]) {
+  for (const id of ["#lab-show-folder", "#lab-season-folder", "#lab-file-template"]) {
     $(id).addEventListener("focus", (e) => { lab.lastInput = e.target; });
     $(id).addEventListener("input", scheduleSimulation);
   }

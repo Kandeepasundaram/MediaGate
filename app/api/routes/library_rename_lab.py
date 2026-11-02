@@ -72,6 +72,7 @@ def rename_lab_presets(config: AppConfig = Depends(get_config)) -> RenameLabPres
     # The user's currently configured global pattern is always offered too.
     presets.insert(0, RenameLabPattern(
         id="current", label="Current setting",
+        tv_show_folder=config.renaming.tv_show_folder,
         tv_season_folder=config.renaming.tv_season_folder, tv_file=config.renaming.tv_file,
     ))
     presets.extend(RenameLabPattern(**{**p, "saved": True}) for p in _saved_patterns(config))
@@ -80,7 +81,7 @@ def rename_lab_presets(config: AppConfig = Depends(get_config)) -> RenameLabPres
 
 @router.post("/patterns", response_model=RenameLabPattern)
 def save_pattern(payload: RenameLabSavePatternRequest, config: AppConfig = Depends(get_config)) -> RenameLabPattern:
-    error = validate_tv_templates(payload.tv_season_folder, payload.tv_file)
+    error = validate_tv_templates(payload.tv_season_folder, payload.tv_file, payload.tv_show_folder)
     if error:
         raise HTTPException(status_code=400, detail=error)
     saved = _saved_patterns(config)
@@ -88,7 +89,10 @@ def save_pattern(payload: RenameLabSavePatternRequest, config: AppConfig = Depen
     if existing is None and len(saved) >= MAX_SAVED_PATTERNS:
         raise HTTPException(status_code=400, detail=f"At most {MAX_SAVED_PATTERNS} saved patterns")
     if existing is not None:
-        existing.update(label=payload.label, tv_season_folder=payload.tv_season_folder, tv_file=payload.tv_file)
+        existing.update(
+            label=payload.label, tv_show_folder=payload.tv_show_folder,
+            tv_season_folder=payload.tv_season_folder, tv_file=payload.tv_file,
+        )
         entry = existing
     else:
         base = "saved-" + (re.sub(r"[^a-z0-9]+", "-", payload.label.lower()).strip("-") or "pattern")
@@ -97,7 +101,7 @@ def save_pattern(payload: RenameLabSavePatternRequest, config: AppConfig = Depen
         while new_id in taken:
             new_id, n = f"{base}-{n}", n + 1
         entry = {
-            "id": new_id, "label": payload.label,
+            "id": new_id, "label": payload.label, "tv_show_folder": payload.tv_show_folder,
             "tv_season_folder": payload.tv_season_folder, "tv_file": payload.tv_file,
         }
         saved.append(entry)
@@ -225,9 +229,10 @@ def simulate_show_rename(
     for pattern in payload.patterns:
         result = RenameLabPatternResult(
             id=pattern.id, label=pattern.label or pattern.id,
+            tv_show_folder=pattern.tv_show_folder,
             tv_season_folder=pattern.tv_season_folder, tv_file=pattern.tv_file,
         )
-        error = validate_tv_templates(pattern.tv_season_folder, pattern.tv_file)
+        error = validate_tv_templates(pattern.tv_season_folder, pattern.tv_file, pattern.tv_show_folder)
         if error:
             result.error = error
             results.append(result)
@@ -237,6 +242,7 @@ def simulate_show_rename(
         # applied at organize time, and here collisions are flagged instead
         # of being silently turned into " (2)" names.
         renaming = RenamingConfig(
+            tv_show_folder=pattern.tv_show_folder,
             tv_season_folder=pattern.tv_season_folder, tv_file=pattern.tv_file, collision_policy="overwrite",
         )
         uses_title = "{episode_title" in pattern.tv_file
@@ -249,6 +255,7 @@ def simulate_show_rename(
             )
             planned.append((ep, plan))
 
+        result.show_folder = _show_folder(episodes, planned[0][1].dest_path, config)
         dest_counts = Counter(str(plan.dest_path).lower() for _, plan in planned)
         for ep, plan in planned:
             flags: list[str] = []
@@ -292,9 +299,9 @@ def simulate_show_rename(
         results.append(result)
 
     return RenameLabSimulateResponse(
-        show_title=media.title, tmdb_id=payload.tmdb_id,
+        show_title=media.title, show_year=media.year, tmdb_id=payload.tmdb_id,
         metadata_available=bool(remote), rescan_added=rescan_added, metadata_note=_metadata_note(remote, payload.tmdb_id, tmdb, tvmaze),
-        show_folder=_show_folder(episodes, media, config),
+        show_folder=next((r.show_folder for r in results if r.show_folder), None),
         patterns=results,
     )
 
@@ -311,9 +318,10 @@ def _metadata_note(remote: dict, tmdb_id: int | None, tmdb: TMDBClient, tvmaze: 
 
 
 
-def _show_folder(episodes: list[dict], media: MediaResult, config: AppConfig) -> RenameLabShowFolder | None:
+def _show_folder(episodes: list[dict], planned_dest: Path, config: AppConfig) -> RenameLabShowFolder | None:
     """Show-level folder (archive_tv/<Show>) the episodes currently live in
-    vs the one the show's TMDB title would give. Only meaningful for the
+    vs the one a pattern's show-folder template gives (the first segment of
+    any planned destination under the root). Only meaningful for the
     standard Show/Season/file layout (files nested 2 deep under the root)."""
     root = config.paths.archive_tv
     dirs = []
@@ -327,7 +335,10 @@ def _show_folder(episodes: list[dict], media: MediaResult, config: AppConfig) ->
     if not dirs:
         return None
     current = Counter(dirs).most_common(1)[0][0]
-    proposed = root / sanitize_filename(media.title)
+    try:
+        proposed = root / planned_dest.relative_to(root).parts[0]
+    except (ValueError, IndexError):
+        return None
     differs = current != proposed
     return RenameLabShowFolder(
         current=str(current), proposed=str(proposed),

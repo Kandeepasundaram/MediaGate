@@ -546,6 +546,9 @@
       <label>Pattern
         <select id="lab-preset-select"></select>
       </label>
+      <label>Show folder
+        <input type="text" id="lab-show-folder" spellcheck="false" autocomplete="off">
+      </label>
       <label>Season folder
         <input type="text" id="lab-season-folder" spellcheck="false" autocomplete="off">
       </label>
@@ -938,6 +941,10 @@
         <input type="text" id="setting-movie-folder-template" placeholder="{title}{year_suffix}">
       </label>
       <p class="hint">Tokens: {title}, {year}, {year_suffix} (" (2020)" or "" if unknown). The file always shares this name (extension appended automatically) -- see the "also rename file" option in Ready to Archive.</p>
+      <label>TV show folder
+        <input type="text" id="setting-tv-show-folder-template" placeholder="{show_name_sorted}{year_suffix}">
+      </label>
+      <p class="hint">Show-folder tokens: {show_name}, {show_name_sorted} ("Diplomat, The"), {year}, {year_suffix} (" (2026)" or "" if unknown). Default gives "Lanterns (2026)" and "Diplomat, The (2023)". Changing it only affects future renames; use Rename Lab to rename existing folders.</p>
       <label>TV season folder
         <input type="text" id="setting-tv-season-folder-template" placeholder="Season {season:02d}">
       </label>

@@ -10,6 +10,18 @@ export function sanitizeName(name) {
   return cleaned || "untitled";
 }
 
+// Mirrors renamer.sortable_title: "The Diplomat" -> "Diplomat, The".
+export function sortableTitle(name) {
+  const m = /^(the|a|an)\s+(.+)$/i.exec(String(name).trim());
+  return m ? `${m[2]}, ${m[1]}` : name;
+}
+
+// The show's year for {year}/{year_suffix}; set by the page after each simulation.
+let showYear = null;
+export function setShowYear(year) {
+  showYear = year ?? null;
+}
+
 export function sepOf(path) {
   return path.includes("\\") ? "\\" : "/";
 }
@@ -62,6 +74,9 @@ export function episodeContext(showTitle, row, titleOverride) {
   const clean = title ? sanitizeName(title) : "";
   return {
     show_name: sanitizeName(showTitle),
+    show_name_sorted: sanitizeName(sortableTitle(sanitizeName(showTitle))),
+    year: showYear ?? "",
+    year_suffix: showYear ? ` (${showYear})` : "",
     season: row.season,
     episode: row.episode,
     code: row.code,
@@ -76,6 +91,10 @@ export function episodeContext(showTitle, row, titleOverride) {
 // New file name (with extension) for a row under a template, or throws.
 export function renderFileName(template, showTitle, row, titleOverride, ext) {
   return sanitizeName(formatTemplate(template, episodeContext(showTitle, row, titleOverride))) + ext;
+}
+
+export function renderShowFolder(template, showTitle, row) {
+  return sanitizeName(formatTemplate(template, episodeContext(showTitle, row)));
 }
 
 export function renderSeasonFolder(template, showTitle, row) {
@@ -95,6 +114,9 @@ export function diffParts(oldName, newName) {
 
 export const TOKEN_HINTS = {
   show_name: "Show title (TMDB)",
+  show_name_sorted: "Show title with a leading The/A/An moved to the end (Diplomat, The)",
+  year: "First-air year",
+  year_suffix: "\" (2026)\" or nothing when the year is unknown",
   season: "Season number",
   "season:02d": "Season number, zero-padded to 2 digits",
   episode: "Episode number within the season",
