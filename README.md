@@ -74,3 +74,7 @@ Run the test suite with:
 
 For production deployment on Ubuntu, see `INSTALL.md`. For all configuration
 options, see `CONFIG.md`. For common problems, see `TROUBLESHOOTING.md`.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
