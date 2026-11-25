@@ -122,7 +122,7 @@ def jellyfin_item_id_for_imdb(url: str, api_key: str, imdb_id: str) -> str | Non
     and ProviderIds.Imdb match as _jellyfin_watched_imdb_ids, just
     returning one item's Id instead of collecting every watched one.
     Needed to tell a Jellyfin session what to play (see
-    play_on_jellyfin_session) -- MediaGate has no media-serving of its
+    play_on_jellyfin_session) -- MediAerie has no media-serving of its
     own, so casting always goes through whatever Jellyfin already knows
     about this title."""
     try:

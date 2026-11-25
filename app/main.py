@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
         logger.info("Filesystem watcher enabled for incoming/archive folders")
 
     logger.info(
-        "Media Manager started (daily tracker check + weekly DB maintenance + daily backup + "
+        "MediAerie started (daily tracker check + weekly DB maintenance + daily backup + "
         "metadata backfill scheduled in-process)"
     )
     yield
@@ -74,7 +74,7 @@ def create_app() -> FastAPI:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    app = FastAPI(title="Media Manager", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="MediAerie", version="1.0.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,

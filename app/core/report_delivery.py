@@ -72,7 +72,7 @@ def _format_bytes(n: int) -> str:
 def build_digest_message(summary: ReportSummaryOut) -> str:
     g, w, t = summary.growth, summary.watch_activity, summary.tracker_activity
     return (
-        f"Media Manager report {summary.start_date} to {summary.end_date}: "
+        f"MediAerie report{summary.start_date} to {summary.end_date}: "
         f"+{g.movies_added} movie(s), +{g.tv_episodes_added} TV episode(s) "
         f"({_format_bytes(g.total_size_bytes_added)}); "
         f"watched {w.movies_watched} movie(s), {w.tv_episodes_watched} episode(s); "

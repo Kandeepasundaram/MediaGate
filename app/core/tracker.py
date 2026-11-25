@@ -215,7 +215,7 @@ def post_telegram(bot_token: str, chat_id: str, text: str) -> None:
         logger.warning("Telegram sendMessage failed: %s", exc)
 
 
-def post_pushover(api_token: str, user_key: str, message: str, title: str = "Media Manager") -> None:
+def post_pushover(api_token: str, user_key: str, message: str, title: str = "MediAerie") -> None:
     try:
         requests.post(
             "https://api.pushover.net/1/messages.json",

@@ -2,7 +2,7 @@
 # Copyright 2026 Kandeepa Sundaram
 # SPDX-License-Identifier: Apache-2.0
 
-# Installs the Media Manager FastAPI server as a systemd service.
+# Installs the MediAerie FastAPI server as a systemd service.
 # Run on the Ubuntu host with sudo: sudo ./scripts/install_service.sh
 set -euo pipefail
 
@@ -17,7 +17,7 @@ fi
 
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
-Description=Media Manager FastAPI server
+Description=MediAerie FastAPI server
 After=network.target
 
 [Service]

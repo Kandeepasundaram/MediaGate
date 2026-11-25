@@ -1,4 +1,4 @@
-# Media Manager - Detailed Phased Implementation Plan
+# MediAerie - Detailed Phased Implementation Plan
 
 ## Project Overview
 A self-hosted media management system running on Ubuntu that organizes, archives, and tracks movies/TV shows with a web dashboard accessible from Windows machines.

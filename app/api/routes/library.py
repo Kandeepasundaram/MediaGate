@@ -5,7 +5,7 @@
 
 Distinct from /api/scan (which finds new, unarchived files): this reflects
 whatever this app has itself archived into media_items, for the gallery
-views and manual watch tracking that are Media Manager's own job alongside
+views and manual watch tracking that are MediAerie's own job alongside
 Radarr/Sonarr's automated import pipeline.
 
 Split into four route modules, all mounted at the same /api/library prefix

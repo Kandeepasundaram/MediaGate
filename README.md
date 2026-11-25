@@ -1,7 +1,7 @@
-# Media Manager
+# MediAerie
 
 Self-hosted, manual-control complement to an automated *arr stack (Radarr/Sonarr):
-where those handle the automated download-to-library pipeline, Media Manager is
+where those handle the automated download-to-library pipeline, MediAerie is
 for picking specific titles to rename/clean/re-organize by hand, tracking your
 own watch state, and browsing what's archived — not for competing with the
 automated import. It scans separate incoming folders for movies and TV (which

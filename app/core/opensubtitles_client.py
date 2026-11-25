@@ -49,7 +49,7 @@ class OpenSubtitlesClient:
         return bool(self.api_key)
 
     def _headers(self) -> dict:
-        return {"Api-Key": self.api_key, "User-Agent": "MediaManager/1.0"}
+        return {"Api-Key": self.api_key, "User-Agent": "MediAerie/1.0"}
 
     def find_subtitle(
         self, tmdb_id: int, language: str, media_type: str, season: int | None = None, episode: int | None = None

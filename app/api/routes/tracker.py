@@ -514,7 +514,7 @@ def notification_feed_rss(limit: int = 50, db: Database = Depends(get_database))
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<rss version="2.0"><channel>'
-        "<title>Media Manager Notifications</title>"
+        "<title>MediAerie Notifications</title>"
         "<description>New seasons and sequels detected for tracked titles</description>"
         f"{items_xml}"
         "</channel></rss>"

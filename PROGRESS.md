@@ -211,8 +211,8 @@ Sonarr + Plex/Jellyfin stack against these exact folders (confirmed via
 Arcane's container Storage tab — Radarr's `/movies` mount and Sonarr's `/tv`
 mount are the identical host paths). Flagged the functional overlap
 directly rather than silently proceeding; the user confirmed they want to
-keep both running (Media Manager for a different, unspecified job) rather
-than reconsider scope. Worth keeping in mind if Media Manager's future
+keep both running (MediAerie for a different, unspecified job) rather
+than reconsider scope. Worth keeping in mind if MediAerie's future
 direction is unclear — it is not filling a gap Radarr/Sonarr leave open for
 the core organize/rename workflow, so whatever unique value it's meant to
 provide here hasn't been articulated yet.
