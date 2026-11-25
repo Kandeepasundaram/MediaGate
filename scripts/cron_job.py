@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Daily tracker check. Runs `check_for_updates` against TMDB and flags any
 newly-available seasons/sequels as pending. The dashboard (app/static/app.js)
 polls /api/tracker/notifications and raises a browser Notification for

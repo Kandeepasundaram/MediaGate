@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Inbound webhook receiver for Radarr/Sonarr's "On Import"/"On Download"
 notifications -- triggers an immediate adopt scan for the matching media
 type instead of waiting for the next Movies/TV gallery load (which is what

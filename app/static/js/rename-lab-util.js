@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 // Pure helpers for the Rename Lab page (no DOM, no network) so they can be
 // unit-checked in isolation. Mirrors the server-side rules in
 // app/core/renamer.py closely enough for live previews; the server stays

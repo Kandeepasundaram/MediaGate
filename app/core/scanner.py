@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Recursively scans a directory for media files and groups them for review."""
 from __future__ import annotations
 

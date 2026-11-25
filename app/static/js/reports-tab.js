@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Reports tab: periodic (quarterly/half-yearly/yearly/custom) library
  * growth, watch activity, and genre/resolution breakdown -- all computed

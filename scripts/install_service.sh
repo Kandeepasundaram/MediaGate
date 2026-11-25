@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 # Installs the Media Manager FastAPI server as a systemd service.
 # Run on the Ubuntu host with sudo: sudo ./scripts/install_service.sh
 set -euo pipefail

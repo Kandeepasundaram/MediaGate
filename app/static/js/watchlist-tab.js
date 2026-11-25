@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Watchlist tab: one page listing everything that needs attention across
  * the whole library -- titles the tracker has flagged as having new

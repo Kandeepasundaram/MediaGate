@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared row-mapping helpers for the library.py/library_notes.py/
 library_maintenance.py route modules -- split out so all three can build a
 LibraryItemOut (or read a media_items row's JSON columns) the same way

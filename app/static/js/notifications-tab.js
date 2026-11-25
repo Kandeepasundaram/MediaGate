@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Notifications tab, the Tracker tab's universes (franchise groupings), and browser-notification permission/polling -- grouped together since they reference each other heavily.
  */

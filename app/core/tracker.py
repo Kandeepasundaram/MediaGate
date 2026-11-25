@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Detects new TV seasons and movie sequels/releases for tracked titles."""
 from __future__ import annotations
 

@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Settings tab: the settings form, naming templates, media-server/backup settings, config history, viewers, API tokens, and library export/import.
  */

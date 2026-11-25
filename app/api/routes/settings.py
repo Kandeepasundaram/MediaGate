@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Runtime-editable settings: media paths, TMDB key, CORS origins.
 
 Deliberately does NOT expose anything that mutates host filesystem

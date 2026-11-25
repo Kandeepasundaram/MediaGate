@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """OMDb API client: aggregates IMDb rating and Rotten Tomatoes score by
 IMDb id. Optional -- ratings are simply unavailable without an OMDb API
 key (free tier at omdbapi.com), the same "no key means no feature"

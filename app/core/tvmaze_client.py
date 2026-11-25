@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """TVmaze API client: free, keyless episode-guide data (air dates, episode
 titles, show status/network, next-episode-to-air) resolved via a show's
 IMDb id. Optional -- like OMDbClient/OpenSubtitlesClient, `enabled=False`

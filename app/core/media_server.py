@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Best-effort "rescan your library" ping to Plex/Jellyfin after archiving
 or organizing files -- neither app watches this container's archive folders
 itself, so without this a newly-archived title wouldn't show up in Plex or

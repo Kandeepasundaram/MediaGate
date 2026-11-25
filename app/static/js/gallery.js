@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Movies/TV gallery: rendering, filtering/sorting, saved filter presets, badges, CSV export, and per-item actions (watched toggle, notes, viewer switch).
  */

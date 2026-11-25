@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Watches incoming (and in-place archive) folders for new video files and
 flags them so the dashboard can prompt "N new file(s) -- Scan Library"
 instead of the user needing to remember to click Scan on their own.

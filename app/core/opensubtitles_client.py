@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """OpenSubtitles REST API v1 client: searches and downloads a subtitle by
 TMDB id. Optional -- like OMDbClient, "no API key" just means the feature
 is off (see SubtitlesConfig.opensubtitles_api_key / .auto_fetch_missing_subtitles).

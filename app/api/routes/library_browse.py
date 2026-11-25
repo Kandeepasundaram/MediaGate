@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Raw-filesystem library browsing, manual organize-in-place, and file
 deletion. Split out of library.py (see that module's own docstring) --
 unlike the gallery/detail routes (DB-only) or /api/scan (new files only),

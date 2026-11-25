@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Fallback TMDB scraper used when no API key is configured.
 
 Scrapes themoviedb.org's public search/detail pages. Best-effort: page

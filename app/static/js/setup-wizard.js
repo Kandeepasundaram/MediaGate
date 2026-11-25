@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * First-run setup wizard: a one-screen guided pass over the settings a fresh install needs (library folders + TMDB key), with inline validation, shown until a TMDB key exists or the person dismisses it.
  */

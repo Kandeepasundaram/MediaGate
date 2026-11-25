@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Deletes non-English subtitle files, with dry-run support and empty-folder cleanup."""
 from __future__ import annotations
 

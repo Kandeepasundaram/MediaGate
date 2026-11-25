@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Library-wide maintenance: export/import, health checks (orphans,
 duplicates, orphaned artwork), retrying failed TMDB matches, and bulk
 metadata refresh. Split out of library.py (see that module's own

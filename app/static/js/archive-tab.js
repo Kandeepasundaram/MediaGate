@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Ready to Archive tab (scan, preview table, approve), the manual TMDB match picker modal (reused by several other tabs), and the 'manually track a title' modal.
  */

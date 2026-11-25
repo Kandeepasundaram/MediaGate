@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 # Pulls latest code, updates deps, runs migrations, restarts services.
 set -euo pipefail
 

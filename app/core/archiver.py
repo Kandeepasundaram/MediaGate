@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Copies files into the archive tree and records the operation in the database."""
 from __future__ import annotations
 

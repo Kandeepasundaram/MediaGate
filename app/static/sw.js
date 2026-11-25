@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 // Caches only the static dashboard shell (HTML/CSS/JS/icons) so the app
 // installs as a PWA and reloads instantly on a flaky connection. /api/*
 // requests are never intercepted -- library data must always be live.

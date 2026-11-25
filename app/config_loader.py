@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Loads config.yaml, applies env var overrides, exposes typed config objects."""
 from __future__ import annotations
 

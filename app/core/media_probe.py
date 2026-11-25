@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Best-effort video file inspection via ffprobe (part of the ffmpeg
 package). Optional -- if ffprobe isn't on PATH (e.g. a deploy that hasn't
 picked up the image update yet), probe_file() just returns None and the

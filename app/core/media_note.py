@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Builds an Obsidian "Media DB" plugin-style markdown note for an archived
 movie -- YAML frontmatter (title, plot, cast/crew, ratings, poster, ...)
 plus a poster embed, matching the shape that plugin writes for a movie

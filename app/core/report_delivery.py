@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Periodic push of the Reports tab's own summary through the same
 Discord/Telegram/Pushover/generic-webhook channels notifications.* already
 uses -- reuses app.api.routes.reports.build_report_summary (the same

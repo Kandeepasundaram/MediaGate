@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Settings tab's Stats & Insights panel: library stats, genre/resolution/growth charts, background-task status, storage forecast.
  */

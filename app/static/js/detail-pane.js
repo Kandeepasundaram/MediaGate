@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * The full-screen detail pane opened from a gallery card: metadata, tags, ratings/trailer/cast, TV season/movie-collection status, and the manual-match/override flow entry points.
  */

@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Moves an already-tracked-or-untracked file to its TMDB-computed
 destination in place, updating (not duplicating) its media_items row.
 

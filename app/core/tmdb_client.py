@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Unified TMDB client: uses the official API when a key is configured,
 falls back to TMDBScraper otherwise, and falls back again if the API call
 fails at runtime. Both paths return the same MediaResult shape.

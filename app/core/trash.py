@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Soft-delete for the Browse & Clean Up tab: a deleted video is moved into
 `<library root>/.mediagate-trash/<timestamp>/<path relative to the root>`
 instead of being unlinked, so it can be restored until the retention window

@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Read/browse the archived library and toggle manual watch state.
 
 Distinct from /api/scan (which finds new, unarchived files): this reflects

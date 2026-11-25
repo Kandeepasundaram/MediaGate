@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Obsidian "Media DB" plugin-style note generation for archived movies and
 TV shows -- download or save-into-folder, split out of library.py (see that
 module's own docstring) since notes are a self-contained concern with no

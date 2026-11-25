@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Shared singletons (config, DB, TMDB client) wired up as FastAPI dependencies."""
 from __future__ import annotations
 

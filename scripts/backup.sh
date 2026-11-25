@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 # Backs up the SQLite database and config.yaml. Intended for a daily cron entry.
 set -euo pipefail
 

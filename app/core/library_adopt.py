@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Registers files already sitting in the archive folders into media_items,
 without copying or moving them -- "stage 1" of the manual library browser:
 make an existing, already-organized library (e.g. one Radarr/Sonarr already

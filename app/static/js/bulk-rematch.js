@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * "Fix Match (Selected)" checklist modal for the Movies/TV galleries.
  * Unlike archive-tab.js's own bulk-change-match (every selected row IS the

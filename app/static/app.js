@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Entry point: wires up every tab's event listeners and kicks off the initial load. Imports from every other module below -- see app/static/js/.
  */

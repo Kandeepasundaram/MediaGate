@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Finds/removes poster/nfo/subtitle files left behind in a folder that no
 longer has any video file in it -- happens when a video gets renamed or
 organized out from under them: download_artwork()/write_nfo() write

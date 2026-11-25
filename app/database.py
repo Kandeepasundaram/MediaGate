@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """SQLite access layer: schema, migrations, and CRUD helpers.
 
 Concurrency note: SQLite has no real connection pool. We open WAL mode so

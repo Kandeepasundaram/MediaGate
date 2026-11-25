@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Pydantic request/response schemas for the API layer."""
 from __future__ import annotations
 

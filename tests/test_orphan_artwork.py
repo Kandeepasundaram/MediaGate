@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
 
 from app.core.orphan_artwork import cleanup_orphaned_artwork, find_orphaned_artwork

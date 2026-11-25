@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Periodic backup of config.yaml + the SQLite database to a local
 `backups/` folder next to the database -- the /config volume already
 persists across container recreates, but a bad settings save or a

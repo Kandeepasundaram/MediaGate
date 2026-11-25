@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Compare Titles modal: search two titles (movie or TV, via the same
  * /api/library/search the topbar global search uses) and render their

@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * "What's New" popover: shows once per bumped APP_VERSION, then stays
  * quiet until the version string changes again. Bump APP_VERSION and add

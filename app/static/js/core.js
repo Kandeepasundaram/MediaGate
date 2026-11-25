@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Shared state object, DOM/format micro-helpers, and the api() fetch wrapper (with the optional API-token prompt/retry). Everything else imports from here.
  */

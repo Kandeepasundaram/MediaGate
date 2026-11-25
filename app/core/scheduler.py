@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """In-process daily tracker check — replaces host cron when running in Docker.
 
 Re-fetches config/db/tmdb-client singletons on every wake rather than

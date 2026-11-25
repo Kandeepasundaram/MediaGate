@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Rename Lab: dry-run simulation of renaming every tracked episode of one TV
 show under one or more naming patterns. Read-only -- nothing here touches the
 filesystem or the database. Applying a chosen pattern goes through the

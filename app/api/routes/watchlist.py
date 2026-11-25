@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Single-page view of every tracked/owned TV show, with two alert
 sections: titles the tracker has flagged as having new content not yet
 archived (reuses archive_tracker.pending_notification, the same signal the

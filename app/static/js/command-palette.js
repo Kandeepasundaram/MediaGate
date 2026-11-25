@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Ctrl+K command palette: the command list, fuzzy filtering, and running whichever command was selected.
  */

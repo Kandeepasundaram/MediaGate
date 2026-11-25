@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Background task: fills in TMDB metadata (tmdb_id, canonical title/year,
 poster_path, overview) for media_items rows that were auto-adopted from the
 filesystem (library_adopt.py) rather than archived through the normal

@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Opt-in push notification when a configured media path's free space
 drops below a threshold -- reuses the same Discord/Telegram/Pushover/
 generic-webhook channels tracker.py already sends through, just with a

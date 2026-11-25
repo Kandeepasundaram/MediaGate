@@ -1,4 +1,7 @@
 #!/bin/sh
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 # Seeds /config/config.yaml from the container's default on first boot (an
 # empty /config volume), then hands off to uvicorn. On every later boot the
 # existing config.yaml (with whatever was set via the Settings UI) is left

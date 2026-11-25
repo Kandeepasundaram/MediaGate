@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Builds destination paths and (optionally) artwork/NFO for archived media."""
 from __future__ import annotations
 

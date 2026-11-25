@@ -1,3 +1,6 @@
+# Copyright 2026 Kandeepa Sundaram
+# SPDX-License-Identifier: Apache-2.0
+
 """Periodic library/watch-activity reports (quarterly, half-yearly, or any
 custom date range) -- the frontend computes the actual start/end dates for
 a named period (e.g. "Q1 2026", "H1 2026") and always calls this with a

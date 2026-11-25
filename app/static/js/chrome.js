@@ -1,3 +1,6 @@
+// Copyright 2026 Kandeepa Sundaram
+// SPDX-License-Identifier: Apache-2.0
+
 /**
  * Page chrome: tab switching, the global search box, the light/dark theme toggle, and the top-bar status pill. Tab switching calls into every feature module's own load function, so this module has the widest fan-out of imports.
  */
